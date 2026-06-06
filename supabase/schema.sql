@@ -411,12 +411,18 @@ end$$;
 -- =============================================================
 -- 7. Verify (run this and read the output)
 -- =============================================================
--- Expect: rowsecurity = true, forcerowsecurity = true on every row.
-select schemaname, tablename, rowsecurity as rls_on, forcerowsecurity as rls_forced
-from pg_tables
-where schemaname = 'public'
-  and tablename in (
+-- Expect: rls_on = true, rls_forced = true on every row.
+-- Note: pg_tables doesn't expose forcerowsecurity — it lives on
+-- pg_class.relforcerowsecurity. Join + use that instead.
+select c.relname              as tablename,
+       c.relrowsecurity       as rls_on,
+       c.relforcerowsecurity  as rls_forced
+from   pg_class c
+join   pg_namespace n on n.oid = c.relnamespace
+where  n.nspname = 'public'
+  and  c.relkind = 'r'
+  and  c.relname in (
     'families','profiles','tasks','rewards','completions','streaks',
     'books','awards','reward_requests','redemptions','gifted_stars'
   )
-order by tablename;
+order by c.relname;
