@@ -17,8 +17,8 @@ import {
 // permissions: { approveSimple, approveAll, viewReports }
 // accessType: 'permanent' | 'temporary'  ·  accessExpires: 'YYYY-MM-DD' | null
 const SEED_USERS = [
-  { id: "u_mike", name: "Mike Lynch", role: "parent", relationship: "Dad", color: "#2563eb", emoji: "👨", active: true, accessType: "permanent", accessExpires: null, permissions: { approveSimple: true, approveAll: true, viewReports: true } },
-  { id: "u_krissie", name: "Krissie Lynch", role: "parent", relationship: "Mom", color: "#db2777", emoji: "👩", active: true, accessType: "permanent", accessExpires: null, permissions: { approveSimple: true, approveAll: true, viewReports: true } },
+  { id: "u_mike", name: "Mike Lynch", role: "parent", relationship: "Dad", color: "#2563eb", emoji: "👨", email: "lyncho14@gmail.com", active: true, accessType: "permanent", accessExpires: null, permissions: { approveSimple: true, approveAll: true, viewReports: true } },
+  { id: "u_krissie", name: "Krissie Lynch", role: "parent", relationship: "Mom", color: "#db2777", emoji: "👩", email: "krissielynch@gmail.com", active: true, accessType: "permanent", accessExpires: null, permissions: { approveSimple: true, approveAll: true, viewReports: true } },
   { id: "u_reznor", name: "Reznor", role: "kid", relationship: "Reznor", color: "#f59e0b", emoji: "🚀", active: true, accessType: "permanent", accessExpires: null, permissions: {} },
   { id: "u_evie", name: "Evie", role: "grandparent", relationship: "Grandma", color: "#7c3aed", emoji: "👵", active: true, accessType: "permanent", accessExpires: null, permissions: { approveSimple: true, approveAll: false, viewReports: true } },
   { id: "u_sara", name: "Sara", role: "helper", relationship: "Helper", color: "#0d9488", emoji: "🧡", active: true, accessType: "permanent", accessExpires: null, permissions: { approveSimple: false, approveAll: false, viewReports: false } },
@@ -27,7 +27,7 @@ const SEED_USERS = [
 
 const CHILD = {
   id: "c_reznor", name: "Reznor", grade: "1st (reading ahead)", school: "—",
-  starBankBase: 145, // carried-over stars before today
+  starBankBase: 60, // carried-over stars before today; + today's drums (10) = bank of 70
   nextReward: "Movie Night", nextRewardCost: 200,
   bigReward: "Universal Studios", bigRewardCost: 500,
 };
@@ -83,13 +83,10 @@ const SEED_REWARDS = [
   { id: "r_disney", title: "Disneyland", starCost: 600, category: "Big", active: true },
 ];
 
-// ---------- SEED: COMPLETIONS (pre-populated so the demo isn't empty) ----------
+// ---------- SEED: COMPLETIONS ----------
+// Real starting state: today, drums done (all 3 parts), approved.
 const SEED_COMPLETIONS = [
-  { id: "cmp1", taskId: "t_spa_read", status: "approved", awardedStars: 5, pendingStars: 0, completedBy: "u_reznor", approvedBy: "u_krissie", notes: "", proof: [], extra: { bookTitle: "Sapo y Sepo", lang: "Spanish", minutes: 15 } },
-  { id: "cmp2", taskId: "t_duo", status: "approved", awardedStars: 5, pendingStars: 0, completedBy: "u_reznor", approvedBy: "u_krissie", notes: "", proof: [], extra: {} },
-  { id: "cmp3", taskId: "t_bed", status: "approved", awardedStars: 3, pendingStars: 0, completedBy: "u_reznor", approvedBy: "u_sara", notes: "Made bed before breakfast", proof: [], extra: {} },
-  { id: "cmp4", taskId: "t_eng", status: "pending", awardedStars: 0, pendingStars: 5, completedBy: "u_reznor", approvedBy: null, notes: "", proof: [{ type: "info", name: "Book entered" }], extra: { bookTitle: "Dog Man", lang: "English", minutes: 22 } },
-  { id: "cmp5", taskId: "t_write", status: "pending", awardedStars: 0, pendingStars: 5, completedBy: "u_reznor", approvedBy: null, notes: "", proof: [{ type: "photo", name: "writing.jpg" }], extra: { title: "My Dragon" } },
+  { id: "cmp_drums_20260606", taskId: "t_drums", status: "approved", awardedStars: 10, pendingStars: 0, completedBy: "u_reznor", approvedBy: "u_mike", notes: "1hr+ practice — all 3 parts done", proof: [], extra: { subsDone: ["melodics", "drumeo", "drumscribe"] } },
 ];
 
 // ---------- SEED: CALENDAR ----------
@@ -211,21 +208,13 @@ const SEED_TASK_NOTES = {
   t_eng:   [{ text: "Reading Dog Man solo now — finished one in a single car ride.", by: "u_krissie", time: "Jun 3" }],
 };
 
-// Reading log — reveals level + pace over time.
-const SEED_BOOKS = [
-  { id: "b1", title: "Dog Man: Mothering Heights", lang: "English", status: "finished", started: "2026-05-28", finished: "2026-05-30", level: "~2nd grade", rating: 5, notes: "Read solo!" },
-  { id: "b2", title: "We Are in a Book! (Elephant & Piggie)", lang: "English", status: "finished", started: "2026-06-01", finished: "2026-06-01", level: "1st grade", rating: 5, notes: "Finished in one car ride" },
-  { id: "b3", title: "Sapo y Sepo son amigos", lang: "Spanish", status: "reading", started: "2026-06-03", finished: "", level: "~1st grade (ES)", rating: 0, notes: "" },
-  { id: "b4", title: "The Bad Guys #1", lang: "English", status: "reading", started: "2026-06-05", finished: "", level: "~2nd grade", rating: 0, notes: "" },
-];
+// Reading log — starts empty; add books as he reads them.
+const SEED_BOOKS = [];
 
 // Uploaded accomplishments — report cards, certificates, belts, recital/game sheets.
 const AWARD_TYPES = ["Report Card", "Certificate", "Belt/Rank", "Recital", "Game Sheet", "Award", "Photo"];
 const AWARD_EMOJI = { "Report Card": "📑", Certificate: "🏅", "Belt/Rank": "🥋", Recital: "🎭", "Game Sheet": "📋", Award: "🏆", Photo: "🖼️" };
-const SEED_AWARDS = [
-  { id: "aw1", title: "Spring Drum Recital — \"Toxicity\"", type: "Recital", activityId: "a_drums", date: "2026-05-20", fileName: "", url: "", note: "Performed live in front of an audience" },
-  { id: "aw2", title: "Kindergarten Report Card", type: "Report Card", activityId: "a_eng", date: "2026-06-01", fileName: "", url: "", note: "Reading ~2 grades above level" },
-];
+const SEED_AWARDS = [];
 
 // Grade-level goals (high-level summary aligned to US Common Core). Verify against official
 // CA / Common Core sources in the real build — this is a starting framework, not legal standards.
@@ -267,11 +256,11 @@ const SEED_ACTIVITIES = [
   { id: "a_spa",   name: "Spanish",                   short: "Spanish", color: "#e11d48", pillar: "brain", status: "active",   note: "", schedule: [] },
   { id: "a_write", name: "Writing",                   short: "Writing", color: "#ea580c", pillar: "brain", status: "active",   note: "", schedule: [] },
   { id: "a_math",  name: "Math",                      short: "Math",    color: "#ca8a04", pillar: "brain", status: "active",   note: "", schedule: [] },
-  { id: "a_drums", name: "Drums",                     short: "Drums",   color: "#7c3aed", pillar: "brain", status: "active",   note: "Daily practice + Tue lesson", address: "", schedule: [{ day: "Tuesday", time: "2:30–3:00 PM (lesson)" }] },
+  { id: "a_drums", name: "Drums",                     short: "Drums",   color: "#7c3aed", pillar: "brain", status: "active",   note: "Daily practice + Tue lesson", address: "Burbank Music Academy, 4107 W Burbank Blvd, Burbank, CA 91505", schedule: [{ day: "Tuesday", time: "2:30–3:00 PM (lesson)" }] },
   { id: "a_art",   name: "Art",                       short: "Art",     color: "#c026d3", pillar: "brain", status: "active",   note: "", schedule: [] },
   { id: "a_field", name: "Field Trips",               short: "Trip",    color: "#0ea5e9", pillar: "brain", status: "active",   note: "", schedule: [] },
   { id: "a_chores",name: "Chores",                    short: "Chores",  color: "#64748b", pillar: "body",  status: "active",   note: "", schedule: [] },
-  { id: "a_swim",  name: "Swim (Rose Buds Pasadena)", short: "Swim",    color: "#0891b2", pillar: "body",  status: "seasonal", note: "Off in August — use Jim Herrick lessons instead", address: "Rose Bowl Aquatics Center, Pasadena, CA", schedule: [{ day: "Tuesday", time: "5:00–6:00 PM" }, { day: "Thursday", time: "5:00–6:00 PM" }] },
+  { id: "a_swim",  name: "Swim (Rose Bowl Aquatics)", short: "Swim",    color: "#0891b2", pillar: "body",  status: "seasonal", note: "Off in August — use Jim Herrick lessons instead", address: "Rose Bowl Aquatics, 360 N Arroyo Blvd, Pasadena, CA 91103", schedule: [{ day: "Tuesday", time: "5:00–6:00 PM" }, { day: "Thursday", time: "5:00–6:00 PM" }] },
   { id: "a_tkd",   name: "Taekwondo",                 short: "TKD",     color: "#dc2626", pillar: "body",  status: "active",   note: "Pick ~2 days/week (any day but Sunday)", address: "", schedule: [] },
   { id: "a_dance", name: "Hip Hop Dance",             short: "Dance",   color: "#db2777", pillar: "body",  status: "active",   note: "", address: "", schedule: [{ day: "Monday", time: "5:30–6:30 PM" }] },
   { id: "a_bball", name: "Basketball",                short: "Ball",    color: "#65a30d", pillar: "body",  status: "break",    note: "Taking a break for now", schedule: [{ day: "Saturday", time: "TBD" }] },
@@ -347,48 +336,70 @@ function streakInfo(current) {
   const pct = next ? Math.min(100, ((current - prev) / span) * 100) : 100;
   return { earned, next, prev, pct };
 }
-// Real streaks. Drums: 310 days, 1hr+/day since Aug 1 2025.
+// Real streaks. Drums: 310 days, 1hr+/day since Aug 1 2025. Today (2026-06-06)
+// counts because the drum completion below is approved. Other streaks start empty.
 const SEED_STREAKS = {
-  a_drums: { current: 310, longest: 310, since: "2025-08-01", lastDate: "2026-06-05" },
-  a_spa:   { current: 95,  longest: 120, since: "2026-03-03", lastDate: "2026-06-05" },
-  a_eng:   { current: 60,  longest: 60,  since: "2026-04-07", lastDate: "2026-06-05" },
-  a_tkd:   { current: 22,  longest: 40,  since: "2026-05-15", lastDate: "2026-06-05" },
+  a_drums: { current: 310, longest: 310, since: "2025-08-01", lastDate: "2026-06-06" },
 };
-// Explicit done-dates for activities he does a few times a week (not daily streaks).
-// Daily activities (drums/spanish/english) derive their grid from the streak window instead.
-const SEED_HISTORY = {
-  a_dance: ["2026-05-04", "2026-05-06", "2026-05-08", "2026-05-11", "2026-05-13", "2026-05-18", "2026-05-20", "2026-05-22", "2026-05-25", "2026-05-27", "2026-06-01", "2026-06-03", "2026-06-05"],
-  a_tkd:   ["2026-05-04", "2026-05-06", "2026-05-11", "2026-05-15", "2026-05-18", "2026-05-20", "2026-05-25", "2026-05-29", "2026-06-01", "2026-06-03"],
-  a_swim:  ["2026-05-05", "2026-05-07", "2026-05-12", "2026-05-14", "2026-05-19", "2026-05-21", "2026-05-26", "2026-05-28", "2026-06-02", "2026-06-04"],
-};
+// Activity attendance history starts empty; populated as Reznor goes to classes.
+const SEED_HISTORY = {};
 
 // ===================================================================
-export default function App() {
-  const [users, setUsers] = useState(SEED_USERS);
-  const [tasks, setTasks] = useState(SEED_TASKS);
-  const [rewards, setRewards] = useState(SEED_REWARDS);
-  const [completions, setCompletions] = useState(SEED_COMPLETIONS);
+// Wrap a raw React setter so every state change also syncs to Supabase
+// via the supplied `sync(key, value)` function. Falls back to a no-op
+// when sync isn't provided (standalone / pre-DataProvider mode).
+function makeSyncedSetter(rawSetter, key, sync) {
+  return (next) => {
+    rawSetter((prev) => {
+      const v = typeof next === "function" ? next(prev) : next;
+      if (sync) sync(key, v);
+      return v;
+    });
+  };
+}
+
+export default function App({ initial, currentProfileId, sync } = {}) {
+  // Each persistent entity hydrates from `initial` (Supabase) when present,
+  // otherwise falls back to the in-file seed.
+  const [users, _setUsers] = useState(() => (initial?.profiles?.length ? initial.profiles : SEED_USERS));
+  const [tasks, _setTasks] = useState(() => (initial?.tasks?.length ? initial.tasks : SEED_TASKS));
+  const [rewards, _setRewards] = useState(() => (initial?.rewards?.length ? initial.rewards : SEED_REWARDS));
+  const [completions, _setCompletions] = useState(() => initial?.completions ?? SEED_COMPLETIONS);
+  const [redemptions, _setRedemptions] = useState(() => initial?.redemptions ?? []);
+  const [gifted, _setGifted] = useState(() => initial?.gifted ?? []);
+  const [streaks, _setStreaks] = useState(() => (initial?.streaks && Object.keys(initial.streaks).length ? initial.streaks : SEED_STREAKS));
+  const [books, _setBooks] = useState(() => initial?.books ?? SEED_BOOKS);
+  const [awards, _setAwards] = useState(() => initial?.awards ?? SEED_AWARDS);
+  const [rewardRequests, _setRewardRequests] = useState(() => initial?.rewardRequests ?? []);
+
+  // In-memory only (not in the user's persistence list — see Phase 2 notes).
   const [events, setEvents] = useState(SEED_EVENTS);
   const [handoff, setHandoff] = useState(SEED_HANDOFF);
-  const [redemptions, setRedemptions] = useState([]);
-  const [mode, setMode] = useState("summer"); // 'summer' | 'school'
-  const [currentUserId, setCurrentUserId] = useState(null);
+  const [mode, setMode] = useState("summer");
+  const [currentUserId, setCurrentUserId] = useState(currentProfileId || null);
   const [tab, setTab] = useState("today");
   const [openTask, setOpenTask] = useState(null);
   const [priorities, setPriorities] = useState(SEED_PRIORITIES);
-  const [gifted, setGifted] = useState([]);
   const [tkdDays, setTkdDays] = useState(["Monday"]);
   const [tkdTimes, setTkdTimes] = useState(() => Object.fromEntries(TKD_SLOTS.map((s) => [s.day, s.time])));
   const [activities, setActivities] = useState(SEED_ACTIVITIES);
-  const [streaks, setStreaks] = useState(SEED_STREAKS);
   const [celebrate, setCelebrate] = useState(null);
   const [detailId, setDetailId] = useState(null);
   const [progressActId, setProgressActId] = useState(null);
   const [taskNotes, setTaskNotes] = useState(SEED_TASK_NOTES);
-  const [books, setBooks] = useState(SEED_BOOKS);
   const [subProgress, setSubProgress] = useState({});
-  const [awards, setAwards] = useState(SEED_AWARDS);
-  const [rewardRequests, setRewardRequests] = useState([]);
+
+  // Persisted setters — each writes through to Supabase.
+  const setUsers          = makeSyncedSetter(_setUsers,          "profiles",       sync);
+  const setTasks          = makeSyncedSetter(_setTasks,          "tasks",          sync);
+  const setRewards        = makeSyncedSetter(_setRewards,        "rewards",        sync);
+  const setCompletions    = makeSyncedSetter(_setCompletions,    "completions",    sync);
+  const setRedemptions    = makeSyncedSetter(_setRedemptions,    "redemptions",    sync);
+  const setGifted         = makeSyncedSetter(_setGifted,         "gifted",         sync);
+  const setStreaks        = makeSyncedSetter(_setStreaks,        "streaks",        sync);
+  const setBooks          = makeSyncedSetter(_setBooks,          "books",          sync);
+  const setAwards         = makeSyncedSetter(_setAwards,         "awards",         sync);
+  const setRewardRequests = makeSyncedSetter(_setRewardRequests, "rewardRequests", sync);
 
   const user = users.find((u) => u.id === currentUserId);
 
@@ -2509,6 +2520,26 @@ function ManageActivities({ activities, addActivity, updateActivity, addTask, st
   );
 }
 
+function CopyAddressButton({ text }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try { await navigator.clipboard.writeText(text); } catch { /* clipboard blocked */ }
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1600);
+      }}
+      className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${copied ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+      title="Copy address"
+    >
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
 function ActivityRow({ a, onUpdate, streaks, setStreak, stopStreak, bumpStreak, onProgress }) {
   const [editColor, setEditColor] = useState(false);
   const [editName, setEditName] = useState(false);
@@ -2529,7 +2560,10 @@ function ActivityRow({ a, onUpdate, streaks, setStreak, stopStreak, bumpStreak, 
         </div>
         {a.note && <div className="text-[11px] text-slate-400 mt-0.5">{a.note}</div>}
         {a.address && !editAddr && (
-          <a href={`https://maps.google.com/?q=${encodeURIComponent(a.address)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-600 mt-1"><MapPin size={11} /> {a.address}</a>
+          <div className="flex items-center gap-2 mt-1">
+            <a href={`https://maps.google.com/?q=${encodeURIComponent(a.address)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-600"><MapPin size={11} /> {a.address}</a>
+            <CopyAddressButton text={a.address} />
+          </div>
         )}
         {editAddr && (
           <div className="mt-2 flex gap-2">

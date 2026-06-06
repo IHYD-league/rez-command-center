@@ -62,9 +62,11 @@ export default function AuthGate({ children }) {
 
   if (status === "out") return <Login />;
 
+  const renderChildren =
+    typeof children === "function" ? children({ session }) : children;
   return (
     <>
-      {children}
+      {renderChildren}
       <button
         onClick={() => supabase.auth.signOut()}
         title={session?.user?.email || "Sign out"}
