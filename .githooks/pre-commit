@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Auto-build docs/ when source files change so the GitHub Pages output
+# stays in sync with the committed source in a single commit.
+set -e
+
+# Bypass: `SKIP_BUILD=1 git commit ...`
+if [ "${SKIP_BUILD:-0}" = "1" ]; then
+  exit 0
+fi
+
+# Only rebuild when something that affects the built bundle is staged.
+if git diff --cached --name-only | grep -qE '^(src/|index\.html$|vite\.config\.js$|package(-lock)?\.json$)'; then
+  echo "pre-commit: building docs/ ..."
+  npm run build --silent
+  git add docs
+fi
