@@ -1,33 +1,42 @@
 # Reznor Command Center
 
-Standalone family-app prototype. React via in-browser Babel, no build server, no backend — open `index.html` and it runs.
+Family command-center app — React + Vite, with Supabase for auth/storage/data and Netlify for hosting.
 
-## Files
+## Local dev
 
-- `ReznorCommandCenter.jsx` — React source (the thing you edit)
-- `build.js` — regenerates `index.html` from the `.jsx`
-- `index.html` — the deployable artifact (committed so GitHub Pages can serve it)
+```sh
+npm install
+cp .env.example .env        # then fill in real Supabase values
+npm run dev                 # http://localhost:5173
+```
 
-## Edit + rebuild
+## Build
 
-1. Edit `ReznorCommandCenter.jsx`.
-2. `node build.js` — rewrites `index.html`.
-3. Open `index.html` in a browser to sanity-check.
+```sh
+npm run build               # outputs to dist/
+npm run preview             # serve the built bundle locally
+```
 
 ## Deploy
 
-`index.html` is plain static HTML. Push to `main`; GitHub Pages serves it.
+Pushed to `main` → Netlify auto-builds (`npm run build`) and publishes `dist/`.
 
-```sh
-git add ReznorCommandCenter.jsx index.html
-git commit -m "Update Command Center"
-git push origin main
-```
+Set these env vars in the Netlify site settings (Site configuration → Environment variables):
 
-If GitHub Pages is enabled on this repo, the live URL updates within a minute or two.
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 
-## Notes
+## Files
 
-- State is in-memory only — reloading the page wipes everything. Persistence is a future task.
-- Uploads use in-session object URLs (lost on reload).
-- See `TODO(real-build)` comments in the source for the backend wishlist.
+- `src/App.jsx` — the React app (was `ReznorCommandCenter.jsx`)
+- `src/main.jsx` — Vite entry point, mounts `<App />`
+- `src/lib/supabase.js` — Supabase client (reads env vars)
+- `index.html` — root HTML shell Vite loads `src/main.jsx` into
+- `netlify.toml` — Netlify build config + SPA fallback redirect
+
+## Roadmap
+
+- **Phase 1 (current):** Vite + Supabase scaffold, Netlify deploy
+- **Phase 2:** Real auth (Mike, Krissie, Reznor, Evie, Sara); schema in Supabase with `family_id` on every row; row-level security
+- **Phase 3:** Photo uploads to Supabase Storage (replacing in-session object URLs)
+- **Phase 4:** Public signup → "Create your family" flow for other families
