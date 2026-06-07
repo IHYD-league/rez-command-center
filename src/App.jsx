@@ -126,9 +126,19 @@ const STATUS_META = {
   skipped: { label: "Skipped", color: "bg-slate-100 text-slate-400" },
 };
 
-const today = new Date("2026-06-06T09:00:00");
+// Real device date. Module-level constants — a tab kept open past local
+// midnight will display yesterday's view until reload (acceptable for v1;
+// fix with a midnight rollover effect later if needed).
+const isoLocal = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+const today = new Date();
 const WEEKDAY = today.toLocaleDateString("en-US", { weekday: "long" });
-const TODAY_ISO = "2026-06-06";
+const TODAY_ISO = isoLocal(today);
+const YESTERDAY_ISO = isoLocal(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
 const fmtDate = (d) => d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 const fmtShort = (d) => d ? new Date(d + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 const fmtDateObj = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -443,9 +453,12 @@ export default function App({ initial, currentProfileId, sync } = {}) {
     });
     setOpenTask(null);
     const aid = t.activityId || TYPE_TO_ACT[t.activityType];
+    // Auto-approved tasks (e.g. make-bed) bump the streak immediately.
+    // Tasks needing approval bump later via decide().
+    if (!needsApproval && aid) bumpStreak(aid);
     const s = streaks[aid];
     if (s) {
-      const next = s.current + 1;
+      const next = s.lastDate === TODAY_ISO ? s.current : (s.lastDate === YESTERDAY_ISO ? s.current + 1 : 1);
       const act = activities.find((a) => a.id === aid);
       setCelebrate({ name: act?.short || t.title, streak: next, record: next > s.longest, color: act?.color || "#f97316" });
     }
@@ -460,7 +473,7 @@ export default function App({ initial, currentProfileId, sync } = {}) {
     if (c && c.status === "approved") {
       const t = tasks.find((x) => x.id === taskId);
       const aid = t?.activityId || TYPE_TO_ACT[t?.activityType];
-      if (aid) setStreaks((prev) => { const s = prev[aid]; if (s && s.lastDate === TODAY_ISO) return { ...prev, [aid]: { ...s, current: Math.max(0, s.current - 1), lastDate: "" } }; return prev; });
+      if (aid) setStreaks((prev) => { const s = prev[aid]; if (s && s.lastDate === TODAY_ISO) return { ...prev, [aid]: { ...s, current: Math.max(0, s.current - 1), lastDate: YESTERDAY_ISO } }; return prev; });
     }
   };
 
@@ -535,7 +548,26 @@ export default function App({ initial, currentProfileId, sync } = {}) {
   const updateActivity = (id, patch) => setActivities((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   const setStreak = (id, patch) => setStreaks((prev) => ({ ...prev, [id]: { current: 0, longest: 0, since: "", lastDate: "", ...(prev[id] || {}), ...patch } }));
   const stopStreak = (id) => setStreaks((prev) => { const n = { ...prev }; delete n[id]; return n; });
-  const bumpStreak = (id) => setStreaks((prev) => { const s = prev[id]; if (!s || s.lastDate === TODAY_ISO) return prev; const current = s.current + 1; return { ...prev, [id]: { ...s, current, longest: Math.max(s.longest, current), lastDate: TODAY_ISO } }; });
+  // Streak rules: increment by 1 ONLY if lastDate was yesterday (consecutive).
+  // Already today → no double count. Missed at least one day → reset to 1,
+  // keep longest unchanged, restart `since`. Never tracked → no-op (parents
+  // start tracking explicitly via the activity editor).
+  const bumpStreak = (id) => setStreaks((prev) => {
+    const s = prev[id];
+    if (!s) return prev;
+    if (s.lastDate === TODAY_ISO) return prev;
+    if (s.lastDate === YESTERDAY_ISO) {
+      const current = (s.current || 0) + 1;
+      return {
+        ...prev,
+        [id]: { ...s, current, longest: Math.max(s.longest || 0, current), lastDate: TODAY_ISO },
+      };
+    }
+    return {
+      ...prev,
+      [id]: { ...s, current: 1, since: TODAY_ISO, lastDate: TODAY_ISO },
+    };
+  });
 
   // ---- login screen ----
   if (!user) {
