@@ -63,7 +63,10 @@ create index if not exists profiles_family_idx on public.profiles(family_id);
 alter table public.profiles enable row level security;
 alter table public.profiles force  row level security;
 
--- Re-point my_family_id() at profiles (authoritative now)
+-- Re-point my_family_id() at profiles (authoritative now).
+-- SECURITY DEFINER + postgres ownership (BYPASSRLS) means the SELECT
+-- inside this function skips RLS on profiles, so a profiles policy
+-- that calls my_family_id() won't recurse back into itself.
 create or replace function public.my_family_id()
 returns uuid
 language sql
@@ -75,6 +78,27 @@ as $$
 $$;
 revoke all on function public.my_family_id() from public;
 grant execute on function public.my_family_id() to authenticated;
+
+-- is_parent(): same trick — a SECURITY DEFINER wrapper around the
+-- "am I a parent in my family" check, so the profiles policy that
+-- needs this answer doesn't have to inline an EXISTS subquery
+-- against profiles (which would recurse via RLS).
+create or replace function public.is_parent()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where auth_user_id = auth.uid()
+      and role = 'parent'
+  )
+$$;
+revoke all on function public.is_parent() from public;
+grant execute on function public.is_parent() to authenticated;
 
 -- =============================================================
 -- 2. Data tables (one per entity the user listed)
@@ -226,20 +250,33 @@ end$$;
 -- 4. Policies — full CRUD scoped to caller's family
 -- =============================================================
 
--- profiles: members read their family; parents mutate.
+-- profiles: three policies, none of which inline a subquery against
+-- public.profiles (every profiles-touching subquery is hidden behind
+-- a SECURITY DEFINER function so RLS evaluation can't recurse).
+--   * profiles_select_self    — a user can always see their own row
+--                               (no function call, can't recurse)
+--   * profiles_select_family  — a user can see other rows in their
+--                               family via my_family_id()
+--   * profiles_modify_parents — only parents can insert/update/delete
+--                               profiles, via is_parent()
 drop policy if exists "profiles_select_family"  on public.profiles;
+drop policy if exists "profiles_select_self"    on public.profiles;
 drop policy if exists "profiles_modify_parents" on public.profiles;
+
+create policy "profiles_select_self"
+  on public.profiles for select
+  to authenticated
+  using (auth_user_id = auth.uid());
+
 create policy "profiles_select_family"
   on public.profiles for select
   to authenticated
   using (family_id = public.my_family_id());
+
 create policy "profiles_modify_parents"
   on public.profiles for all
   to authenticated
-  using      (family_id = public.my_family_id() and exists (
-    select 1 from public.profiles p
-    where p.auth_user_id = auth.uid() and p.role = 'parent'
-  ))
+  using      (public.is_parent() and family_id = public.my_family_id())
   with check (family_id = public.my_family_id());
 
 -- families: members read their family.
