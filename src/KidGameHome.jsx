@@ -273,7 +273,7 @@ function StatCard({ label, value }) {
   );
 }
 
-export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest }) {
+export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest, onTapStars }) {
   if (!data) return null;
   const {
     name,
@@ -324,12 +324,32 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <div className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10">
-            <div className="text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center gap-1">
-              <Star size={11} className="fill-current text-amber-300" /> Stars
-            </div>
-            <div className="text-2xl font-extrabold leading-none mt-1"><AnimatedNumber value={stars} /></div>
-          </div>
+          {(() => {
+            const tappable = !!onTapStars;
+            const inner = (
+              <>
+                <div className="text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center justify-between gap-1">
+                  <span className="flex items-center gap-1">
+                    <Star size={11} className="fill-current text-amber-300" /> Stars
+                  </span>
+                  {tappable && <span className="text-white/40 text-[10px]">›</span>}
+                </div>
+                <div className="text-2xl font-extrabold leading-none mt-1"><AnimatedNumber value={stars} /></div>
+              </>
+            );
+            return tappable ? (
+              <button
+                type="button"
+                onClick={onTapStars}
+                className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10 text-left active:scale-[0.97] transition hover:bg-white/25"
+                title="See where these stars came from"
+              >
+                {inner}
+              </button>
+            ) : (
+              <div className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10">{inner}</div>
+            );
+          })()}
           <div className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10">
             <div className="text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center gap-1">
               <Flame size={11} className="text-orange-300" /> Drum streak
