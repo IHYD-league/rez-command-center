@@ -66,6 +66,15 @@ end). Full vision + phases + space states + themes + treasure mechanics +
 data model live in [`BOARD-GAME.md`](./BOARD-GAME.md). Builds in 4 phases
 inside this Phase 2 bucket; don't smuggle later phases into earlier PRs.
 
+- ✅ **Phase 1 — Prove the mechanic.** Space Quest theme (starfield + emoji
+  spaces, no images yet). Kid bottom-nav gains a Board tab; route renders
+  today's tasks as ~15 spaces on a snake-pattern board. State per space
+  (locked/available/current/pending/completed/needs-fix) is derived inline
+  from `compByTask` + the task's `required` flag; no storage. Tap a space →
+  opens the existing TaskSheet → submit goes through `submitTask`. Token
+  (🚀) sits on the current space. Treasure visible at the end, always dim
+  (threshold lands in Phase 3). Parent/grandma/helper routes untouched.
+
 ### Bucket A — skin existing data (low risk, do first)
 - ⏳ Kid: adventure home, missions (=tasks), star bank, streak hero card,
   rewards/store, next-reward progress

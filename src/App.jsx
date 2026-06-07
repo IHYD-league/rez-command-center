@@ -2,10 +2,11 @@ import React, { useState, useMemo } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft,
-  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut
+  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import SongLogger from "./SongLogger.jsx";
+import BoardGame from "./BoardGame.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
@@ -801,6 +802,7 @@ function Router(props) {
     if (tab === "dream") return <DreamPlan {...props} />;
     if (tab === "streaks") return <KidStreaks {...props} />;
     if (tab === "missions") return <KidMissions {...props} />;
+    if (tab === "board") return <BoardGame {...props} />;
     const openQuestSheet = (questId) => {
       const t = props.tasks.find((x) => x.id === questId);
       if (t) props.setOpenTask(t);
@@ -3618,6 +3620,7 @@ function BottomNav({ user, tab, setTab }) {
   const sets = {
     kid: [
       { k: "today", icon: Trophy, label: "Missions" },
+      { k: "board", icon: Map, label: "Board" },
       { k: "streaks", icon: Flame, label: "Streaks" },
       { k: "dream", icon: Target, label: "Dream" },
       { k: "rewards", icon: Gift, label: "Rewards" },
