@@ -6,6 +6,9 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: "docs",
-    emptyOutDir: true,
+    // Planning docs (ROADMAP.md, ARCHITECTURE.md) live in docs/ alongside
+    // the built site, so we can't blow the whole folder away each build.
+    // The `prebuild` npm script wipes only the actual build artifacts.
+    emptyOutDir: false,
   },
 });

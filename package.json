@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "rm -rf docs/index.html docs/assets",
     "build": "vite build",
     "preview": "vite preview",
     "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true"
