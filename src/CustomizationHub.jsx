@@ -1,5 +1,6 @@
-import React from "react";
-import { X, Type, Palette } from "lucide-react";
+import React, { useRef, useState } from "react";
+import { X, Type, Palette, Camera, Image as ImageIcon } from "lucide-react";
+import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
    CustomizationHub — per-profile accessibility / display settings.
@@ -13,6 +14,107 @@ import { X, Type, Palette } from "lucide-react";
    prop (a plain object); `setPref(key, value)` is the only mutation
    path back. The parent persists it to public.user_prefs.
    ===================================================================== */
+
+// Inline avatar (self-contained — doesn't depend on App.jsx exporting
+// its Avatar component). Mirrors the same fallback rules: storage path
+// → signed URL; legacy http/blob/data URL → use directly; nothing →
+// emoji-on-color chip.
+function HubAvatar({ user, size = 96 }) {
+  const isDirectUrl = user?.photo && /^(https?|data|blob):/.test(user.photo);
+  const signed = useSignedUrl(user?.photo && !isDirectUrl ? user.photo : null);
+  const src = isDirectUrl ? user.photo : signed;
+  const st = { width: size, height: size };
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={user?.name || ""}
+        className="rounded-3xl object-cover shrink-0"
+        style={st}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-3xl grid place-items-center shrink-0 text-white"
+      style={{
+        ...st,
+        background: user?.color || "#64748b",
+        fontSize: Math.round(size * 0.5),
+      }}
+    >
+      {user?.emoji || "👤"}
+    </div>
+  );
+}
+
+// AvatarModule — every signed-in profile can upload their own photo
+// from this slot. The photo lands in the same family-photos bucket the
+// parent's People management uses (kind="avatar"), the storage path
+// is written to profiles.photo_path, and the avatar appears everywhere
+// the user is rendered (TopBar, login picker, KidGameHome hero, etc.).
+function AvatarModule({ user, updateUser, familyId }) {
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!familyId) {
+      alert("Can't upload — family isn't linked yet. Open the app from a signed-in profile.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "avatar" });
+      updateUser(user.id, { photo: path });
+    } catch (err) {
+      alert("Upload failed: " + (err.message || err));
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  const removePhoto = () => {
+    if (!user?.photo) return;
+    if (!window.confirm("Remove your profile photo? Your emoji takes over.")) return;
+    updateUser(user.id, { photo: null });
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <HubAvatar user={user} size={88} />
+      <div className="flex-1 min-w-0">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={busy}
+          className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60"
+        >
+          <Camera size={14} /> {busy ? "Uploading…" : (user?.photo ? "Change photo" : "Add a photo")}
+        </button>
+        {user?.photo && (
+          <button
+            type="button"
+            onClick={removePhoto}
+            disabled={busy}
+            className="w-full mt-1.5 py-1.5 text-rose-500 text-[11px] font-bold"
+          >
+            Remove photo
+          </button>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFile}
+        />
+      </div>
+    </div>
+  );
+}
 
 // Font scale — one global root multiplier. Everything sized in rem/em
 // scales proportionally; absolute-px text classes (text-[11px]) stay
@@ -77,6 +179,14 @@ function FontScaleModule({ prefs, setPref }) {
 //   …more as we add modules.
 const HUB_MODULES = [
   {
+    id: "avatar",
+    title: "Your photo",
+    icon: ImageIcon,
+    description:
+      "Tap to use a real photo instead of your emoji. Shows up wherever your avatar appears (top bar, sign-in picker, kid home).",
+    Render: AvatarModule,
+  },
+  {
     id: "font-scale",
     title: "Text size",
     icon: Type,
@@ -102,7 +212,19 @@ const HUB_MODULES = [
   },
 ];
 
-export default function CustomizationHub({ prefs, setPref, onClose, userName }) {
+export default function CustomizationHub({
+  prefs,
+  setPref,
+  onClose,
+  user,
+  updateUser,
+  familyId,
+}) {
+  // Modules each get the same context object — destructure what you need.
+  // This is how new modules slot in without rewriting App.jsx: extend the
+  // registry, add another key to the context if needed, done.
+  const ctx = { prefs, setPref, user, updateUser, familyId };
+  const userName = user?.name;
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center"
@@ -143,7 +265,7 @@ export default function CustomizationHub({ prefs, setPref, onClose, userName }) 
                     {m.description}
                   </div>
                 )}
-                <m.Render prefs={prefs} setPref={setPref} />
+                <m.Render {...ctx} />
               </section>
             );
           })}

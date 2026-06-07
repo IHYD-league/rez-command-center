@@ -830,7 +830,9 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
             prefs={currentPrefs}
             setPref={setPref}
             onClose={() => setHubOpen(false)}
-            userName={user?.name}
+            user={user}
+            updateUser={updateUser}
+            familyId={familyId}
           />
         )}
         {statDetailId && (
