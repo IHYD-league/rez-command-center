@@ -88,7 +88,7 @@ const SEED_REWARDS = [
 // ---------- SEED: COMPLETIONS ----------
 // Real starting state: today, drums done (all 3 parts), approved.
 const SEED_COMPLETIONS = [
-  { id: "cmp_drums_20260606", taskId: "t_drums", status: "approved", awardedStars: 10, pendingStars: 0, completedBy: "u_reznor", approvedBy: "u_mike", notes: "1hr+ practice — all 3 parts done", proof: [], extra: { subsDone: ["melodics", "drumeo", "drumscribe"] } },
+  { id: "cmp_drums_20260606", taskId: "t_drums", status: "approved", awardedStars: 10, pendingStars: 0, completedBy: "u_reznor", approvedBy: "u_mike", notes: "1hr+ practice — all 3 parts done", proof: [], extra: { subsDone: ["melodics", "drumeo", "drumscribe"] }, completionDate: "2026-06-06" },
 ];
 
 // ---------- SEED: CALENDAR ----------
@@ -321,7 +321,7 @@ function buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, 
   const doneToday = todaysTasks.filter((t) => ["approved", "pending"].includes(compByTask[t.id]?.status)).length;
   const allToday = todaysTasks.length > 0 && todaysTasks.every((t) => ["approved", "pending"].includes(compByTask[t.id]?.status));
   const drumsDone = !!compByTask["t_drums"];
-  const photoToday = completions.some((c) => (c.proof || []).some((p) => p.type === "photo"));
+  const photoToday = Object.values(compByTask).some((c) => (c?.proof || []).some((p) => p.type === "photo"));
   const booksFinished = (books || []).filter((b) => b.status === "finished").length;
   const spanishBook = (books || []).some((b) => b.status === "finished" && b.lang === "Spanish");
   return { doneToday, allToday, drumsDone, photoToday, starBank, booksFinished, spanishBook, drumStreak: streaks?.a_drums?.current || 0, spaStreak: streaks?.a_spa?.current || 0 };
@@ -420,9 +420,16 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
     () => tasks.filter((t) => (t.mode === "both" || t.mode === mode) && (!t.days || t.days.includes(WEEKDAY)) && t.active !== false),
     [tasks, mode]
   );
+  // compByTask is "what's the status of each task TODAY". Older completions
+  // (yesterday's drums, last week's writing) stay in the completions array
+  // so Approvals tab + history reads work, but they do NOT count toward
+  // today's done/pending/needs-fix state. Tasks done yesterday should show
+  // as not-done again this morning.
   const compByTask = useMemo(() => {
     const m = {};
-    completions.forEach((c) => { m[c.taskId] = c; });
+    completions.forEach((c) => {
+      if ((c.completionDate || null) === TODAY_ISO) m[c.taskId] = c;
+    });
     return m;
   }, [completions]);
 
@@ -454,7 +461,10 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
     const submittedBy = currentProfileId || currentUserId;
     const needsApproval = t.approvalRequired && !submitterIsParent;
     setCompletions((prev) => {
-      const others = prev.filter((c) => c.taskId !== taskId);
+      // Replace only TODAY's prior submission for this task — yesterday's row
+      // (and earlier history) stays in the array so it persists and remains
+      // visible in Approvals / reports / future analytics.
+      const others = prev.filter((c) => !(c.taskId === taskId && (c.completionDate || null) === TODAY_ISO));
       return [...others, {
         id: "cmp_" + Date.now(),
         taskId,
@@ -467,6 +477,7 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
         notes: payload.notes || "",
         proof: payload.proof || [],
         extra: payload.extra || {},
+        completionDate: TODAY_ISO,
       }];
     });
     setOpenTask(null);
@@ -485,8 +496,10 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
   const addAward = (a) => setAwards((prev) => [a, ...prev]);
   const removeAward = (id) => setAwards((prev) => prev.filter((a) => a.id !== id));
   const undoTask = (taskId) => {
-    const c = completions.find((x) => x.taskId === taskId);
-    setCompletions((prev) => prev.filter((x) => x.taskId !== taskId));
+    // "Unmark today" — only touch today's completion. Yesterday's row stays
+    // in the array so history isn't destroyed.
+    const c = completions.find((x) => x.taskId === taskId && (x.completionDate || null) === TODAY_ISO);
+    setCompletions((prev) => prev.filter((x) => !(x.taskId === taskId && (x.completionDate || null) === TODAY_ISO)));
     setSubProgress((prev) => { const n = { ...prev }; delete n[taskId]; return n; });
     if (c && c.status === "approved") {
       const t = tasks.find((x) => x.id === taskId);
