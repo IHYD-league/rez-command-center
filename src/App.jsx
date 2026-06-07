@@ -5,6 +5,7 @@ import {
   Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
+import SongLogger from "./SongLogger.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
@@ -383,6 +384,8 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
   const [books, _setBooks] = useState(() => initial?.books ?? SEED_BOOKS);
   const [awards, _setAwards] = useState(() => initial?.awards ?? SEED_AWARDS);
   const [rewardRequests, _setRewardRequests] = useState(() => initial?.rewardRequests ?? []);
+  const [songs, _setSongs] = useState(() => initial?.songs ?? []);
+  const [songPlays, _setSongPlays] = useState(() => initial?.songPlays ?? []);
 
   // In-memory only (not in the user's persistence list — see Phase 2 notes).
   const [events, setEvents] = useState(SEED_EVENTS);
@@ -412,6 +415,8 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
   const setBooks          = makeSyncedSetter(_setBooks,          "books",          sync);
   const setAwards         = makeSyncedSetter(_setAwards,         "awards",         sync);
   const setRewardRequests = makeSyncedSetter(_setRewardRequests, "rewardRequests", sync);
+  const setSongs          = makeSyncedSetter(_setSongs,          "songs",          sync);
+  const setSongPlays      = makeSyncedSetter(_setSongPlays,      "songPlays",      sync);
 
   const user = users.find((u) => u.id === currentUserId);
 
@@ -600,6 +605,42 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
     };
   });
 
+  // Songs — new tables, separate from drum stars/streak. Title+artist
+  // uniqueness is enforced by the DB (lowercased index); the app de-dupes
+  // pre-emptively so the user gets a clean "this song already exists"
+  // experience instead of a Supabase 409.
+  const addSong = ({ id, title, artist, difficulty }) => {
+    const t = (title || "").trim();
+    if (!t) return null;
+    const a = (artist || "").trim();
+    const existing = songs.find(
+      (s) => (s.title || "").toLowerCase() === t.toLowerCase()
+        && ((s.artist || "").toLowerCase() === a.toLowerCase())
+    );
+    if (existing) return existing.id;
+    const newId = id || ("song_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6));
+    setSongs((prev) => [...prev, { id: newId, title: t, artist: a || null, difficulty: difficulty || null }]);
+    return newId;
+  };
+  const addSongPlay = (songId, notes) => {
+    if (!songId) return;
+    setSongPlays((prev) => [
+      {
+        id: "play_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+        songId,
+        playedOn: TODAY_ISO,
+        playedBy: currentUserId,
+        notes: notes || "",
+      },
+      ...prev,
+    ]);
+  };
+  const removeSong = (id) => {
+    setSongs((prev) => prev.filter((s) => s.id !== id));
+    setSongPlays((prev) => prev.filter((p) => p.songId !== id));
+  };
+  const removeSongPlay = (id) => setSongPlays((prev) => prev.filter((p) => p.id !== id));
+
   // ---- login screen ----
   if (!user) {
     return <LoginScreen users={users} onPick={(id) => { setCurrentUserId(id); setTab("today"); }} />;
@@ -617,6 +658,7 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
     return { id: t.id, title: t.title, xp: (t.starValue || 0) * 10, done: !!c, subtasks: subs };
   };
   const _booksFinished = (books || []).filter((b) => b.status === "finished").length;
+  const _songsToday = (songPlays || []).filter((p) => p.playedOn === TODAY_ISO).length;
   const kidData = {
     name: user.name,
     avatar: user.photo || user.emoji || "🧑‍🚀",
@@ -629,7 +671,7 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
       { label: "Drum streak", value: _drumCurrent ? `${_drumCurrent}d` : "—" },
       { label: "Books finished", value: _booksFinished || "—" },
       { label: "Spanish streak", value: streaks?.a_spa?.current ? `${streaks.a_spa.current}d` : "—" },
-      { label: "Stars banked", value: starBank },
+      { label: "Drum songs today", value: _songsToday || "—" },
     ],
     mapStops: [
       {
@@ -659,6 +701,7 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
     submitTask, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest,
     kidData,
     familyId,
+    songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay,
   };
 
   return (
@@ -677,6 +720,10 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
             onClose={() => setOpenTask(null)}
             onSubmit={submitTask}
             familyId={familyId}
+            songs={songs}
+            songPlays={songPlays}
+            addSong={addSong}
+            addSongPlay={addSongPlay}
           />
         )}
         {celebrate && <CelebrateOverlay data={celebrate} onClose={() => setCelebrate(null)} />}
@@ -1185,7 +1232,7 @@ function StreakCard({ e, hero }) {
 }
 
 // ===================== TASK SHEET (submit flow) =====================
-function TaskSheet({ task, existing, role, onClose, onSubmit, familyId }) {
+function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, songPlays, addSong, addSongPlay }) {
   const [notes, setNotes] = useState(existing?.notes || "");
   const [bookTitle, setBookTitle] = useState(existing?.extra?.bookTitle || "");
   const [lang, setLang] = useState(existing?.extra?.lang || "English");
@@ -1291,6 +1338,15 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId }) {
                   <Field label="Melodics min"><input type="number" value={melodics} onChange={(e) => setMelodics(e.target.value)} className="input" /></Field>
                 </div>
                 <Field label="Drumscribe / YouTube songs"><input value={songList} onChange={(e) => setSongList(e.target.value)} placeholder="Song 1, Song 2…" className="input" /></Field>
+                {addSongPlay && (
+                  <SongLogger
+                    songs={songs || []}
+                    songPlays={songPlays || []}
+                    addSong={addSong}
+                    addSongPlay={addSongPlay}
+                    fuzzyMatch={fuzzyMatch}
+                  />
+                )}
                 <div className="bg-amber-50 rounded-2xl p-3 text-xs text-amber-700">🎯 Goal: 1 hour · Stretch: 2 hours. Parent can adjust stars for effort.</div>
                 <label className="block">
                   <div className="text-xs font-semibold text-slate-500 mb-1">Screenshot proof (Drumeo/Melodics)</div>
@@ -1610,7 +1666,7 @@ function RewardsKid({ rewards, starBank, requestReward, redemptions }) {
   );
 }
 
-function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books }) {
+function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay }) {
   const approved = completions.filter((c) => c.status === "approved");
   const ctx = buildAchCtx({ completions, todaysTasks: todaysTasks || [], compByTask: compByTask || {}, starBank, streaks, books });
   const dayWins = ACHIEVEMENTS.filter((a) => a.kind === "day");
@@ -1637,6 +1693,8 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
           );
         })}
       </div>
+
+      <MostPlayedSongs songs={songs || []} songPlays={songPlays || []} removeSongPlay={removeSongPlay} />
 
       <SectionTitle icon={<Medal size={16} className="text-violet-500" />}>Trophy case</SectionTitle>
       <div className="grid grid-cols-3 gap-2">
@@ -1687,6 +1745,91 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
 }
 function BigStat({ label, value }) {
   return <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-amber-500">{value}</div><div className="text-[11px] text-slate-400">{label}</div></Card>;
+}
+
+// MostPlayedSongs: derive counts / last-played from the canonical
+// songPlays rows (ARCHITECTURE §3). No "play_count" column anywhere.
+function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
+  const [openId, setOpenId] = useState(null);
+  if (!songs.length && !songPlays.length) return null;
+  const byId = Object.fromEntries(songs.map((s) => [s.id, s]));
+  const grouped = {};
+  songPlays.forEach((p) => {
+    if (!grouped[p.songId]) grouped[p.songId] = { plays: [], count: 0, last: null };
+    const g = grouped[p.songId];
+    g.plays.push(p);
+    g.count += 1;
+    if (!g.last || (p.playedOn || "") > g.last) g.last = p.playedOn;
+  });
+  const ranked = Object.entries(grouped)
+    .map(([songId, g]) => ({ song: byId[songId] || { id: songId, title: "(missing)" }, ...g }))
+    .sort((a, b) => (b.count - a.count) || ((b.last || "").localeCompare(a.last || "")))
+    .slice(0, 10);
+  if (ranked.length === 0) {
+    return (
+      <>
+        <SectionTitle icon={<Music size={16} className="text-violet-500" />}>Most played songs</SectionTitle>
+        <Card className="p-3 text-center text-xs text-slate-400">No songs logged yet. Tap drums → log one!</Card>
+      </>
+    );
+  }
+  return (
+    <>
+      <SectionTitle icon={<Music size={16} className="text-violet-500" />}>Most played songs <span className="text-[11px] font-normal text-slate-400">· top {ranked.length}</span></SectionTitle>
+      <div className="space-y-1.5">
+        {ranked.map(({ song, count, last, plays }) => {
+          const open = openId === song.id;
+          return (
+            <Card key={song.id} className="p-0 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setOpenId(open ? null : song.id)}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-sm text-slate-800 truncate">{song.title}</div>
+                  {(song.artist || last) && (
+                    <div className="text-[11px] text-slate-400 truncate">
+                      {song.artist || ""}{song.artist && last ? " · " : ""}{last ? `last: ${fmtShort(last)}` : ""}
+                    </div>
+                  )}
+                </div>
+                <div className="text-xs font-extrabold text-violet-600 bg-violet-50 rounded-full px-2.5 py-1">
+                  {count}×
+                </div>
+              </button>
+              {open && (
+                <div className="border-t border-slate-100 px-3 py-2 bg-slate-50">
+                  <div className="text-[11px] font-bold text-slate-500 mb-1">Play history</div>
+                  <div className="space-y-1">
+                    {plays
+                      .slice()
+                      .sort((a, b) => (b.playedOn || "").localeCompare(a.playedOn || ""))
+                      .slice(0, 20)
+                      .map((p) => (
+                        <div key={p.id} className="flex items-center justify-between text-[11px] text-slate-600">
+                          <span>{fmtShort(p.playedOn)}{p.notes ? ` — ${p.notes}` : ""}</span>
+                          {removeSongPlay && (
+                            <button
+                              type="button"
+                              onClick={() => removeSongPlay(p.id)}
+                              className="text-slate-300 hover:text-rose-500"
+                              title="Remove this play"
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+    </>
+  );
 }
 
 // ===================== PARENT: TODAY =====================

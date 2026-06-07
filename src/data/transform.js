@@ -118,6 +118,22 @@ export const toApp = {
     by: r.given_by,
     date: r.given_on,
   }),
+
+  song: (r) => ({
+    id: r.id,
+    title: r.title,
+    artist: r.artist,
+    difficulty: r.difficulty,
+    createdAt: r.created_at,
+  }),
+
+  songPlay: (r) => ({
+    id: r.id,
+    songId: r.song_id,
+    playedOn: r.played_on,
+    playedBy: r.played_by,
+    notes: r.notes ?? "",
+  }),
 };
 
 export const toDb = {
@@ -247,5 +263,22 @@ export const toDb = {
     stars: o.stars,
     given_by: o.by ?? null,
     given_on: o.date ?? new Date().toISOString().slice(0, 10),
+  }),
+
+  song: (familyId) => (o) => ({
+    id: o.id,
+    family_id: familyId,
+    title: o.title,
+    artist: o.artist ?? null,
+    difficulty: o.difficulty ?? null,
+  }),
+
+  songPlay: (familyId) => (o) => ({
+    id: o.id,
+    family_id: familyId,
+    song_id: o.songId,
+    played_on: o.playedOn ?? new Date().toISOString().slice(0, 10),
+    played_by: o.playedBy ?? null,
+    notes: o.notes ?? null,
   }),
 };

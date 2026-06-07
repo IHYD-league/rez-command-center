@@ -21,6 +21,8 @@ const ENTITIES = {
   rewardRequests:  { table: "reward_requests", toApp: toApp.rewardRequest,  toDb: toDb.rewardRequest,  key: "id"   },
   redemptions:     { table: "redemptions",     toApp: toApp.redemption,     toDb: toDb.redemption,     key: "id"   },
   gifted:          { table: "gifted_stars",    toApp: toApp.gifted,         toDb: toDb.gifted,         key: "id"   },
+  songs:           { table: "songs",            toApp: toApp.song,           toDb: toDb.song,           key: "id"   },
+  songPlays:       { table: "song_plays",       toApp: toApp.songPlay,       toDb: toDb.songPlay,       key: "id"   },
 };
 
 async function loadFamilyId() {

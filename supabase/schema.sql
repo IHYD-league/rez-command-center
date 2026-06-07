@@ -243,6 +243,40 @@ create table if not exists public.gifted_stars (
 );
 create index if not exists gifted_stars_family_idx on public.gifted_stars(family_id);
 
+-- Drum song catalog + per-play log. New systems with their own tables
+-- (ARCHITECTURE §4). Songs reference the drums activity by id ('a_drums')
+-- via convention; we don't FK to activities because activities are still
+-- in-memory app config. Star/streak truth is unaffected — this is
+-- separate signal living alongside drum completions.
+create table if not exists public.songs (
+  id text primary key,
+  family_id uuid not null references public.families(id) on delete cascade,
+  title text not null,
+  artist text,
+  difficulty text,
+  created_at timestamptz not null default now()
+);
+create index if not exists songs_family_idx on public.songs(family_id);
+create unique index if not exists songs_family_title_lower_idx
+  on public.songs (family_id, lower(title), coalesce(lower(artist), ''));
+
+-- Note: song_id is a plain text reference, not a FK, because the
+-- "replace whole array per entity" sync pattern doesn't guarantee the
+-- songs table is updated before song_plays. The app keeps the two
+-- consistent (removeSong also wipes that song's plays).
+create table if not exists public.song_plays (
+  id text primary key,
+  family_id uuid not null references public.families(id) on delete cascade,
+  song_id text not null,
+  played_on date not null default current_date,
+  played_by text references public.profiles(id) on delete set null,
+  notes text,
+  created_at timestamptz not null default now()
+);
+create index if not exists song_plays_family_idx on public.song_plays(family_id);
+create index if not exists song_plays_song_idx on public.song_plays(family_id, song_id);
+create index if not exists song_plays_date_idx on public.song_plays(family_id, played_on);
+
 -- =============================================================
 -- 3. RLS — enable + force on every table
 -- =============================================================
@@ -251,7 +285,7 @@ declare t text;
 begin
   foreach t in array array[
     'tasks','rewards','completions','streaks','books','awards',
-    'reward_requests','redemptions','gifted_stars'
+    'reward_requests','redemptions','gifted_stars','songs','song_plays'
   ] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('alter table public.%I force  row level security', t);
@@ -304,7 +338,7 @@ declare t text;
 begin
   foreach t in array array[
     'tasks','rewards','completions','streaks','books','awards',
-    'reward_requests','redemptions','gifted_stars'
+    'reward_requests','redemptions','gifted_stars','songs','song_plays'
   ] loop
     execute format('drop policy if exists "%1$s_rw_my_family" on public.%1$I', t);
     execute format($f$

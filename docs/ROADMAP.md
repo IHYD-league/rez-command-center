@@ -75,6 +75,9 @@ Build in buckets so it stays safe:
 - ⏳ Dad Power-Up / parent engagement stats (approvals this week, etc.)
 
 ### Bucket C — new systems (each its own table, build one at a time)
+- ✅ Drum song tracking (own tables: songs + song_plays; fuzzy search +
+  quick-tap chips on the drums task; per-song play count and history
+  derived from song_plays — no duplicate truth)
 - 💡 Summer Adventure Pass (battle-pass levels, claimed rewards, season dates)
 - 💡 Pet / companion (stats tied to task categories, XP, evolution)
 - 💡 Daily bonus chest (unlocks when all main quests done)
