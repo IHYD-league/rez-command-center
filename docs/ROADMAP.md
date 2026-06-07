@@ -37,11 +37,14 @@ skin, not a second app.
 
 ## Phase 1 — Daily-use gaps (CURRENT FOCUS)
 - 🔧 Profile photos for all users (upload to bucket, persist, cross-device)
-- ✅ Parent can mark tasks complete on Reznor's behalf (both directions:
-  Mark done from any "Still to do" row → opens TaskSheet → submit;
-  Mark not-done from any Pending/Done row → confirm → undo. Both
-  routes go through the canonical submitTask / undoTask so stars,
-  streaks, and persistence all fire identically to the kid path.)
+- ✅ Parent can mark tasks complete on Reznor's behalf — from EVERY view
+  including the kid game screen. Quest tiles in KidGameHome are tappable
+  and open the same TaskSheet; the green ✓ on ParentToday's "Still to
+  do" rows opens it too. The completion always credits Reznor
+  (`completedBy` = the kid), while `submittedBy` records the actually
+  signed-in person. Parents auto-approve their own submissions (stars
+  + streak fire immediately via the existing submitTask path); helpers
+  and Reznor still go through the existing pending → decide flow.
 - ✅ Parent/helper can upload proof photos (e.g. texted to them).
   Helper uploads were live via HelperChecklist/EasyChecklist onPhoto;
   parent uploads now ride the same TaskSheet path with the same

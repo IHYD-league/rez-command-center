@@ -149,6 +149,7 @@ create table if not exists public.completions (
   awarded_stars int not null default 0,
   pending_stars int not null default 0,
   completed_by text references public.profiles(id) on delete set null,
+  submitted_by text references public.profiles(id) on delete set null,
   approved_by text references public.profiles(id) on delete set null,
   notes text,
   proof jsonb not null default '[]'::jsonb,
@@ -158,6 +159,13 @@ create table if not exists public.completions (
 );
 create index if not exists completions_family_idx on public.completions(family_id);
 create index if not exists completions_date_idx on public.completions(family_id, completion_date);
+
+-- Backfill column on existing databases (no-op on fresh installs).
+-- completed_by is the kid the stars/streak belong to (always Reznor today).
+-- submitted_by is whoever actually tapped Submit (parent, helper, kid).
+-- approved_by  is whoever flipped status to approved.
+alter table public.completions
+  add column if not exists submitted_by text references public.profiles(id) on delete set null;
 
 create table if not exists public.streaks (
   family_id uuid not null references public.families(id) on delete cascade,

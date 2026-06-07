@@ -436,11 +436,22 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
   // ---- actions ----
   const submitTask = (taskId, payload) => {
     const t = tasks.find((x) => x.id === taskId);
-    // A parent submitting on behalf of Reznor implicitly approves the
-    // submission (they're the one who'd be approving anyway). Everyone
-    // else (kid, helper, grandparent) still goes through the existing
-    // pending → decide() flow exactly like before.
-    const submitterIsParent = user?.role === "parent";
+    // Identity model:
+    //   currentProfileId — the auth-mapped profile (never changes during the
+    //                      session). This is who's REALLY signed in.
+    //   currentUserId    — the profile being "acted as" via the in-app
+    //                      switcher; can be the kid even when Mike is signed in.
+    //
+    // Credit always goes to the kid (completedBy) because stars/streaks live on
+    // Reznor regardless of who tapped Submit. We record submittedBy separately
+    // for honest audit, and we auto-approve when the REAL signed-in user is a
+    // parent — even if they've switched into Reznor's profile to use his game
+    // screen on his behalf.
+    const authProfile = users.find((u) => u.id === currentProfileId);
+    const submitterIsParent = authProfile?.role === "parent";
+    const kid = users.find((u) => u.role === "kid");
+    const kidId = kid?.id || currentUserId;
+    const submittedBy = currentProfileId || currentUserId;
     const needsApproval = t.approvalRequired && !submitterIsParent;
     setCompletions((prev) => {
       const others = prev.filter((c) => c.taskId !== taskId);
@@ -450,8 +461,9 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
         status: needsApproval ? "pending" : "approved",
         awardedStars: needsApproval ? 0 : t.starValue,
         pendingStars: needsApproval ? t.starValue : 0,
-        completedBy: currentUserId,
-        approvedBy: needsApproval ? null : currentUserId,
+        completedBy: kidId,
+        submittedBy,
+        approvedBy: needsApproval ? null : submittedBy,
         notes: payload.notes || "",
         proof: payload.proof || [],
         extra: payload.extra || {},
@@ -486,7 +498,7 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
   const decide = (taskId, decision, bonus = 0) => {
     setCompletions((prev) => prev.map((c) => {
       if (c.taskId !== taskId) return c;
-      if (decision === "approve") return { ...c, status: "approved", awardedStars: c.pendingStars + bonus, pendingStars: 0, approvedBy: currentUserId };
+      if (decision === "approve") return { ...c, status: "approved", awardedStars: c.pendingStars + bonus, pendingStars: 0, approvedBy: currentProfileId || currentUserId };
       if (decision === "needs_fix") return { ...c, status: "needs_fix", pendingStars: 0 };
       if (decision === "reject") return { ...c, status: "skipped", pendingStars: 0, awardedStars: 0 };
       return c;
@@ -680,15 +692,18 @@ function Router(props) {
     if (tab === "dream") return <DreamPlan {...props} />;
     if (tab === "streaks") return <KidStreaks {...props} />;
     if (tab === "missions") return <KidMissions {...props} />;
+    const openQuestSheet = (questId) => {
+      const t = props.tasks.find((x) => x.id === questId);
+      if (t) props.setOpenTask(t);
+    };
     return (
       <KidGameHome
         data={props.kidData}
         onStartQuests={() => {
           const first = (props.kidData?.mainQuests || []).find((q) => !q.done);
-          if (!first) return;
-          const t = props.tasks.find((x) => x.id === first.id);
-          if (t) props.setOpenTask(t);
+          if (first) openQuestSheet(first.id);
         }}
+        onTapQuest={openQuestSheet}
         onOpenMenu={() => props.setTab("missions")}
       />
     );
@@ -1818,7 +1833,7 @@ function Approvals({ completions, tasks, users, decide }) {
       {pending.length === 0 && <Card className="p-6 text-center text-slate-400 text-sm mt-4">All caught up! 🎉</Card>}
       {pending.map((c) => {
         const t = tasks.find((x) => x.id === c.taskId);
-        const who = users.find((u) => u.id === c.completedBy);
+        const who = users.find((u) => u.id === (c.submittedBy || c.completedBy));
         return (
           <Card key={c.id} className="p-4 mb-3">
             <div className="flex items-center gap-3">

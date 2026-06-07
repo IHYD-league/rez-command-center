@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Star, Flame, Trophy, Crown, Target, Sparkles, MapPin, Menu } from "lucide-react";
 
 /* =====================================================================
@@ -47,14 +47,18 @@ function Avatar({ avatar, size = 64 }) {
   );
 }
 
-function MainQuestTile({ q }) {
+function MainQuestTile({ q, onTap }) {
   const done = q.done;
+  const tappable = !!onTap && !done;
   return (
     <div
+      onClick={tappable ? () => onTap(q.id) : undefined}
+      role={tappable ? "button" : undefined}
+      tabIndex={tappable ? 0 : undefined}
       className={`rounded-3xl p-4 border-2 transition ${
         done
           ? "bg-emerald-50 border-emerald-300"
-          : "bg-white border-slate-200"
+          : "bg-white border-slate-200 " + (tappable ? "cursor-pointer active:scale-[0.98] hover:border-indigo-300" : "")
       }`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -95,9 +99,15 @@ function MainQuestTile({ q }) {
   );
 }
 
-function SideQuestRow({ q }) {
+function SideQuestRow({ q, onTap }) {
+  const tappable = !!onTap && !q.done;
   return (
-    <div className="flex items-center justify-between bg-white border border-slate-100 rounded-2xl px-3 py-2.5">
+    <div
+      onClick={tappable ? () => onTap(q.id) : undefined}
+      role={tappable ? "button" : undefined}
+      tabIndex={tappable ? 0 : undefined}
+      className={`flex items-center justify-between bg-white border border-slate-100 rounded-2xl px-3 py-2.5 ${tappable ? "cursor-pointer active:scale-[0.98] hover:border-indigo-200" : ""}`}
+    >
       <div className="flex items-center gap-2 min-w-0">
         <div
           className={`w-6 h-6 rounded-full grid place-items-center text-[11px] font-bold ${
@@ -151,6 +161,109 @@ function MapStop({ stop }) {
   );
 }
 
+// Counts smoothly from prev → current whenever `value` changes.
+// Display-only; the canonical number lives in props.
+function AnimatedNumber({ value, duration = 700 }) {
+  const [display, setDisplay] = useState(value);
+  const prevRef = useRef(value);
+  useEffect(() => {
+    const from = prevRef.current;
+    const to = value;
+    if (from === to) return;
+    const start = performance.now();
+    let raf = 0;
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      setDisplay(Math.round(from + (to - from) * eased));
+      if (t < 1) raf = requestAnimationFrame(step);
+      else prevRef.current = to;
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+  return display;
+}
+
+// Lightweight "you completed a mission!" burst. Confetti emojis fall, a big
+// star pulses out, and a "+N ⭐" rises and fades. Purely visual — no data.
+// Triggered by parent `KidGameHome` when stars tick up. `id` keys the
+// component so React re-mounts a fresh animation each time.
+function MissionCelebration({ id, amount }) {
+  if (!id) return null;
+  const pieces = [];
+  const palette = ["#f59e0b", "#ef4444", "#22c55e", "#6366f1", "#ec4899", "#0ea5e9"];
+  const emojis = ["⭐", "✨", "🎉", "💫", "⚡"];
+  for (let i = 0; i < 18; i++) {
+    const dx = (Math.random() - 0.5) * 320;
+    const left = 50 + (Math.random() - 0.5) * 24;
+    const top = 38 + (Math.random() - 0.5) * 18;
+    const dur = 900 + Math.random() * 700;
+    const delay = i * 35;
+    pieces.push(
+      <span
+        key={i}
+        className="absolute text-2xl"
+        style={{
+          left: `${left}%`,
+          top: `${top}%`,
+          color: palette[i % palette.length],
+          // CSS vars consumed by the keyframe below
+          ["--dx"]: `${dx}px`,
+          animation: `mcConfetti ${dur}ms ease-out ${delay}ms forwards`,
+          willChange: "transform, opacity",
+        }}
+      >
+        {emojis[i % emojis.length]}
+      </span>
+    );
+  }
+  return (
+    <div
+      key={id}
+      className="fixed inset-0 z-30 flex items-center justify-center pointer-events-none"
+      aria-hidden="true"
+    >
+      <style>{`
+        @keyframes mcBurst {
+          0%   { transform: scale(0.3); opacity: 0; }
+          25%  { transform: scale(1.3); opacity: 1; }
+          70%  { transform: scale(1.05); opacity: 0.9; }
+          100% { transform: scale(1); opacity: 0; }
+        }
+        @keyframes mcRise {
+          0%   { transform: translateY(0); opacity: 0; }
+          15%  { opacity: 1; }
+          100% { transform: translateY(-140px); opacity: 0; }
+        }
+        @keyframes mcConfetti {
+          0%   { transform: translate(0, -10vh) rotate(0deg); opacity: 0; }
+          12%  { opacity: 1; }
+          100% { transform: translate(var(--dx), 55vh) rotate(720deg); opacity: 0; }
+        }
+      `}</style>
+      <div
+        className="text-7xl drop-shadow-lg"
+        style={{ animation: "mcBurst 900ms ease-out forwards" }}
+      >
+        ⭐
+      </div>
+      {amount > 0 && (
+        <div
+          className="absolute text-3xl font-extrabold text-amber-500"
+          style={{
+            animation: "mcRise 1100ms ease-out forwards",
+            textShadow: "0 2px 10px rgba(0,0,0,0.25)",
+          }}
+        >
+          +{amount} ⭐
+        </div>
+      )}
+      {pieces}
+    </div>
+  );
+}
+
 function StatCard({ label, value }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-100 px-3 py-2.5">
@@ -160,7 +273,7 @@ function StatCard({ label, value }) {
   );
 }
 
-export default function KidGameHome({ data, onStartQuests, onOpenMenu }) {
+export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest }) {
   if (!data) return null;
   const {
     name,
@@ -173,6 +286,22 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu }) {
     stats = [],
     mapStops = [],
   } = data;
+
+  // Fire the celebration when the canonical star total ticks up. We derive
+  // "a mission was completed" from data, not a separate flag — keeps source
+  // of truth in Supabase. The animation is purely visual.
+  const [celebration, setCelebration] = useState(null);
+  const prevStarsRef = useRef(stars);
+  useEffect(() => {
+    if (stars > prevStarsRef.current) {
+      const gained = stars - prevStarsRef.current;
+      setCelebration({ id: Date.now(), amount: gained });
+      const t = setTimeout(() => setCelebration(null), 1700);
+      prevStarsRef.current = stars;
+      return () => clearTimeout(t);
+    }
+    prevStarsRef.current = stars;
+  }, [stars]);
 
   const firstUndone = mainQuests.find((q) => !q.done);
 
@@ -199,14 +328,14 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu }) {
             <div className="text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center gap-1">
               <Star size={11} className="fill-current text-amber-300" /> Stars
             </div>
-            <div className="text-2xl font-extrabold leading-none mt-1">{stars}</div>
+            <div className="text-2xl font-extrabold leading-none mt-1"><AnimatedNumber value={stars} /></div>
           </div>
           <div className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10">
             <div className="text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center gap-1">
               <Flame size={11} className="text-orange-300" /> Drum streak
             </div>
             <div className="text-2xl font-extrabold leading-none mt-1">
-              {streak?.current ?? 0}
+              <AnimatedNumber value={streak?.current ?? 0} />
               <span className="text-xs font-bold text-white/60 ml-1">/ {streak?.milestone ?? 365}</span>
             </div>
             <div className="mt-1.5">
@@ -249,7 +378,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu }) {
               No quests today. Free day! 🎉
             </div>
           ) : (
-            mainQuests.map((q) => <MainQuestTile key={q.id} q={q} />)
+            mainQuests.map((q) => <MainQuestTile key={q.id} q={q} onTap={onTapQuest} />)
           )}
         </div>
       </div>
@@ -263,7 +392,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu }) {
           </div>
           <div className="space-y-1.5">
             {sideQuests.map((q) => (
-              <SideQuestRow key={q.id} q={q} />
+              <SideQuestRow key={q.id} q={q} onTap={onTapQuest} />
             ))}
           </div>
         </div>
@@ -318,6 +447,11 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu }) {
           <Menu size={20} className="text-slate-600" />
         </button>
       </div>
+
+      {/* Visual-only celebration when stars tick up. Mounted last so it
+          paints over the rest of the screen; pointer-events:none keeps it
+          from blocking taps. */}
+      {celebration && <MissionCelebration id={celebration.id} amount={celebration.amount} />}
     </div>
   );
 }
