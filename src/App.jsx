@@ -1063,10 +1063,11 @@ function StatDetail({
   base,
 }) {
   // Date windows for the per-task tallies.
-  // Week = rolling 7 days ending today (inclusive). Month = current
-  // calendar month. All-time = every approved completion ever.
+  // Week = calendar week Sun–Sat — today.getDay() returns 0 for Sunday,
+  // so weekStart = today - today.getDay() days walks back to Sunday.
+  // Month = current calendar month. All-time = every approved completion.
   const weekStart = (() => {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6);
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay());
     return isoLocal(d);
   })();
   const monthStart = TODAY_ISO.slice(0, 7) + "-01";
@@ -1110,28 +1111,39 @@ function StatDetail({
   };
   const meta = TITLES[kind] || TITLES.earned;
 
-  // Render a row for one task with its week / month / all-time tally.
+  // For the bar visualisation — peak weekly count across the listed tasks
+  // sets the scale, so the heaviest grinder this week fills the bar.
+  const maxWeek = Math.max(1, ...Object.values(counts).map((c) => c.week));
+
+  // Render a row for one task with its week / month / all-time tally,
+  // plus a thin emerald bar for at-a-glance weekly ranking.
   const TaskTallyRow = ({ taskId }) => {
     const t = taskById[taskId];
     const a = actFor(t);
     const c = counts[taskId] || { week: 0, month: 0, all: 0 };
+    const pct = Math.round((c.week / maxWeek) * 100);
     return (
-      <div className="flex items-center gap-2 py-1.5">
+      <div className="flex items-stretch gap-2 py-1.5">
         <div className="w-2 self-stretch rounded-full" style={{ background: a?.color || "#cbd5e1" }} />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-slate-800 truncate">{t?.title || taskId}</div>
-          <div className="text-[10px] text-slate-400 truncate">{a?.short || a?.name || t?.activityType}</div>
+        <div className="flex-1 min-w-0 flex flex-col justify-between">
+          <div>
+            <div className="text-sm font-bold text-slate-800 truncate">{t?.title || taskId}</div>
+            <div className="text-[10px] text-slate-400 truncate">{a?.short || a?.name || t?.activityType}</div>
+          </div>
+          <div className="h-1 bg-slate-100 rounded-full overflow-hidden mt-1" title={`${c.week} this week`}>
+            <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+          </div>
         </div>
-        <div className="grid grid-cols-3 gap-1 text-center">
-          <div className="px-2 py-0.5 rounded-md bg-emerald-50">
-            <div className="text-[10px] uppercase tracking-wide text-emerald-700/70 font-bold">7d</div>
+        <div className="grid grid-cols-3 gap-1 text-center self-center">
+          <div className="px-2 py-0.5 rounded-md bg-emerald-50" title="This calendar week (Sun–Sat)">
+            <div className="text-[10px] uppercase tracking-wide text-emerald-700/70 font-bold">wk</div>
             <div className="text-sm font-extrabold text-emerald-700">{c.week}</div>
           </div>
-          <div className="px-2 py-0.5 rounded-md bg-indigo-50">
+          <div className="px-2 py-0.5 rounded-md bg-indigo-50" title="Current calendar month">
             <div className="text-[10px] uppercase tracking-wide text-indigo-700/70 font-bold">mo</div>
             <div className="text-sm font-extrabold text-indigo-700">{c.month}</div>
           </div>
-          <div className="px-2 py-0.5 rounded-md bg-slate-100">
+          <div className="px-2 py-0.5 rounded-md bg-slate-100" title="All-time">
             <div className="text-[10px] uppercase tracking-wide text-slate-500/70 font-bold">all</div>
             <div className="text-sm font-extrabold text-slate-700">{c.all}</div>
           </div>
@@ -1279,7 +1291,7 @@ function StatDetail({
       <>
         <div className="flex items-center justify-between mt-4 mb-2 px-1">
           <div className="text-sm font-extrabold text-slate-700">Per-task tally</div>
-          <div className="text-[10px] text-slate-400">7-day · month-to-date · all-time</div>
+          <div className="text-[10px] text-slate-400">this week (Sun–Sat) · this month · all-time</div>
         </div>
         {ids.length === 0
           ? <Card className="p-3 text-center text-xs text-slate-400">No approved history yet.</Card>
