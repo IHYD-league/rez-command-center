@@ -415,15 +415,35 @@ export default function BoardGame({
 
   const pathRef = useRef(null);
   const animRef = useRef(null);
-  const seenIdsRef = useRef(null); // null = not yet seeded (still replaying)
+  const seenIdsRef = useRef(null); // null until catch-up replay finishes
   const tokenIdxRef = useRef(0);
+  const outerRef = useRef(null); // for scroll reset on mount
 
   const [tokenXY, setTokenXY] = useState(() => {
     const p = positions[0] || { x: 50, y: 0 };
     return { x: p.x, y: p.y };
   });
-  const [replaying, setReplaying] = useState(true);
+  // `launched` = the kid has tapped to launch the catch-up replay.
+  // Until it flips to true, the rocket sits at START and pulses.
+  // We auto-launch when there's nothing to replay (targetIdx === 0).
+  const [launched, setLaunched] = useState(false);
   const [pop, setPop] = useState(null);
+
+  // Fix the "scrolled to the bottom" problem: when the user taps the
+  // Board tab, the outer scroll container in App.jsx still holds the
+  // scroll position from whatever tab was active before. Walk up to
+  // that container on mount and reset it.
+  useEffect(() => {
+    let el = outerRef.current?.parentElement;
+    while (el && el !== document.body) {
+      const cs = window.getComputedStyle(el);
+      if (cs.overflowY === "auto" || cs.overflowY === "scroll") {
+        el.scrollTop = 0;
+        break;
+      }
+      el = el.parentElement;
+    }
+  }, []);
 
   // Animate the token along the SVG path from one logical index to another.
   // Pure visual — never touches canonical data.
@@ -459,43 +479,48 @@ export default function BoardGame({
     animRef.current = requestAnimationFrame(tick);
   };
 
-  // Replay-from-start victory lap. Fires once per mount.
+  // If there's nothing to catch up (no completed tasks today), auto-launch
+  // so the live-update effect is armed immediately for the first completion.
   useEffect(() => {
-    if (!replaying) return;
+    if (launched) return;
+    if (targetIdx === 0) setLaunched(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Catch-up replay: only fires AFTER the user has tapped to launch. The
+  // rocket starts at START and animates through every completed space to
+  // the current target. One smooth sweep, no per-space confetti.
+  useEffect(() => {
+    if (!launched) return;
+    if (seenIdsRef.current !== null) return; // already replayed once
     const start = positions[0] || { x: 50, y: 0 };
     setTokenXY({ x: start.x, y: start.y });
     tokenIdxRef.current = 0;
     if (targetIdx === 0) {
-      setReplaying(false);
       seenIdsRef.current = new Set(approvedIds);
       return;
     }
     const tm = setTimeout(() => {
-      // Quick sweep: cap at 700ms so the kid never sits waiting. Linear
-      // tap-through is fine because Fix below also makes a tap on a space
-      // during replay both skip and open in one tap.
+      // Quick sweep: cap at 700ms so the kid sees it but doesn't wait.
       animateAlong(0, targetIdx, {
         duration: Math.min(700, 320 + targetIdx * 70),
         onLand: () => {
-          setReplaying(false);
           seenIdsRef.current = new Set(approvedIds);
         },
       });
-    }, 120);
+    }, 80);
     return () => {
       clearTimeout(tm);
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-    // Intentionally NOT depending on approvedIds/targetIdx — we want one
-    // sweep per mount. Subsequent changes are handled by the "live" effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [launched]);
 
   // Live updates: a new approved id appeared (a fresh completion or a redo
   // of a previously-undone task) → animate to the new target + celebrate.
   // A removed id (undo) → snap back, no celebration.
   useEffect(() => {
-    if (replaying || seenIdsRef.current === null) return;
+    if (!launched || seenIdsRef.current === null) return;
     const current = new Set(approvedIds);
     const newIds = approvedIds.filter((id) => !seenIdsRef.current.has(id));
     const removed = [...seenIdsRef.current].some((id) => !current.has(id));
@@ -532,7 +557,7 @@ export default function BoardGame({
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [approvedIds.join("|"), targetIdx, replaying]);
+  }, [approvedIds.join("|"), targetIdx, launched]);
 
   // Auto-clear the pop after its CSS animation finishes.
   useEffect(() => {
@@ -541,14 +566,12 @@ export default function BoardGame({
     return () => clearTimeout(t);
   }, [pop]);
 
-  const skipReplay = () => {
-    if (!replaying) return;
-    if (animRef.current) cancelAnimationFrame(animRef.current);
-    const p = positions[targetIdx] || positions[0];
-    setTokenXY({ x: p.x, y: p.y });
-    tokenIdxRef.current = targetIdx;
-    setReplaying(false);
-    seenIdsRef.current = new Set(approvedIds);
+  // First tap launches the catch-up replay. After that this is a no-op,
+  // so wiring it on both the container AND letting space taps bubble
+  // through is safe — the kid never has to tap twice.
+  const launchNow = () => {
+    if (launched) return;
+    setLaunched(true);
   };
 
   const doneCount = safeTasks.filter((t) => safeComp[t.id]?.status === "approved").length;
@@ -559,6 +582,7 @@ export default function BoardGame({
 
   return (
     <div
+      ref={outerRef}
       className="min-h-screen px-3 pt-4 pb-24 relative overflow-hidden"
       style={{
         background: theme.background,
@@ -597,7 +621,7 @@ export default function BoardGame({
       <div
         className="relative z-10 mx-auto"
         style={{ maxWidth: 420, aspectRatio: `100 / ${VIEWBOX_H}` }}
-        onClick={() => { if (replaying) skipReplay(); }}
+        onClick={launchNow}
       >
         <svg
           viewBox={`0 0 100 ${VIEWBOX_H}`}
@@ -639,23 +663,45 @@ export default function BoardGame({
             transition: "transform 80ms linear",
           }}
         >
-          <div className="text-3xl sm:text-4xl drop-shadow-[0_3px_6px_rgba(0,0,0,0.55)]">
+          <style>{`
+            @keyframes rocketReady {
+              0%, 100% { transform: translateY(0) scale(1); }
+              50%      { transform: translateY(-8px) scale(1.18); }
+            }
+            @keyframes hintBob {
+              0%, 100% { transform: translateY(0); }
+              50%      { transform: translateY(-4px); }
+            }
+          `}</style>
+          <div
+            className="text-3xl sm:text-4xl drop-shadow-[0_3px_6px_rgba(0,0,0,0.55)]"
+            style={{
+              animation:
+                !launched && targetIdx > 0
+                  ? "rocketReady 900ms ease-in-out infinite"
+                  : undefined,
+              filter:
+                !launched && targetIdx > 0
+                  ? "drop-shadow(0 0 14px rgba(253,224,71,0.6))"
+                  : undefined,
+            }}
+          >
             {theme.tokenEmoji}
           </div>
         </div>
 
-        {/* No tap-blocking overlay during replay anymore — we want a
-            single tap to count. The board container's onClick above
-            calls skipReplay() (no-op when replay is already done), so:
-              - tap empty area while replaying → skips
-              - tap a space while replaying → space's onClick fires
-                AND the click bubbles to the container, so it both
-                opens the task AND skips the animation in one tap
-              - tap normally after replay → no skip, normal open
-            The hint below is non-interactive (pointer-events:none). */}
-        {replaying && (
-          <div className="absolute bottom-0 left-0 right-0 text-center text-white/70 text-[11px] font-semibold pointer-events-none z-40 pb-1">
-            tap anywhere to skip
+        {/* Tap-to-launch invitation — appears only when there's a catch-up
+            to do (something completed today) and the kid hasn't tapped yet.
+            Non-interactive so it never eats the tap; the container's
+            onClick handles the actual launch. */}
+        {!launched && targetIdx > 0 && (
+          <div className="absolute bottom-2 left-0 right-0 text-center pointer-events-none z-40">
+            <div
+              className="inline-block bg-amber-300 text-slate-900 text-[11px] font-extrabold px-3 py-1.5 rounded-full shadow-lg"
+              style={{ animation: "hintBob 900ms ease-in-out infinite" }}
+            >
+              👆 Tap to launch the rocket!
+            </div>
           </div>
         )}
       </div>
