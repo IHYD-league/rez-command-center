@@ -471,14 +471,17 @@ export default function BoardGame({
       return;
     }
     const tm = setTimeout(() => {
+      // Quick sweep: cap at 700ms so the kid never sits waiting. Linear
+      // tap-through is fine because Fix below also makes a tap on a space
+      // during replay both skip and open in one tap.
       animateAlong(0, targetIdx, {
-        duration: Math.min(1800, 600 + targetIdx * 220),
+        duration: Math.min(700, 320 + targetIdx * 70),
         onLand: () => {
           setReplaying(false);
           seenIdsRef.current = new Set(approvedIds);
         },
       });
-    }, 240);
+    }, 120);
     return () => {
       clearTimeout(tm);
       if (animRef.current) cancelAnimationFrame(animRef.current);
@@ -594,11 +597,12 @@ export default function BoardGame({
       <div
         className="relative z-10 mx-auto"
         style={{ maxWidth: 420, aspectRatio: `100 / ${VIEWBOX_H}` }}
+        onClick={() => { if (replaying) skipReplay(); }}
       >
         <svg
           viewBox={`0 0 100 ${VIEWBOX_H}`}
           preserveAspectRatio="none"
-          className="absolute inset-0 w-full h-full"
+          className="absolute inset-0 w-full h-full pointer-events-none"
         >
           <path d={pathD} stroke={theme.pathGlow} strokeWidth="6" fill="none" strokeLinecap="round" />
           <path
@@ -640,18 +644,15 @@ export default function BoardGame({
           </div>
         </div>
 
-        {/* Tap-to-skip overlay during the victory lap. Sits ABOVE the
-            spaces so the first tap collapses the replay; afterwards it
-            unmounts and normal space taps work as usual. */}
-        {replaying && (
-          <button
-            type="button"
-            onClick={skipReplay}
-            aria-label="Skip replay"
-            className="absolute inset-0 z-40 w-full h-full cursor-pointer bg-transparent"
-            style={{ WebkitTapHighlightColor: "transparent" }}
-          />
-        )}
+        {/* No tap-blocking overlay during replay anymore — we want a
+            single tap to count. The board container's onClick above
+            calls skipReplay() (no-op when replay is already done), so:
+              - tap empty area while replaying → skips
+              - tap a space while replaying → space's onClick fires
+                AND the click bubbles to the container, so it both
+                opens the task AND skips the animation in one tap
+              - tap normally after replay → no skip, normal open
+            The hint below is non-interactive (pointer-events:none). */}
         {replaying && (
           <div className="absolute bottom-0 left-0 right-0 text-center text-white/70 text-[11px] font-semibold pointer-events-none z-40 pb-1">
             tap anywhere to skip
