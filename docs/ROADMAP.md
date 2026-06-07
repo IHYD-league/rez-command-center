@@ -60,6 +60,12 @@ skin, not a second app.
 Game mode = optional skin for kid AND parent. Same data, prettier display.
 Build in buckets so it stays safe:
 
+**Daily Adventure Board** — board-game adventure-map skin over the existing
+task system (Candyland / Mario Party feel; character token, treasure at the
+end). Full vision + phases + space states + themes + treasure mechanics +
+data model live in [`BOARD-GAME.md`](./BOARD-GAME.md). Builds in 4 phases
+inside this Phase 2 bucket; don't smuggle later phases into earlier PRs.
+
 ### Bucket A — skin existing data (low risk, do first)
 - ⏳ Kid: adventure home, missions (=tasks), star bank, streak hero card,
   rewards/store, next-reward progress
