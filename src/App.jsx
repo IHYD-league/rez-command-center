@@ -1,12 +1,13 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft,
-  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map
+  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map, Settings
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import SongLogger from "./SongLogger.jsx";
 import BoardGame from "./BoardGame.jsx";
+import CustomizationHub, { FONT_SCALE_PCT } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
@@ -391,6 +392,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // It's per-profile UI memory for the Daily Adventure Board (BOARD-GAME.md
   // §Data model). It never stores task / star / streak truth.
   const [boardState, _setBoardState] = useState(() => initial?.boardState ?? {});
+  // userPrefs is per-profile accessibility / display settings, keyed by
+  // profile_id. The Customization Hub writes here; the rest of the app
+  // reads via the small `setPref` helper below.
+  const [userPrefs, _setUserPrefs] = useState(() => initial?.userPrefs ?? {});
 
   // In-memory only (not in the user's persistence list — see Phase 2 notes).
   const [events, setEvents] = useState(SEED_EVENTS);
@@ -424,6 +429,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const setSongs          = makeSyncedSetter(_setSongs,          "songs",          sync);
   const setSongPlays      = makeSyncedSetter(_setSongPlays,      "songPlays",      sync);
   const setBoardState     = makeSyncedSetter(_setBoardState,     "boardState",     sync);
+  const setUserPrefs      = makeSyncedSetter(_setUserPrefs,      "userPrefs",      sync);
 
   const user = users.find((u) => u.id === currentUserId);
 
@@ -691,6 +697,35 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }));
   };
 
+  // CustomizationHub plumbing — one helper for any hub module to write a
+  // single pref key on the active profile. The hub never reaches across
+  // to other profiles; settings are strictly per-profile.
+  const currentPrefs = (currentUserId && userPrefs[currentUserId]?.prefs) || {};
+  const setPref = (key, value) => {
+    if (!currentUserId) return;
+    setUserPrefs((prev) => ({
+      ...prev,
+      [currentUserId]: {
+        ...(prev[currentUserId] || {}),
+        prefs: { ...((prev[currentUserId] || {}).prefs || {}), [key]: value },
+      },
+    }));
+  };
+
+  // Apply font-scale globally — set root font-size %, Tailwind's rem-based
+  // text classes inherit it, every screen scales together.
+  useEffect(() => {
+    const scale = currentPrefs.fontScale || "regular";
+    const pct = FONT_SCALE_PCT[scale] || 100;
+    const prev = document.documentElement.style.fontSize;
+    document.documentElement.style.fontSize = `${pct}%`;
+    return () => {
+      document.documentElement.style.fontSize = prev;
+    };
+  }, [currentPrefs.fontScale]);
+
+  const [hubOpen, setHubOpen] = useState(false);
+
   // ---- login screen ----
   if (!user) {
     return <LoginScreen users={users} onPick={(id) => { setCurrentUserId(id); setTab("today"); }} onSignOut={signOut} sessionEmail={sessionEmail} />;
@@ -760,7 +795,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex justify-center" style={{ fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif" }}>
       <div className="w-full max-w-md bg-slate-50 min-h-screen flex flex-col relative shadow-xl">
-        <TopBar user={user} mode={mode} onSwitch={() => { setCurrentUserId(null); }} onSignOut={signOut} sessionEmail={sessionEmail} />
+        <TopBar user={user} mode={mode} onSwitch={() => { setCurrentUserId(null); }} onSignOut={signOut} sessionEmail={sessionEmail} onOpenHub={() => setHubOpen(true)} />
         <div className="flex-1 overflow-y-auto pb-24">
           <Router tab={tab} {...shared} />
         </div>
@@ -790,6 +825,14 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
           if (!a) return null;
           return <ProgressSheet activity={a} streaks={streaks} onClose={() => setProgressActId(null)} />;
         })()}
+        {hubOpen && (
+          <CustomizationHub
+            prefs={currentPrefs}
+            setPref={setPref}
+            onClose={() => setHubOpen(false)}
+            userName={user?.name}
+          />
+        )}
         {statDetailId && (
           <StatDetail
             kind={statDetailId}
@@ -859,7 +902,7 @@ function Router(props) {
 }
 
 // ===================== SHARED UI =====================
-function TopBar({ user, mode, onSwitch, onSignOut, sessionEmail }) {
+function TopBar({ user, mode, onSwitch, onSignOut, sessionEmail, onOpenHub }) {
   return (
     <div className="sticky top-0 z-20 bg-white border-b border-slate-100 px-3 py-3 flex items-center justify-between gap-2">
       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -874,6 +917,16 @@ function TopBar({ user, mode, onSwitch, onSignOut, sessionEmail }) {
           {mode === "summer" ? <span className="flex items-center gap-1"><Sun size={12} /> Summer</span> : <span className="flex items-center gap-1"><GraduationCap size={12} /> School</span>}
         </span>
         <button onClick={onSwitch} className="text-[11px] font-semibold text-slate-400 px-2 py-1 rounded-full hover:bg-slate-100">Switch</button>
+        {onOpenHub && (
+          <button
+            onClick={onOpenHub}
+            title="Customize"
+            aria-label="Customize"
+            className="w-7 h-7 rounded-full grid place-items-center text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <Settings size={14} />
+          </button>
+        )}
         {onSignOut && (
           <button
             onClick={onSignOut}

@@ -139,6 +139,11 @@ export const toApp = {
     lastPosition: r.last_position ?? 0,
     treasureClaimedOn: r.treasure_claimed_on ?? null,
   }],
+
+  userPrefsRow: (r) => [r.profile_id, {
+    prefs: r.prefs ?? {},
+    updatedAt: r.updated_at,
+  }],
 };
 
 export const toDb = {
@@ -292,5 +297,11 @@ export const toDb = {
     profile_id: profileId,
     last_position: s.lastPosition ?? 0,
     treasure_claimed_on: s.treasureClaimedOn ?? null,
+  }),
+
+  userPrefsRow: (familyId) => (profileId, s) => ({
+    family_id: familyId,
+    profile_id: profileId,
+    prefs: s.prefs ?? {},
   }),
 };

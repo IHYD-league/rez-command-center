@@ -61,6 +61,13 @@ async function loadEntities(familyId) {
     .eq("family_id", familyId);
   if (bsErr) throw new Error(`board_state: ${bsErr.message}`);
   out.boardState = Object.fromEntries((bs || []).map(toApp.boardStateRow));
+  // User prefs keyed by profile_id — Customization Hub data.
+  const { data: up, error: upErr } = await supabase
+    .from("user_prefs")
+    .select("*")
+    .eq("family_id", familyId);
+  if (upErr) throw new Error(`user_prefs: ${upErr.message}`);
+  out.userPrefs = Object.fromEntries((up || []).map(toApp.userPrefsRow));
   return out;
 }
 
@@ -108,8 +115,9 @@ export default function DataProvider({ session, children }) {
   // setX calls within a render coalesces into one network round trip.
   const sync = (key, value) => {
     if (!familyId) return;
-    const def = key === "streaks" || key === "boardState" ? null : ENTITIES[key];
-    if (!def && key !== "streaks" && key !== "boardState") {
+    const composite = key === "streaks" || key === "boardState" || key === "userPrefs";
+    const def = composite ? null : ENTITIES[key];
+    if (!def && !composite) {
       console.warn("sync: unknown entity", key);
       return;
     }
@@ -126,6 +134,18 @@ export default function DataProvider({ session, children }) {
             .from("board_state")
             .upsert(rows, { onConflict: "family_id,profile_id" });
           if (error) console.error("board_state sync:", error.message);
+          return;
+        }
+        if (key === "userPrefs") {
+          // user_prefs: upsert per profile_id, same composite-key pattern
+          const rows = Object.entries(value || {}).map(([pid, s]) =>
+            toDb.userPrefsRow(familyId)(pid, s)
+          );
+          if (rows.length === 0) return;
+          const { error } = await supabase
+            .from("user_prefs")
+            .upsert(rows, { onConflict: "family_id,profile_id" });
+          if (error) console.error("user_prefs sync:", error.message);
           return;
         }
         if (key === "streaks") {
