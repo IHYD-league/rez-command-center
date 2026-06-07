@@ -5,6 +5,7 @@ import {
   Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
+import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -369,7 +370,7 @@ function makeSyncedSetter(rawSetter, key, sync) {
   };
 }
 
-export default function App({ initial, currentProfileId, sync } = {}) {
+export default function App({ initial, currentProfileId, sync, familyId } = {}) {
   // Each persistent entity hydrates from `initial` (Supabase) when present,
   // otherwise falls back to the in-file seed.
   const [users, _setUsers] = useState(() => (initial?.profiles?.length ? initial.profiles : SEED_USERS));
@@ -627,6 +628,7 @@ export default function App({ initial, currentProfileId, sync } = {}) {
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
     submitTask, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest,
     kidData,
+    familyId,
   };
 
   return (
@@ -644,6 +646,7 @@ export default function App({ initial, currentProfileId, sync } = {}) {
             role={user.role}
             onClose={() => setOpenTask(null)}
             onSubmit={submitTask}
+            familyId={familyId}
           />
         )}
         {celebrate && <CelebrateOverlay data={celebrate} onClose={() => setCelebrate(null)} />}
@@ -729,10 +732,24 @@ function Card({ children, className = "" }) {
 }
 
 // Avatar: shows the user's uploaded photo if present, else their emoji on a color chip.
+// user.photo can be either a storage path (new) or a direct URL (legacy/blob — these
+// silently fail to load after the session ends; that's the bug we're fixing).
 function Avatar({ user, size = 40, solid = false, className = "" }) {
   const st = { width: size, height: size };
-  if (user?.photo) return <img src={user.photo} alt={user?.name || ""} className={`rounded-2xl object-cover shrink-0 ${className}`} style={st} />;
+  const isDirectUrl = user?.photo && /^(https?|data|blob):/.test(user.photo);
+  const signed = useSignedUrl(user?.photo && !isDirectUrl ? user.photo : null);
+  const src = isDirectUrl ? user.photo : signed;
+  if (src) return <img src={src} alt={user?.name || ""} className={`rounded-2xl object-cover shrink-0 ${className}`} style={st} />;
   return <div className={`rounded-2xl grid place-items-center shrink-0 ${className}`} style={{ ...st, background: solid ? (user?.color || "#64748b") : (user?.color || "#64748b") + "22", fontSize: Math.round(size * 0.5) }}>{user?.emoji}</div>;
+}
+
+// StoredPhoto: render a photo from a storage path (preferred) or legacy URL,
+// resolving the path to a signed URL on demand.
+function StoredPhoto({ path, url, alt = "", className = "", fallback = null }) {
+  const signed = useSignedUrl(url ? null : path);
+  const src = url || signed;
+  if (!src) return fallback;
+  return <img src={src} alt={alt} className={className} />;
 }
 
 
@@ -1135,12 +1152,13 @@ function StreakCard({ e, hero }) {
 }
 
 // ===================== TASK SHEET (submit flow) =====================
-function TaskSheet({ task, existing, role, onClose, onSubmit }) {
+function TaskSheet({ task, existing, role, onClose, onSubmit, familyId }) {
   const [notes, setNotes] = useState(existing?.notes || "");
   const [bookTitle, setBookTitle] = useState(existing?.extra?.bookTitle || "");
   const [lang, setLang] = useState(existing?.extra?.lang || "English");
   const [minutes, setMinutes] = useState(existing?.extra?.minutes || task.minutes);
   const [photo, setPhoto] = useState(existing?.proof?.[0] || null);
+  const [uploading, setUploading] = useState(false);
   const [drumeo, setDrumeo] = useState("");
   const [melodics, setMelodics] = useState("");
   const [songList, setSongList] = useState("");
@@ -1150,20 +1168,35 @@ function TaskSheet({ task, existing, role, onClose, onSubmit }) {
   const isDrums = task.proofType === "drums";
   const isPhoto = task.proofType === "photo";
 
-  const handleFile = (e) => {
+  // Upload the file to family-photos under <familyId>/proof/ and store
+  // the returned path on the photo object. The legacy `url` field is
+  // omitted; display code resolves path → signed URL on demand.
+  const handleFile = async (e) => {
     const f = e.target.files?.[0];
-    if (f) setPhoto({ type: "photo", name: f.name, url: URL.createObjectURL(f) });
+    if (!f) return;
+    setUploading(true);
+    try {
+      const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
+      setPhoto({ type: "photo", name, path });
+    } catch (err) {
+      alert("Photo upload failed: " + (err.message || err));
+    } finally {
+      setUploading(false);
+    }
   };
+  const photoPreview = useSignedUrl(photo?.path);
 
   // gates
   let ready = true;
   let gateMsg = "";
+  if (uploading) { ready = false; gateMsg = "Photo still uploading…"; }
   if (isReading && !bookTitle.trim()) { ready = false; gateMsg = "Enter the book title to submit."; }
   if (isPhoto && !photo) { ready = false; gateMsg = "Add a photo of your work to submit."; }
   if (isDrums && (!drumeo && !melodics && !songList)) { ready = false; gateMsg = "Log at least one of Drumeo / Melodics / songs."; }
 
   const doSubmit = () => {
-    const proof = photo ? [photo] : [];
+    // Strip any legacy preview URL from the stored proof item.
+    const proof = photo ? [{ type: "photo", name: photo.name, path: photo.path }] : [];
     const extra = {};
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes });
     if (isPhoto) Object.assign(extra, { title });
@@ -1210,8 +1243,8 @@ function TaskSheet({ task, existing, role, onClose, onSubmit }) {
                 <label className="block">
                   <div className="text-xs font-semibold text-slate-500 mb-1">Photo of your work *</div>
                   <div className="border-2 border-dashed border-slate-200 rounded-2xl p-4 flex flex-col items-center gap-2 cursor-pointer hover:bg-slate-50">
-                    {photo?.url ? <img src={photo.url} alt="proof" className="h-28 rounded-xl object-cover" /> : <Camera size={28} className="text-slate-300" />}
-                    <span className="text-xs text-slate-400">{photo ? photo.name : "Tap to add a photo"}</span>
+                    {photoPreview ? <img src={photoPreview} alt="proof" className="h-28 rounded-xl object-cover" /> : <Camera size={28} className="text-slate-300" />}
+                    <span className="text-xs text-slate-400">{uploading ? "Uploading…" : (photo ? photo.name : "Tap to add a photo")}</span>
                     <input type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" />
                   </div>
                 </label>
@@ -1229,8 +1262,8 @@ function TaskSheet({ task, existing, role, onClose, onSubmit }) {
                 <label className="block">
                   <div className="text-xs font-semibold text-slate-500 mb-1">Screenshot proof (Drumeo/Melodics)</div>
                   <div className="border-2 border-dashed border-slate-200 rounded-2xl p-3 flex items-center gap-2 cursor-pointer hover:bg-slate-50">
-                    {photo?.url ? <img src={photo.url} alt="proof" className="h-12 rounded object-cover" /> : <Camera size={20} className="text-slate-300" />}
-                    <span className="text-xs text-slate-400">{photo ? photo.name : "Add screenshot"}</span>
+                    {photoPreview ? <img src={photoPreview} alt="proof" className="h-12 rounded object-cover" /> : <Camera size={20} className="text-slate-300" />}
+                    <span className="text-xs text-slate-400">{uploading ? "Uploading…" : (photo ? photo.name : "Add screenshot")}</span>
                     <input type="file" accept="image/*" onChange={handleFile} className="hidden" />
                   </div>
                 </label>
@@ -1368,7 +1401,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
   const [note, setNote] = useState("");
   const [tab, setTab] = useState("stats");
   const notes = taskNotes?.[task.id] || [];
-  const proofs = completions.filter((c) => c.taskId === task.id).flatMap((c) => (c.proof || []).filter((p) => p.url));
+  const proofs = completions.filter((c) => c.taskId === task.id).flatMap((c) => (c.proof || []).filter((p) => p.path || p.url));
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center">
@@ -1409,7 +1442,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
               <div className="grid grid-cols-2 gap-2">
                 {proofs.map((p, i) => (
                   <div key={i} className="rounded-xl overflow-hidden">
-                    <img src={p.url} alt="" className="w-full h-32 object-cover" />
+                    <StoredPhoto path={p.path} url={p.url} alt="" className="w-full h-32 object-cover" fallback={<div className="w-full h-32 bg-slate-100 animate-pulse" />} />
                     {p.geo && <div className="text-[10px] text-slate-400 mt-0.5">📍 {p.geo.label}{p.time ? ` · ${p.time}` : ""}</div>}
                   </div>
                 ))}
@@ -1772,12 +1805,12 @@ function Approvals({ completions, tasks, users, decide }) {
               <Detail label="Drums">Drumeo {c.extra.drumeo || 0}m · Melodics {c.extra.melodics || 0}m{c.extra.songList ? ` · ${c.extra.songList}` : ""}</Detail>
             )}
             {c.notes && <Detail label="Note">{c.notes}</Detail>}
-            {c.proof?.some((p) => p.url) && (() => {
-              const ph = c.proof.find((p) => p.url);
+            {c.proof?.some((p) => p.path || p.url) && (() => {
+              const ph = c.proof.find((p) => p.path || p.url);
               const g = ph.geo;
               return (
                 <div className="mt-2">
-                  <img src={ph.url} alt="proof" className="rounded-xl h-32 w-full object-cover" />
+                  <StoredPhoto path={ph.path} url={ph.url} alt="proof" className="rounded-xl h-32 w-full object-cover" fallback={<div className="rounded-xl h-32 w-full bg-slate-100 animate-pulse" />} />
                   {g && (
                     <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1 flex-wrap">
                       📍 {g.label} {g.approx ? "" : `(${g.lat}, ${g.lng})`}
@@ -1789,7 +1822,7 @@ function Approvals({ completions, tasks, users, decide }) {
                 </div>
               );
             })()}
-            {c.proof?.length > 0 && !c.proof.some((p) => p.url) && <Detail label="Proof">{c.proof.map((p) => p.name).join(", ")}</Detail>}
+            {c.proof?.length > 0 && !c.proof.some((p) => p.path || p.url) && <Detail label="Proof">{c.proof.map((p) => p.name).join(", ")}</Detail>}
 
             <div className="flex gap-2 mt-3">
               <button onClick={() => decide(c.taskId, "approve")} className="flex-1 py-2.5 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={16} />Approve</button>
@@ -2160,7 +2193,7 @@ function GradeGoals() {
 }
 
 // ===================== PARENT: ACCOMPLISHMENTS =====================
-function Accomplishments({ awards, addAward, removeAward, activities }) {
+function Accomplishments({ awards, addAward, removeAward, activities, familyId }) {
   const [adding, setAdding] = useState(false);
   const actOf = (id) => activities.find((a) => a.id === id);
   return (
@@ -2171,7 +2204,7 @@ function Accomplishments({ awards, addAward, removeAward, activities }) {
       </div>
 
       {!adding && <button onClick={() => setAdding(true)} className="w-full py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1 mb-3"><Plus size={15} /> Add an accomplishment</button>}
-      {adding && <AddAwardForm activities={activities} onAdd={(a) => { addAward(a); setAdding(false); }} onCancel={() => setAdding(false)} />}
+      {adding && <AddAwardForm activities={activities} onAdd={(a) => { addAward(a); setAdding(false); }} onCancel={() => setAdding(false)} familyId={familyId} />}
 
       {awards.length === 0 && <p className="text-xs text-slate-400 px-1">Nothing yet — upload his first certificate or recital sheet.</p>}
       <div className="grid grid-cols-2 gap-2">
@@ -2179,8 +2212,8 @@ function Accomplishments({ awards, addAward, removeAward, activities }) {
           const act = actOf(a.activityId);
           return (
             <Card key={a.id} className="p-0 overflow-hidden">
-              {a.url
-                ? <img src={a.url} alt="" className="w-full h-28 object-cover" />
+              {(a.filePath || a.url)
+                ? <StoredPhoto path={a.filePath} url={a.url} alt="" className="w-full h-28 object-cover" fallback={<div className="w-full h-28 grid place-items-center text-4xl bg-slate-100 animate-pulse">{AWARD_EMOJI[a.type] || "🏆"}</div>} />
                 : <div className="w-full h-28 grid place-items-center text-4xl" style={{ background: (act?.color || "#64748b") + "22" }}>{AWARD_EMOJI[a.type] || "🏆"}</div>}
               <div className="p-2.5">
                 <div className="font-bold text-[12px] leading-tight">{a.title}</div>
@@ -2203,7 +2236,7 @@ function Accomplishments({ awards, addAward, removeAward, activities }) {
   );
 }
 
-function AddAwardForm({ activities, onAdd, onCancel }) {
+function AddAwardForm({ activities, onAdd, onCancel, familyId }) {
   const opts = activities.filter((a) => a.status !== "archived");
   const [title, setTitle] = useState("");
   const [type, setType] = useState("Certificate");
@@ -2211,7 +2244,19 @@ function AddAwardForm({ activities, onAdd, onCancel }) {
   const [date, setDate] = useState(TODAY_ISO);
   const [note, setNote] = useState("");
   const [file, setFile] = useState(null);
-  const onFile = (f) => { if (!f) return; const isImg = f.type.startsWith("image/"); setFile({ name: f.name, url: isImg ? URL.createObjectURL(f) : "" }); };
+  const [uploading, setUploading] = useState(false);
+  const onFile = async (f) => {
+    if (!f) return;
+    setUploading(true);
+    try {
+      const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "award" });
+      setFile({ name, path });
+    } catch (err) {
+      alert("Upload failed: " + (err.message || err));
+    } finally {
+      setUploading(false);
+    }
+  };
   return (
     <Card className="p-4 mb-3">
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (e.g. Yellow Belt, Recital sheet)" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
@@ -2223,12 +2268,12 @@ function AddAwardForm({ activities, onAdd, onCancel }) {
       <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
       <label className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2.5 cursor-pointer mb-3">
         <Camera size={16} className="text-slate-500" />
-        <span className="text-sm text-slate-500 flex-1">{file ? file.name : "Upload photo or file"}</span>
+        <span className="text-sm text-slate-500 flex-1">{uploading ? "Uploading…" : (file ? file.name : "Upload photo or file")}</span>
         <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
       </label>
       <div className="flex gap-2">
         <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">Cancel</button>
-        <button disabled={!title.trim()} onClick={() => onAdd({ id: "aw_" + Date.now(), title: title.trim(), type, activityId: actId, date, note: note.trim(), fileName: file?.name || "", url: file?.url || "" })} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${title.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Save</button>
+        <button disabled={!title.trim() || uploading} onClick={() => onAdd({ id: "aw_" + Date.now(), title: title.trim(), type, activityId: actId, date, note: note.trim(), fileName: file?.name || "", filePath: file?.path || "" })} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${title.trim() && !uploading ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Save</button>
       </div>
     </Card>
   );
@@ -2241,7 +2286,7 @@ function ParentRecap(props) {
   const [copied, setCopied] = useState(false);
   const approved = completions.filter((c) => c.status === "approved");
   const starsEarned = approved.reduce((s, c) => s + (c.awardedStars || 0), 0) + (gifted || []).reduce((s, g) => s + (g.stars || 0), 0);
-  const photos = completions.flatMap((c) => (c.proof || []).filter((p) => p.type === "photo" && p.url).map((p) => ({ ...p, taskId: c.taskId })));
+  const photos = completions.flatMap((c) => (c.proof || []).filter((p) => p.type === "photo" && (p.path || p.url)).map((p) => ({ ...p, taskId: c.taskId })));
   const booksDone = (books || []).filter((b) => b.status === "finished");
   const topStreaks = Object.entries(streaks || {}).map(([id, s]) => ({ a: activities.find((x) => x.id === id), s })).filter((x) => x.a).sort((a, b) => b.s.current - a.s.current);
 
@@ -2290,7 +2335,7 @@ function ParentRecap(props) {
       <SectionTitle icon={<ImageIcon size={16} className="text-violet-500" />}>Photos {period === "week" ? "this week" : "this month"}</SectionTitle>
       {photos.length === 0 && <p className="text-xs text-slate-400 px-1">No photos captured yet — helpers can snap them from the checklist.</p>}
       <div className="grid grid-cols-3 gap-1.5">
-        {photos.map((p, i) => <img key={i} src={p.url} alt="" className="w-full h-24 object-cover rounded-xl" />)}
+        {photos.map((p, i) => <StoredPhoto key={i} path={p.path} url={p.url} alt="" className="w-full h-24 object-cover rounded-xl" fallback={<div className="w-full h-24 bg-slate-100 animate-pulse rounded-xl" />} />)}
       </div>
 
       <SectionTitle icon={<Flame size={16} className="text-orange-500" />}>Streak highlights</SectionTitle>
@@ -2377,10 +2422,10 @@ function Portfolio({ completions, tasks, users, gifted, activities }) {
         const t = tasks.find((x) => x.id === c.taskId);
         const by = users.find((u) => u.id === c.approvedBy)?.name;
         const d = actFor(t || { activityType: "" }, activities);
-        const ph = c.proof?.find((p) => p.url);
+        const ph = c.proof?.find((p) => p.path || p.url);
         return (
           <Card key={c.id} className="p-3 mb-2 flex gap-3">
-            {ph ? <img src={ph.url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" /> : <div className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: d.tint }}><TaskIcon type={t?.activityType} color={d.color} /></div>}
+            {ph ? <StoredPhoto path={ph.path} url={ph.url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" fallback={<div className="w-12 h-12 rounded-xl bg-slate-100 animate-pulse shrink-0" />} /> : <div className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: d.tint }}><TaskIcon type={t?.activityType} color={d.color} /></div>}
             <div className="flex-1 min-w-0">
               <div className="font-bold text-sm">{t?.title} {c.extra?.bookTitle && <span className="text-slate-400 font-normal">· {c.extra.bookTitle}</span>}</div>
               <div className="text-[11px] text-slate-400">{fmtDate(today)} · {c.awardedStars}⭐ · approved by {by}</div>
@@ -2445,7 +2490,7 @@ function Skills() {
 }
 
 // ===================== PARENT: PEOPLE / ACCESS =====================
-function People({ users, addUser, updateUser, removeUser }) {
+function People({ users, addUser, updateUser, removeUser, familyId }) {
   const [adding, setAdding] = useState(false);
   const isExpired = (u) => u.accessType === "temporary" && u.accessExpires && new Date(u.accessExpires + "T23:59:59") < today;
   const order = { parent: 0, kid: 1, grandparent: 2, helper: 3, guest: 4 };
@@ -2461,7 +2506,16 @@ function People({ users, addUser, updateUser, removeUser }) {
               <label className="relative cursor-pointer shrink-0">
                 <Avatar user={u} size={44} />
                 <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-indigo-600 text-white grid place-items-center border-2 border-white"><Camera size={10} /></span>
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) updateUser(u.id, { photo: URL.createObjectURL(f) }); }} />
+                <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  try {
+                    const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "avatar" });
+                    updateUser(u.id, { photo: path });
+                  } catch (err) {
+                    alert("Avatar upload failed: " + (err.message || err));
+                  }
+                }} />
               </label>
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-sm flex items-center gap-2">{u.name}<span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 capitalize">{u.role}</span></div>
@@ -2833,12 +2887,16 @@ function ParentTodayHome(props) {
 }
 
 // Big, calm, must-dos-only view for a tired grandma babysitting.
-function EasyChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, mode, priorities, activities, onFull }) {
+function EasyChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, mode, priorities, activities, onFull, familyId }) {
   const onPhoto = async (t, file) => {
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    const geo = await captureLocation();
-    submitTask(t.id, { proof: [{ type: "photo", name: file.name, url, geo, by: user.id, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] });
+    try {
+      const { path, name } = await uploadFamilyPhoto({ file, familyId, kind: "proof" });
+      const geo = await captureLocation();
+      submitTask(t.id, { proof: [{ type: "photo", name, path, geo, by: user.id, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] });
+    } catch (err) {
+      alert("Photo upload failed: " + (err.message || err));
+    }
   };
   const essentials = todaysTasks.filter((t) => { const lvl = levelOf(t, mode, priorities); return lvl === "must" || lvl === "today"; });
   const ordered = sortByLevel(essentials.length ? essentials : todaysTasks.filter((t) => t.required), mode, priorities);
@@ -2894,13 +2952,17 @@ function EasyChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, mo
   );
 }
 
-function HelperChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, mode, priorities, users, activities, onEasy }) {
+function HelperChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, mode, priorities, users, activities, onEasy, familyId }) {
   const ordered = sortByLevel(todaysTasks, mode, priorities);
   const onPhoto = async (t, file) => {
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    const geo = await captureLocation();
-    submitTask(t.id, { proof: [{ type: "photo", name: file.name, url, geo, by: user.id, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] });
+    try {
+      const { path, name } = await uploadFamilyPhoto({ file, familyId, kind: "proof" });
+      const geo = await captureLocation();
+      submitTask(t.id, { proof: [{ type: "photo", name, path, geo, by: user.id, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] });
+    } catch (err) {
+      alert("Photo upload failed: " + (err.message || err));
+    }
   };
   return (
     <div className="px-4 pt-4">

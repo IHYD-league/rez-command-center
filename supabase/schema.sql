@@ -56,6 +56,10 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
+-- Avatar uploads land in the family-photos bucket; we store just the
+-- storage path here and resolve to a signed URL at display time.
+alter table public.profiles add column if not exists photo_path text;
+
 create unique index if not exists profiles_email_lower_idx
   on public.profiles ((lower(email))) where email is not null;
 create index if not exists profiles_family_idx on public.profiles(family_id);
