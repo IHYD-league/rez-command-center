@@ -1,0 +1,323 @@
+import React from "react";
+import { Star, Flame, Trophy, Crown, Target, Sparkles, MapPin, Menu } from "lucide-react";
+
+/* =====================================================================
+   KidGameHome — Reznor's "game mode" home.
+   Pure presentational component. Receives a prepared `data` blob from
+   App.jsx and two callbacks. Mirrors how the grandparent "Easy Mode"
+   is a swap-in alternate view; parent/grandma/helper untouched.
+   ===================================================================== */
+
+function Pct({ have, need }) {
+  const v = need > 0 ? Math.min(100, Math.round((have / need) * 100)) : 0;
+  return v;
+}
+
+function ProgressBar({ have, need, color = "#f59e0b" }) {
+  const pct = Pct({ have, need });
+  return (
+    <div className="w-full h-2.5 bg-white/20 rounded-full overflow-hidden">
+      <div
+        className="h-full rounded-full transition-all"
+        style={{ width: `${pct}%`, background: color }}
+      />
+    </div>
+  );
+}
+
+function Avatar({ avatar, size = 64 }) {
+  const isImg = typeof avatar === "string" && /^https?:|^data:|^blob:|^\//.test(avatar);
+  if (isImg) {
+    return (
+      <img
+        src={avatar}
+        alt=""
+        className="rounded-2xl object-cover shrink-0 border-2 border-white/40"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-2xl grid place-items-center shrink-0 border-2 border-white/40 bg-white/15"
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.55) }}
+    >
+      {avatar || "🧑‍🚀"}
+    </div>
+  );
+}
+
+function MainQuestTile({ q }) {
+  const done = q.done;
+  return (
+    <div
+      className={`rounded-3xl p-4 border-2 transition ${
+        done
+          ? "bg-emerald-50 border-emerald-300"
+          : "bg-white border-slate-200"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className={`font-extrabold text-base ${done ? "text-emerald-700" : "text-slate-800"}`}>
+            {q.title}
+          </div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mt-0.5">
+            {done ? "Complete" : "Quest"}
+          </div>
+        </div>
+        <div
+          className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 ${
+            done ? "bg-emerald-200 text-emerald-800" : "bg-amber-100 text-amber-700"
+          }`}
+        >
+          <Sparkles size={12} /> +{q.xp} XP
+        </div>
+      </div>
+      {q.subtasks && q.subtasks.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {q.subtasks.map((s) => (
+            <div
+              key={s.id}
+              className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${
+                s.done
+                  ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                  : "bg-slate-50 text-slate-400 border-slate-200"
+              }`}
+            >
+              {s.done ? "✓ " : "○ "}
+              {s.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SideQuestRow({ q }) {
+  return (
+    <div className="flex items-center justify-between bg-white border border-slate-100 rounded-2xl px-3 py-2.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <div
+          className={`w-6 h-6 rounded-full grid place-items-center text-[11px] font-bold ${
+            q.done ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"
+          }`}
+        >
+          {q.done ? "✓" : "+"}
+        </div>
+        <div className="text-sm font-semibold text-slate-700 truncate">{q.title}</div>
+      </div>
+      <div className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+        +{q.xp} XP
+      </div>
+    </div>
+  );
+}
+
+function MapStop({ stop }) {
+  const pct = Math.min(100, Math.round(stop.progress));
+  return (
+    <div className="bg-white rounded-3xl border border-slate-100 p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          <div
+            className={`w-10 h-10 rounded-2xl grid place-items-center shrink-0 ${
+              stop.done ? "bg-emerald-100" : "bg-indigo-100"
+            }`}
+          >
+            <span className="text-xl">{stop.icon}</span>
+          </div>
+          <div className="min-w-0">
+            <div className="font-extrabold text-sm text-slate-800 truncate">{stop.title}</div>
+            <div className="text-[11px] text-slate-400">{stop.description}</div>
+          </div>
+        </div>
+        <div
+          className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+            stop.done ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+          }`}
+        >
+          {stop.done ? "Unlocked" : `${pct}%`}
+        </div>
+      </div>
+      <div className="mt-3 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full ${stop.done ? "bg-emerald-500" : "bg-indigo-500"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value }) {
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 px-3 py-2.5">
+      <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">{label}</div>
+      <div className="text-base font-extrabold text-slate-800 mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+export default function KidGameHome({ data, onStartQuests, onOpenMenu }) {
+  if (!data) return null;
+  const {
+    name,
+    avatar,
+    stars,
+    streak,
+    nextReward,
+    mainQuests = [],
+    sideQuests = [],
+    stats = [],
+    mapStops = [],
+  } = data;
+
+  const firstUndone = mainQuests.find((q) => !q.done);
+
+  return (
+    <div className="px-4 pt-4 pb-6 space-y-4">
+      {/* HERO: avatar + stars + streak */}
+      <div
+        className="rounded-3xl p-5 text-white relative overflow-hidden"
+        style={{ background: "linear-gradient(135deg,#6366f1,#a855f7 55%,#ec4899)" }}
+      >
+        <Sparkles className="absolute -right-4 -top-4 opacity-20" size={120} />
+        <div className="flex items-center gap-3">
+          <Avatar avatar={avatar} size={64} />
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] uppercase tracking-widest text-white/70 font-bold">Hero</div>
+            <div className="text-2xl font-extrabold tracking-tight leading-tight truncate">
+              {name}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10">
+            <div className="text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center gap-1">
+              <Star size={11} className="fill-current text-amber-300" /> Stars
+            </div>
+            <div className="text-2xl font-extrabold leading-none mt-1">{stars}</div>
+          </div>
+          <div className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10">
+            <div className="text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center gap-1">
+              <Flame size={11} className="text-orange-300" /> Drum streak
+            </div>
+            <div className="text-2xl font-extrabold leading-none mt-1">
+              {streak?.current ?? 0}
+              <span className="text-xs font-bold text-white/60 ml-1">/ {streak?.milestone ?? 365}</span>
+            </div>
+            <div className="mt-1.5">
+              <ProgressBar have={streak?.current ?? 0} need={streak?.milestone ?? 365} color="#fb923c" />
+            </div>
+          </div>
+        </div>
+
+        {nextReward && (
+          <div className="mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
+                <Trophy size={12} className="text-amber-300" /> Next reward
+              </div>
+              <div className="text-[11px] font-bold text-white/90">
+                {nextReward.have} / {nextReward.cost} ⭐
+              </div>
+            </div>
+            <div className="text-sm font-extrabold mt-0.5">{nextReward.title}</div>
+            <div className="mt-1.5">
+              <ProgressBar have={nextReward.have} need={nextReward.cost} color="#fde047" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* MAIN QUESTS */}
+      <div>
+        <div className="flex items-center justify-between px-1 mb-2">
+          <div className="flex items-center gap-2 font-extrabold text-slate-800 text-base">
+            <Target size={16} className="text-indigo-500" /> Today's Quests
+          </div>
+          <div className="text-[11px] font-bold text-slate-400">
+            {mainQuests.filter((q) => q.done).length} / {mainQuests.length}
+          </div>
+        </div>
+        <div className="space-y-2">
+          {mainQuests.length === 0 ? (
+            <div className="text-center text-sm text-slate-400 py-6 bg-white rounded-2xl border border-slate-100">
+              No quests today. Free day! 🎉
+            </div>
+          ) : (
+            mainQuests.map((q) => <MainQuestTile key={q.id} q={q} />)
+          )}
+        </div>
+      </div>
+
+      {/* SIDE QUESTS */}
+      {sideQuests.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 font-extrabold text-slate-800 text-base px-1 mb-2">
+            <Sparkles size={16} className="text-amber-500" /> Side Quests
+            <span className="text-[11px] font-bold text-slate-400">(extra XP)</span>
+          </div>
+          <div className="space-y-1.5">
+            {sideQuests.map((q) => (
+              <SideQuestRow key={q.id} q={q} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* WORLD MAP */}
+      {mapStops.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 font-extrabold text-slate-800 text-base px-1 mb-2">
+            <MapPin size={16} className="text-rose-500" /> World Map
+          </div>
+          <div className="space-y-2">
+            {mapStops.map((s) => (
+              <MapStop key={s.id} stop={s} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* STATS */}
+      {stats.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 font-extrabold text-slate-800 text-base px-1 mb-2">
+            <Crown size={16} className="text-violet-500" /> Stats
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {stats.map((s, i) => (
+              <StatCard key={i} label={s.label} value={s.value} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CTAs */}
+      <div className="grid grid-cols-[1fr_auto] gap-2 pt-1">
+        <button
+          onClick={onStartQuests}
+          disabled={!firstUndone}
+          className={`rounded-3xl py-4 font-extrabold text-white text-base shadow-lg transition active:scale-95 ${
+            firstUndone
+              ? "bg-gradient-to-r from-indigo-500 to-violet-600"
+              : "bg-slate-300 text-slate-500"
+          }`}
+        >
+          {firstUndone ? `▶ Start Quest: ${firstUndone.title}` : "All quests done! 🎉"}
+        </button>
+        <button
+          onClick={onOpenMenu}
+          className="rounded-3xl px-4 bg-white border border-slate-200 grid place-items-center active:scale-95"
+          title="Menu"
+        >
+          <Menu size={20} className="text-slate-600" />
+        </button>
+      </div>
+    </div>
+  );
+}

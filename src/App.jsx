@@ -4,6 +4,7 @@ import {
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft,
   Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search
 } from "lucide-react";
+import KidGameHome from "./KidGameHome.jsx";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -541,12 +542,59 @@ export default function App({ initial, currentProfileId, sync } = {}) {
     return <LoginScreen users={users} onPick={(id) => { setCurrentUserId(id); setTab("today"); }} />;
   }
 
+  // KidGameHome data — built from existing state (no hook; runs after the
+  // early-return above so `user` is guaranteed defined).
+  const _drumCurrent = streaks?.a_drums?.current ?? 0;
+  const _milestone = 365;
+  const _questFromTask = (t) => {
+    const c = compByTask[t.id];
+    const subs = t.subtasks
+      ? t.subtasks.map((s) => ({ id: s.id, label: s.label, done: !!c?.extra?.subsDone?.includes(s.id) }))
+      : undefined;
+    return { id: t.id, title: t.title, xp: (t.starValue || 0) * 10, done: !!c, subtasks: subs };
+  };
+  const _booksFinished = (books || []).filter((b) => b.status === "finished").length;
+  const kidData = {
+    name: user.name,
+    avatar: user.photo || user.emoji || "🧑‍🚀",
+    stars: starBank,
+    streak: { current: _drumCurrent, milestone: _milestone, fillPct: (_drumCurrent / _milestone) * 100 },
+    nextReward: { title: CHILD.nextReward, cost: CHILD.nextRewardCost, have: starBank },
+    mainQuests: todaysTasks.filter((t) => t.required).map(_questFromTask),
+    sideQuests: todaysTasks.filter((t) => !t.required).map(_questFromTask),
+    stats: [
+      { label: "Drum streak", value: _drumCurrent ? `${_drumCurrent}d` : "—" },
+      { label: "Books finished", value: _booksFinished || "—" },
+      { label: "Spanish streak", value: streaks?.a_spa?.current ? `${streaks.a_spa.current}d` : "—" },
+      { label: "Stars banked", value: starBank },
+    ],
+    mapStops: [
+      {
+        id: "drum_mountain",
+        title: "Drum Mountain",
+        icon: "🥁",
+        description: "Climb to a full year of drums (365 days).",
+        progress: Math.min(100, (_drumCurrent / _milestone) * 100),
+        done: _drumCurrent >= _milestone,
+      },
+      {
+        id: "universal_castle",
+        title: "Universal Castle",
+        icon: "🏰",
+        description: "Save 500 stars for Universal Studios.",
+        progress: Math.min(100, (starBank / 500) * 100),
+        done: starBank >= 500,
+      },
+    ],
+  };
+
   const shared = {
     user, users, tasks, todaysTasks, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
     submitTask, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest,
+    kidData,
   };
 
   return (
@@ -591,7 +639,19 @@ function Router(props) {
     if (tab === "stars") return <KidStars {...props} />;
     if (tab === "dream") return <DreamPlan {...props} />;
     if (tab === "streaks") return <KidStreaks {...props} />;
-    return <KidMissions {...props} />;
+    if (tab === "missions") return <KidMissions {...props} />;
+    return (
+      <KidGameHome
+        data={props.kidData}
+        onStartQuests={() => {
+          const first = (props.kidData?.mainQuests || []).find((q) => !q.done);
+          if (!first) return;
+          const t = props.tasks.find((x) => x.id === first.id);
+          if (t) props.setOpenTask(t);
+        }}
+        onOpenMenu={() => props.setTab("missions")}
+      />
+    );
   }
   if (role === "parent") {
     if (tab === "approvals") return <Approvals {...props} />;
