@@ -841,6 +841,7 @@ function Router(props) {
         onTapQuest={openQuestSheet}
         onTapStars={() => props.setStatDetailId?.("bank")}
         onOpenMenu={() => props.setTab("missions")}
+        onOpenBoard={() => props.setTab("board")}
       />
     );
   }

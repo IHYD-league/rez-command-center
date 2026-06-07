@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Star, Flame, Trophy, Crown, Target, Sparkles, MapPin, Menu } from "lucide-react";
+import { Star, Flame, Trophy, Crown, Target, Sparkles, MapPin, Menu, Map } from "lucide-react";
 
 /* =====================================================================
    KidGameHome — Reznor's "game mode" home.
@@ -273,7 +273,7 @@ function StatCard({ label, value }) {
   );
 }
 
-export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest, onTapStars }) {
+export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest, onTapStars, onOpenBoard }) {
   if (!data) return null;
   const {
     name,
@@ -381,6 +381,38 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           </div>
         )}
       </div>
+
+      {/* DAILY ADVENTURE BOARD entry — sits right under the hero so the kid
+          can jump straight to the board without scrolling to the bottom nav. */}
+      {onOpenBoard && (
+        <button
+          type="button"
+          onClick={onOpenBoard}
+          className="w-full rounded-3xl p-3.5 flex items-center gap-3 active:scale-[0.98] transition relative overflow-hidden border-2 border-white/15 shadow-lg"
+          style={{
+            background: "linear-gradient(135deg, #1e293b 0%, #4338ca 35%, #7c3aed 70%, #ec4899 100%)",
+          }}
+        >
+          {/* sprinkle of stars baked into the gradient */}
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "18%", top: "22%", color: "rgba(255,255,255,0.5)", fontSize: 10 }}>✦</span>
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "44%", top: "68%", color: "rgba(255,255,255,0.4)", fontSize: 9 }}>✦</span>
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "72%", top: "30%", color: "rgba(255,255,255,0.5)", fontSize: 11 }}>✦</span>
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "86%", top: "60%", color: "rgba(255,255,255,0.35)", fontSize: 8 }}>✦</span>
+          <div className="w-12 h-12 rounded-2xl bg-white/15 grid place-items-center backdrop-blur border border-white/25 shrink-0 relative z-10">
+            <span className="text-2xl">🚀</span>
+          </div>
+          <div className="flex-1 text-left relative z-10 min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold">Space Quest</div>
+            <div className="text-base font-extrabold text-white tracking-tight leading-tight mt-0.5">
+              Daily Adventure Board
+            </div>
+            <div className="text-[11px] text-white/80 mt-0.5 truncate">
+              Fly your rocket through today's missions →
+            </div>
+          </div>
+          <Map size={20} className="text-white/80 relative z-10 shrink-0" />
+        </button>
+      )}
 
       {/* MAIN QUESTS */}
       <div>

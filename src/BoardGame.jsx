@@ -668,18 +668,25 @@ export default function BoardGame({
               0%, 100% { transform: translateY(0) scale(1); }
               50%      { transform: translateY(-8px) scale(1.18); }
             }
+            @keyframes rocketHover {
+              0%, 100% { transform: translateY(0); }
+              50%      { transform: translateY(-4px); }
+            }
             @keyframes hintBob {
               0%, 100% { transform: translateY(0); }
               50%      { transform: translateY(-4px); }
             }
           `}</style>
+          {/* A rocket should always look like it's flying. Pre-launch it
+              gets the BIG pulse+glow "tap me" cue. After launch it settles
+              into the slower rocketHover bob — continuous, never static. */}
           <div
             className="text-3xl sm:text-4xl drop-shadow-[0_3px_6px_rgba(0,0,0,0.55)]"
             style={{
               animation:
                 !launched && targetIdx > 0
                   ? "rocketReady 900ms ease-in-out infinite"
-                  : undefined,
+                  : "rocketHover 2400ms ease-in-out infinite",
               filter:
                 !launched && targetIdx > 0
                   ? "drop-shadow(0 0 14px rgba(253,224,71,0.6))"
