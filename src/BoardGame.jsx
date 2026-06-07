@@ -1,30 +1,28 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Lock } from "lucide-react";
 
 /* =====================================================================
-   BoardGame — Daily Adventure Board, Phase 2.
+   BoardGame — Daily Adventure Board, Phase 2.5 (pre-themes).
 
-   What changed from Phase 1 (ARCHITECTURE compliant — see BOARD-GAME.md):
-     - Layout: grid → connected winding PATH. One trail from a START
-       marker, snaking through task spaces, ending at the TREASURE.
-       Spaces sit ON the path; SVG draws the trail behind them.
-     - Token animates: when canonical data says the kid has cleared a
-       new space, the rocket smoothly travels along the SVG path from
-       its old position (board_state.lastPosition) to the new position
-       (computed from compByTask). Uses path.getPointAtLength so it
-       follows the curve, not a straight line.
-     - Celebrations fire on landing — small board-flavored confetti for
-       a space, big treasure-flavored celebration for the final space.
-     - One new table: board_state (per-profile lastPosition +
-       treasureClaimedOn). Nothing else changes.
+   ARCHITECTURE-clean. The path is derived purely from canonical data:
+     - Approved completions for TODAY, sorted by creation timestamp
+       (id = "cmp_" + Date.now() lexicographically sorts as time), drive
+       the order of "completed" spaces along the path.
+     - Un-approved today's tasks fill the rest of the path (required
+       first, then extras, original order within each).
+     - The rocket's destination is the last completed space; the rocket
+       lives at START until the first approval lands.
+     - Tap a space → setOpenTask(task) → existing TaskSheet → submitTask.
+       Star/streak/reward logic untouched.
 
-   Still pure-skin over canonical data:
-     - Task list, completion status, stars, streaks, approvals — all
-       read from props. submitTask is the only mutation path on tap.
-     - Token position the kid SHOULD be at is recomputed from
-       canonical compByTask every render. board_state only remembers
-       where the token WAS so we can animate the diff.
-     - Removing board_state would leave the rest of the app working.
+   Behaviour rules per the latest prompt:
+     1. Completion-order path. No more "current"/"locked" — order of the
+        remaining ones doesn't matter, only filling them all does.
+     2. Celebrations are gated on the completion IDENTITY (its id), not on
+        a space-index high-water mark. Redoing a task creates a fresh id →
+        the celebration fires again. No "already today" gate.
+     3. On every board open, the rocket starts at START and animates a
+        smooth victory lap through every completed space to the current
+        position. ONE sweep, no per-space confetti. Tap anywhere to skip.
    ===================================================================== */
 
 const SPACE_QUEST = {
@@ -60,72 +58,65 @@ const ACTIVITY_EMOJI = {
   Basketball: "🏀",
 };
 
-// Build the list of "logical" spaces from canonical task data.
-// Index 0 = START marker. Indices 1..N = task spaces (required first,
-// extras last). Index N+1 = TREASURE. All state derived from compByTask
-// + the task's required flag; nothing stored here.
-function deriveSpaces({ todaysTasks, compByTask }) {
-  const required = todaysTasks.filter((t) => t.required);
-  const extras = todaysTasks.filter((t) => !t.required);
+function todayIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
-  let currentTaskId = null;
-  for (const t of [...required, ...extras]) {
-    if ((compByTask[t.id]?.status || null) !== "approved") {
-      currentTaskId = t.id;
-      break;
-    }
-  }
+// Completion-order path:
+//   [START, ...completed today in completion order, ...remaining tasks
+//    (required first, then extras, original order within), TREASURE]
+function deriveSpaces({ todaysTasks, compByTask, completions }) {
+  const TODAY_ISO = todayIso();
+  // Today's approved completions, sorted by creation time (id is
+  // "cmp_<Date.now()>", so a lexicographic sort matches time order).
+  const approvedToday = (completions || [])
+    .filter(
+      (c) =>
+        c.status === "approved" &&
+        c.completionDate === TODAY_ISO &&
+        // Stick to today's-task ids — a completion for an unrelated task
+        // doesn't belong on this board.
+        todaysTasks.some((t) => t.id === c.taskId)
+    )
+    .sort((a, b) => (a.id || "").localeCompare(b.id || ""));
+  const completedTaskIds = approvedToday.map((c) => c.taskId);
+  const completedSet = new Set(completedTaskIds);
 
   const out = [{ kind: "start", state: "start" }];
 
-  for (let i = 0; i < required.length; i++) {
-    const t = required[i];
-    const c = compByTask[t.id];
-    let locked = false;
-    if (i > 0) {
-      const prev = required[i - 1];
-      const pc = compByTask[prev.id];
-      const submitted = pc?.status === "approved" || pc?.status === "pending";
-      if (!submitted) locked = true;
-    }
-    const state = locked
-      ? "locked"
-      : c?.status === "approved"
-      ? "completed"
-      : c?.status === "pending"
-      ? "pending"
-      : c?.status === "needs_fix"
-      ? "needs-fix"
-      : t.id === currentTaskId
-      ? "current"
-      : "available";
-    out.push({ kind: "task", task: t, state });
+  for (const tid of completedTaskIds) {
+    const t = todaysTasks.find((x) => x.id === tid);
+    if (t) out.push({ kind: "task", task: t, state: "completed" });
   }
-  for (const t of extras) {
+
+  // Remaining: required first, then extras. State derives from compByTask
+  // — pending or needs-fix for ones the kid has touched; available otherwise.
+  // No gating, no "current" highlight — the rocket tells you where you are.
+  const remaining = todaysTasks.filter((t) => !completedSet.has(t.id));
+  const remRequired = remaining.filter((t) => t.required);
+  const remExtras = remaining.filter((t) => !t.required);
+  for (const t of [...remRequired, ...remExtras]) {
     const c = compByTask[t.id];
     const state =
-      c?.status === "approved"
-        ? "completed"
-        : c?.status === "pending"
+      c?.status === "pending"
         ? "pending"
         : c?.status === "needs_fix"
         ? "needs-fix"
-        : t.id === currentTaskId
-        ? "current"
         : "available";
     out.push({ kind: "task", task: t, state });
   }
 
-  const allApproved = todaysTasks.length > 0 && todaysTasks.every(
-    (t) => compByTask[t.id]?.status === "approved"
-  );
+  const allApproved =
+    todaysTasks.length > 0 && completedTaskIds.length === todaysTasks.length;
   out.push({ kind: "treasure", state: allApproved ? "treasure-open" : "treasure-locked" });
 
   return out;
 }
 
-// Distribute the spaces along a winding snake path. Returns positions in
-// SVG viewBox units (0..100 x, 0..VIEWBOX_H y).
 function calcPositions(count, viewBoxH) {
   const cols = 3;
   const xLanes = [22, 50, 78];
@@ -143,7 +134,6 @@ function calcPositions(count, viewBoxH) {
   return positions;
 }
 
-// Build an SVG path string: straight-ish along rows, U-turns between rows.
 function buildPathD(positions) {
   if (positions.length === 0) return "";
   let d = `M ${positions[0].x} ${positions[0].y}`;
@@ -152,24 +142,18 @@ function buildPathD(positions) {
     const curr = positions[i];
     const sameRow = Math.abs(prev.y - curr.y) < 0.5;
     if (sameRow) {
-      // Within a row — a gentle horizontal arc so it doesn't look ruler-straight.
       const mx = (prev.x + curr.x) / 2;
       const my = prev.y - 1.5;
       d += ` Q ${mx} ${my} ${curr.x} ${curr.y}`;
     } else {
-      // Between rows — a U-curve that swings outward off the edge.
       const right = prev.x > 50;
       const outX = right ? Math.min(95, prev.x + 12) : Math.max(5, prev.x - 12);
-      const c1 = { x: outX, y: prev.y };
-      const c2 = { x: outX, y: curr.y };
-      d += ` C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${curr.x} ${curr.y}`;
+      d += ` C ${outX} ${prev.y}, ${outX} ${curr.y}, ${curr.x} ${curr.y}`;
     }
   }
   return d;
 }
 
-// Small lightweight confetti when the token lands on a space. Distinct
-// from KidGameHome's MissionCelebration so the board has its own feel.
 function BoardPop({ id, kind, label, sub }) {
   if (!id) return null;
   const palette =
@@ -208,22 +192,9 @@ function BoardPop({ id, kind, label, sub }) {
       aria-hidden="true"
     >
       <style>{`
-        @keyframes bpBurst {
-          0%   { transform: scale(0.25); opacity: 0; }
-          30%  { transform: scale(1.35); opacity: 1; }
-          70%  { transform: scale(1.08); opacity: 0.95; }
-          100% { transform: scale(1); opacity: 0; }
-        }
-        @keyframes bpRise {
-          0%   { transform: translateY(8px); opacity: 0; }
-          15%  { opacity: 1; }
-          100% { transform: translateY(-140px); opacity: 0; }
-        }
-        @keyframes bpConfetti {
-          0%   { transform: translate(0, -10vh) rotate(0deg); opacity: 0; }
-          12%  { opacity: 1; }
-          100% { transform: translate(var(--dx), 55vh) rotate(720deg); opacity: 0; }
-        }
+        @keyframes bpBurst { 0% { transform: scale(0.25); opacity: 0; } 30% { transform: scale(1.35); opacity: 1; } 70% { transform: scale(1.08); opacity: 0.95; } 100% { transform: scale(1); opacity: 0; } }
+        @keyframes bpRise { 0% { transform: translateY(8px); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-140px); opacity: 0; } }
+        @keyframes bpConfetti { 0% { transform: translate(0, -10vh) rotate(0deg); opacity: 0; } 12% { opacity: 1; } 100% { transform: translate(var(--dx), 55vh) rotate(720deg); opacity: 0; } }
       `}</style>
       <div
         className="drop-shadow-lg"
@@ -236,20 +207,14 @@ function BoardPop({ id, kind, label, sub }) {
       </div>
       <div
         className="absolute text-2xl font-extrabold text-amber-300"
-        style={{
-          animation: "bpRise 1200ms ease-out forwards",
-          textShadow: "0 2px 14px rgba(0,0,0,0.45)",
-        }}
+        style={{ animation: "bpRise 1200ms ease-out forwards", textShadow: "0 2px 14px rgba(0,0,0,0.45)" }}
       >
         {label}
       </div>
       {sub && (
         <div
           className="absolute text-sm font-bold text-white/90 mt-16"
-          style={{
-            animation: "bpRise 1200ms ease-out 80ms forwards",
-            textShadow: "0 2px 10px rgba(0,0,0,0.5)",
-          }}
+          style={{ animation: "bpRise 1200ms ease-out 80ms forwards", textShadow: "0 2px 10px rgba(0,0,0,0.5)" }}
         >
           {sub}
         </div>
@@ -259,13 +224,10 @@ function BoardPop({ id, kind, label, sub }) {
   );
 }
 
-// SpaceMarker — renders one node on the path. Positions itself absolutely
-// using SVG-unit coordinates translated to %.
 function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities }) {
   const { kind, state, task } = space;
-  const xPct = x; // viewBox x is 0..100
+  const xPct = x;
   const yPct = (y / viewBoxH) * 100;
-
   let content;
   let label;
   let labelClass = "text-white";
@@ -297,7 +259,6 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities }) {
       ring = "rgba(255,255,255,0.18)";
     }
   } else {
-    // task
     const a =
       (activities || []).find(
         (x) =>
@@ -307,28 +268,17 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities }) {
     const color = a.color || theme.fallbackColor;
     const emoji = ACTIVITY_EMOJI[task.activityType] || "⭐";
     label = task.title;
-
     const palette = {
-      locked: { bg: "rgba(255,255,255,0.06)", opacity: 0.45, ring: "rgba(255,255,255,0.12)" },
       available: { bg: color, opacity: 1, ring: "rgba(255,255,255,0.4)" },
-      current: { bg: color, opacity: 1, ring: "rgba(255,255,255,0.9)" },
       pending: { bg: color, opacity: 0.92, ring: "#f59e0b" },
-      completed: { bg: "#0f5132", opacity: 0.7, ring: "rgba(255,255,255,0.2)" },
+      completed: { bg: "#0f5132", opacity: 0.72, ring: "rgba(255,255,255,0.2)" },
       "needs-fix": { bg: color, opacity: 0.92, ring: "#ef4444" },
     };
     const p = palette[state] || palette.available;
     bg = p.bg;
     ring = p.ring;
-    tappable = state !== "locked";
-    glow = state === "current";
-
-    content =
-      state === "locked" ? (
-        <Lock size={18} className="text-white/40" />
-      ) : (
-        <span className="text-2xl sm:text-3xl">{emoji}</span>
-      );
-
+    tappable = true;
+    content = <span className="text-2xl sm:text-3xl">{emoji}</span>;
     if (state === "completed") {
       badge = (
         <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 grid place-items-center text-white text-xs font-extrabold border-2 border-slate-900">
@@ -348,8 +298,6 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities }) {
         </div>
       );
     }
-
-    labelClass = state === "locked" ? "text-white/35" : "text-white";
   }
 
   const inner = (
@@ -377,21 +325,13 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities }) {
       }}
     >
       {tappable ? (
-        <button
-          type="button"
-          onClick={() => onTap?.(task)}
-          title={label}
-          className="active:scale-95"
-        >
+        <button type="button" onClick={() => onTap?.(task)} title={label} className="active:scale-95">
           {inner}
         </button>
       ) : (
         inner
       )}
-      <div
-        className={`text-[10px] sm:text-[11px] font-bold text-center mt-1.5 leading-tight ${labelClass}`}
-        style={{ maxWidth: 96 }}
-      >
+      <div className={`text-[10px] sm:text-[11px] font-bold text-center mt-1.5 leading-tight ${labelClass}`} style={{ maxWidth: 96 }}>
         {label}
       </div>
     </div>
@@ -401,16 +341,16 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities }) {
 export default function BoardGame({
   todaysTasks,
   compByTask,
+  completions,
   activities,
   setOpenTask,
   user,
-  boardState,
-  setBoardLastPosition,
-  setTreasureClaimed,
 }) {
   const theme = SPACE_QUEST;
+  const safeTasks = todaysTasks || [];
+  const safeComp = compByTask || {};
+  const safeCompletions = completions || [];
 
-  // Stable star sprites for the bg.
   const stars = useMemo(
     () =>
       Array.from({ length: 42 }).map((_, i) => ({
@@ -422,9 +362,6 @@ export default function BoardGame({
       })),
     []
   );
-
-  const safeTasks = todaysTasks || [];
-  const safeComp = compByTask || {};
 
   if (safeTasks.length === 0) {
     return (
@@ -444,87 +381,67 @@ export default function BoardGame({
     );
   }
 
-  const spaces = deriveSpaces({ todaysTasks: safeTasks, compByTask: safeComp });
+  const spaces = useMemo(
+    () => deriveSpaces({ todaysTasks: safeTasks, compByTask: safeComp, completions: safeCompletions }),
+    [safeTasks, safeComp, safeCompletions]
+  );
 
-  // Target index — where the token SHOULD be right now per canonical
-  // compByTask. Conceptually: the last index whose space is in a "done"
-  // bucket (approved). The token sits ON that done space; the NEXT space
-  // is the one being worked on (current). Treasure is the absolute end.
-  const targetIdx = useMemo(() => {
-    // Index 0 = START. Token sits on START if nothing is approved yet.
-    let lastDoneIdx = 0;
-    for (let i = 1; i < spaces.length; i++) {
-      const s = spaces[i];
-      if (s.kind === "task" && s.state === "completed") lastDoneIdx = i;
-    }
-    // If everything is approved (treasure-open), park the token on the treasure.
-    if (spaces[spaces.length - 1].state === "treasure-open") {
-      lastDoneIdx = spaces.length - 1;
-    }
-    return lastDoneIdx;
-  }, [spaces]);
-
-  // Sizing — vertical board, scrolls if needed. Aspect chosen for mobile.
   const rowCount = Math.max(1, Math.ceil(spaces.length / 3));
-  const VIEWBOX_H = rowCount * 38; // viewBox height in svg units
+  const VIEWBOX_H = rowCount * 38;
   const positions = useMemo(() => calcPositions(spaces.length, VIEWBOX_H), [spaces.length, VIEWBOX_H]);
   const pathD = useMemo(() => buildPathD(positions), [positions]);
 
-  // We measure the rendered path in PIXELS so the token's x/y use the
-  // same coordinate system as the SVG (after preserveAspectRatio=none
-  // stretching). That way getPointAtLength gives us positions in
-  // viewBox units we can convert to %.
-  const pathRef = useRef(null);
-  const containerRef = useRef(null);
+  // Where the rocket SHOULD live right now: index of the last completed
+  // space. Since the path is built completion-order-first, that's just
+  // the count of completed task spaces (START is index 0).
+  const targetIdx = useMemo(() => {
+    let last = 0;
+    for (let i = 1; i < spaces.length; i++) {
+      if (spaces[i].kind === "task" && spaces[i].state === "completed") last = i;
+      else break;
+    }
+    if (spaces[spaces.length - 1].state === "treasure-open") last = spaces.length - 1;
+    return last;
+  }, [spaces]);
 
-  // Token state — animated x,y in viewBox-unit space.
+  // Canonical "what's approved right now" — used to detect new completions
+  // (including redos of previously-undone tasks, which get fresh ids).
+  const approvedIds = useMemo(() => {
+    const TODAY_ISO = todayIso();
+    return safeCompletions
+      .filter((c) => c.status === "approved" && c.completionDate === TODAY_ISO)
+      .map((c) => c.id);
+  }, [safeCompletions]);
+
+  const pathRef = useRef(null);
+  const animRef = useRef(null);
+  const seenIdsRef = useRef(null); // null = not yet seeded (still replaying)
+  const tokenIdxRef = useRef(0);
+
   const [tokenXY, setTokenXY] = useState(() => {
     const p = positions[0] || { x: 50, y: 0 };
     return { x: p.x, y: p.y };
   });
-  const [animKey, setAnimKey] = useState(0);
+  const [replaying, setReplaying] = useState(true);
   const [pop, setPop] = useState(null);
 
-  const profileId = user?.id;
-  const savedLastPos = profileId ? boardState?.[profileId]?.lastPosition ?? 0 : 0;
-  const treasureClaimedOn = profileId ? boardState?.[profileId]?.treasureClaimedOn : null;
-
-  // Effect — animate token along the path from savedLastPos → targetIdx
-  // when canonical data advances. Updates board_state when finished so a
-  // reload picks up where we left off (no re-animation, no re-celebration).
-  useEffect(() => {
-    if (!pathRef.current || positions.length === 0) return;
-
-    // From-index is whichever is bigger between saved and current visual.
-    // If kid hard-reloads mid-animation we still resume from saved.
-    const fromIdx = Math.max(0, Math.min(savedLastPos, positions.length - 1));
-    const toIdx = Math.max(0, Math.min(targetIdx, positions.length - 1));
-
-    // No diff — just place the token and bail.
-    if (fromIdx === toIdx) {
-      const p = positions[toIdx];
+  // Animate the token along the SVG path from one logical index to another.
+  // Pure visual — never touches canonical data.
+  const animateAlong = (fromIdx, toIdx, { duration, onLand } = {}) => {
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    if (!pathRef.current || positions.length < 2 || fromIdx === toIdx) {
+      const p = positions[toIdx] || positions[0];
       setTokenXY({ x: p.x, y: p.y });
+      tokenIdxRef.current = toIdx;
+      onLand?.();
       return;
     }
-
-    // Reverse jump (someone undid a task): no animation, just snap. No pop.
-    if (toIdx < fromIdx) {
-      const p = positions[toIdx];
-      setTokenXY({ x: p.x, y: p.y });
-      setBoardLastPosition?.(profileId, toIdx);
-      return;
-    }
-
-    // Forward: animate along the SVG path between the two indices.
     const pathEl = pathRef.current;
     const total = pathEl.getTotalLength();
     const lenAt = (idx) => total * (idx / (positions.length - 1));
     const startLen = lenAt(fromIdx);
     const endLen = lenAt(toIdx);
-    const duration = Math.min(900, 350 + (toIdx - fromIdx) * 250);
     const startedAt = performance.now();
-    let raf = 0;
-
     const tick = (now) => {
       const t = Math.min(1, (now - startedAt) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
@@ -532,42 +449,108 @@ export default function BoardGame({
       const pt = pathEl.getPointAtLength(len);
       setTokenXY({ x: pt.x, y: pt.y });
       if (t < 1) {
-        raf = requestAnimationFrame(tick);
+        animRef.current = requestAnimationFrame(tick);
       } else {
-        // Landed. Decide which pop to fire.
-        const landed = spaces[toIdx];
-        if (landed?.kind === "treasure" && treasureClaimedOn !== TODAY_ISO_GLOBAL()) {
-          setPop({ id: Date.now(), kind: "treasure", label: "TREASURE! 🏆", sub: "All missions complete!" });
-          setTreasureClaimed?.(profileId, TODAY_ISO_GLOBAL());
+        animRef.current = null;
+        tokenIdxRef.current = toIdx;
+        onLand?.();
+      }
+    };
+    animRef.current = requestAnimationFrame(tick);
+  };
+
+  // Replay-from-start victory lap. Fires once per mount.
+  useEffect(() => {
+    if (!replaying) return;
+    const start = positions[0] || { x: 50, y: 0 };
+    setTokenXY({ x: start.x, y: start.y });
+    tokenIdxRef.current = 0;
+    if (targetIdx === 0) {
+      setReplaying(false);
+      seenIdsRef.current = new Set(approvedIds);
+      return;
+    }
+    const tm = setTimeout(() => {
+      animateAlong(0, targetIdx, {
+        duration: Math.min(1800, 600 + targetIdx * 220),
+        onLand: () => {
+          setReplaying(false);
+          seenIdsRef.current = new Set(approvedIds);
+        },
+      });
+    }, 240);
+    return () => {
+      clearTimeout(tm);
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+    };
+    // Intentionally NOT depending on approvedIds/targetIdx — we want one
+    // sweep per mount. Subsequent changes are handled by the "live" effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Live updates: a new approved id appeared (a fresh completion or a redo
+  // of a previously-undone task) → animate to the new target + celebrate.
+  // A removed id (undo) → snap back, no celebration.
+  useEffect(() => {
+    if (replaying || seenIdsRef.current === null) return;
+    const current = new Set(approvedIds);
+    const newIds = approvedIds.filter((id) => !seenIdsRef.current.has(id));
+    const removed = [...seenIdsRef.current].some((id) => !current.has(id));
+    seenIdsRef.current = current;
+
+    if (newIds.length === 0) {
+      if (removed) {
+        animateAlong(tokenIdxRef.current, targetIdx, { duration: 0 });
+      }
+      return;
+    }
+
+    // Animate to the new last-completed space and pop once.
+    animateAlong(tokenIdxRef.current, targetIdx, {
+      duration: Math.min(900, 350 + Math.max(0, targetIdx - tokenIdxRef.current) * 250),
+      onLand: () => {
+        const landed = spaces[targetIdx];
+        if (landed?.kind === "treasure") {
+          setPop({
+            id: Date.now(),
+            kind: "treasure",
+            label: "TREASURE! 🏆",
+            sub: "All missions complete!",
+          });
         } else if (landed?.kind === "task") {
-          const stars = landed.task?.starValue || 0;
+          const starsCount = landed.task?.starValue || 0;
           setPop({
             id: Date.now(),
             kind: "space",
-            label: stars > 0 ? `+${stars} ⭐` : "Mission complete!",
+            label: starsCount > 0 ? `+${starsCount} ⭐` : "Mission complete!",
             sub: landed.task?.title || "",
           });
         }
-        setBoardLastPosition?.(profileId, toIdx);
-      }
-    };
-    raf = requestAnimationFrame(tick);
-    setAnimKey((k) => k + 1);
-    return () => cancelAnimationFrame(raf);
+      },
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetIdx, positions.length, profileId]);
+  }, [approvedIds.join("|"), targetIdx, replaying]);
 
-  // Auto-clear the pop after its animation runs.
+  // Auto-clear the pop after its CSS animation finishes.
   useEffect(() => {
     if (!pop) return;
     const t = setTimeout(() => setPop(null), pop.kind === "treasure" ? 2200 : 1500);
     return () => clearTimeout(t);
   }, [pop]);
 
+  const skipReplay = () => {
+    if (!replaying) return;
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    const p = positions[targetIdx] || positions[0];
+    setTokenXY({ x: p.x, y: p.y });
+    tokenIdxRef.current = targetIdx;
+    setReplaying(false);
+    seenIdsRef.current = new Set(approvedIds);
+  };
+
   const doneCount = safeTasks.filter((t) => safeComp[t.id]?.status === "approved").length;
   const pendingCount = safeTasks.filter((t) => safeComp[t.id]?.status === "pending").length;
 
-  // Convert token's viewBox-unit coords to % for HTML positioning.
   const tokenLeftPct = tokenXY.x;
   const tokenTopPct = (tokenXY.y / VIEWBOX_H) * 100;
 
@@ -608,31 +591,16 @@ export default function BoardGame({
         </div>
       </div>
 
-      {/* Board container — relative; the SVG and the spaces and the token
-          all live inside, positioned in the SAME % coordinate system. */}
       <div
-        ref={containerRef}
         className="relative z-10 mx-auto"
-        style={{
-          maxWidth: 420,
-          // Height in CSS units — matches viewBox h-aspect so % positions match
-          aspectRatio: `100 / ${VIEWBOX_H}`,
-        }}
+        style={{ maxWidth: 420, aspectRatio: `100 / ${VIEWBOX_H}` }}
       >
-        {/* The path — drawn behind the markers. */}
         <svg
           viewBox={`0 0 100 ${VIEWBOX_H}`}
           preserveAspectRatio="none"
           className="absolute inset-0 w-full h-full"
         >
-          {/* Glow halo behind the path */}
-          <path
-            d={pathD}
-            stroke={theme.pathGlow}
-            strokeWidth="6"
-            fill="none"
-            strokeLinecap="round"
-          />
+          <path d={pathD} stroke={theme.pathGlow} strokeWidth="6" fill="none" strokeLinecap="round" />
           <path
             ref={pathRef}
             d={pathD}
@@ -644,10 +612,9 @@ export default function BoardGame({
           />
         </svg>
 
-        {/* Spaces */}
         {spaces.map((s, i) => (
           <SpaceMarker
-            key={i}
+            key={`${s.kind}-${s.task?.id || s.kind}-${i}`}
             space={s}
             x={positions[i].x}
             y={positions[i].y}
@@ -658,7 +625,6 @@ export default function BoardGame({
           />
         ))}
 
-        {/* Token — absolute, animated via state, positioned in same % system */}
         <div
           className="absolute pointer-events-none"
           style={{
@@ -669,13 +635,28 @@ export default function BoardGame({
             transition: "transform 80ms linear",
           }}
         >
-          <div
-            className="text-3xl sm:text-4xl drop-shadow-[0_3px_6px_rgba(0,0,0,0.55)]"
-            key={animKey}
-          >
+          <div className="text-3xl sm:text-4xl drop-shadow-[0_3px_6px_rgba(0,0,0,0.55)]">
             {theme.tokenEmoji}
           </div>
         </div>
+
+        {/* Tap-to-skip overlay during the victory lap. Sits ABOVE the
+            spaces so the first tap collapses the replay; afterwards it
+            unmounts and normal space taps work as usual. */}
+        {replaying && (
+          <button
+            type="button"
+            onClick={skipReplay}
+            aria-label="Skip replay"
+            className="absolute inset-0 z-40 w-full h-full cursor-pointer bg-transparent"
+            style={{ WebkitTapHighlightColor: "transparent" }}
+          />
+        )}
+        {replaying && (
+          <div className="absolute bottom-0 left-0 right-0 text-center text-white/70 text-[11px] font-semibold pointer-events-none z-40 pb-1">
+            tap anywhere to skip
+          </div>
+        )}
       </div>
 
       <div className="relative z-10 text-center text-[10px] text-white/40 mt-6 max-w-xs mx-auto leading-snug">
@@ -686,14 +667,4 @@ export default function BoardGame({
       {pop && <BoardPop id={pop.id} kind={pop.kind} label={pop.label} sub={pop.sub} />}
     </div>
   );
-}
-
-// We don't have a direct import to TODAY_ISO from App.jsx without coupling
-// the file; recompute the local-date ISO the same way (matches App.jsx).
-function TODAY_ISO_GLOBAL() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
