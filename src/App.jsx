@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft,
-  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search
+  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import SongLogger from "./SongLogger.jsx";
@@ -371,7 +371,7 @@ function makeSyncedSetter(rawSetter, key, sync) {
   };
 }
 
-export default function App({ initial, currentProfileId, sync, familyId } = {}) {
+export default function App({ initial, currentProfileId, sync, familyId, signOut, sessionEmail } = {}) {
   // Each persistent entity hydrates from `initial` (Supabase) when present,
   // otherwise falls back to the in-file seed.
   const [users, _setUsers] = useState(() => (initial?.profiles?.length ? initial.profiles : SEED_USERS));
@@ -459,22 +459,33 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
   const submitTask = (taskId, payload) => {
     const t = tasks.find((x) => x.id === taskId);
     // Identity model:
-    //   currentProfileId — the auth-mapped profile (never changes during the
-    //                      session). This is who's REALLY signed in.
+    //   currentProfileId — the auth-mapped profile. This is who's REALLY
+    //                      signed in (Mike, Krissie, Sara, etc.).
     //   currentUserId    — the profile being "acted as" via the in-app
-    //                      switcher; can be the kid even when Mike is signed in.
+    //                      switcher; can be the kid even when Mike is the
+    //                      one actually signed in.
     //
-    // Credit always goes to the kid (completedBy) because stars/streaks live on
-    // Reznor regardless of who tapped Submit. We record submittedBy separately
-    // for honest audit, and we auto-approve when the REAL signed-in user is a
-    // parent — even if they've switched into Reznor's profile to use his game
-    // screen on his behalf.
-    const authProfile = users.find((u) => u.id === currentProfileId);
-    const submitterIsParent = authProfile?.role === "parent";
+    // Branching on the ACTIVE profile (what the user is interacting with),
+    // not the auth profile, mirrors what the screen looks like:
+    //   - Parent on their own home (active = self): treat as
+    //     parent-acts-on-behalf shortcut → auto-approve, stars + streak
+    //     fire immediately. Audit: submittedBy = parent.
+    //   - Parent (or anyone) switched into Reznor's profile: this IS the
+    //     kid screen, so a tap is "Reznor submitting" → status pending,
+    //     submittedBy = u_reznor, approvedBy = null. The completion shows
+    //     up in the parent's Approvals tab; bumpStreak + stars happen
+    //     when the parent decide()s approve.
+    //   - Helper / grandparent on their own view: unchanged. Always
+    //     pending; approval gate same as before.
+    // completedBy is always the kid because stars/streaks/bank are
+    // canonically the kid's, regardless of who tapped Submit.
+    const activeProfile = users.find((u) => u.id === currentUserId);
+    const activeIsKid = activeProfile?.role === "kid";
+    const activeIsParent = activeProfile?.role === "parent";
     const kid = users.find((u) => u.role === "kid");
     const kidId = kid?.id || currentUserId;
-    const submittedBy = currentProfileId || currentUserId;
-    const needsApproval = t.approvalRequired && !submitterIsParent;
+    const submittedBy = activeIsKid ? currentUserId : (currentProfileId || currentUserId);
+    const needsApproval = t.approvalRequired && !activeIsParent;
     setCompletions((prev) => {
       // Replace only TODAY's prior submission for this task — yesterday's row
       // (and earlier history) stays in the array so it persists and remains
@@ -497,14 +508,19 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
     });
     setOpenTask(null);
     const aid = t.activityId || TYPE_TO_ACT[t.activityType];
-    // Auto-approved tasks (e.g. make-bed) bump the streak immediately.
-    // Tasks needing approval bump later via decide().
+    // Auto-approved tasks (e.g. make-bed, or anything submitted by an
+    // active parent) bump the streak immediately. Pending tasks bump
+    // later via decide().
     if (!needsApproval && aid) bumpStreak(aid);
-    const s = streaks[aid];
-    if (s) {
-      const next = s.lastDate === TODAY_ISO ? s.current : (s.lastDate === YESTERDAY_ISO ? s.current + 1 : 1);
-      const act = activities.find((a) => a.id === aid);
-      setCelebrate({ name: act?.short || t.title, streak: next, record: next > s.longest, color: act?.color || "#f97316" });
+    // Only celebrate when the streak actually bumped — showing a preview
+    // "311 day streak" on a pending submission would lie.
+    if (!needsApproval) {
+      const s = streaks[aid];
+      if (s) {
+        const next = s.lastDate === TODAY_ISO ? s.current : (s.lastDate === YESTERDAY_ISO ? s.current + 1 : 1);
+        const act = activities.find((a) => a.id === aid);
+        setCelebrate({ name: act?.short || t.title, streak: next, record: next > s.longest, color: act?.color || "#f97316" });
+      }
     }
   };
 
@@ -653,7 +669,7 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
 
   // ---- login screen ----
   if (!user) {
-    return <LoginScreen users={users} onPick={(id) => { setCurrentUserId(id); setTab("today"); }} />;
+    return <LoginScreen users={users} onPick={(id) => { setCurrentUserId(id); setTab("today"); }} onSignOut={signOut} sessionEmail={sessionEmail} />;
   }
 
   // KidGameHome data — built from existing state (no hook; runs after the
@@ -719,7 +735,7 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex justify-center" style={{ fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif" }}>
       <div className="w-full max-w-md bg-slate-50 min-h-screen flex flex-col relative shadow-xl">
-        <TopBar user={user} mode={mode} onSwitch={() => { setCurrentUserId(null); }} />
+        <TopBar user={user} mode={mode} onSwitch={() => { setCurrentUserId(null); }} onSignOut={signOut} sessionEmail={sessionEmail} />
         <div className="flex-1 overflow-y-auto pb-24">
           <Router tab={tab} {...shared} />
         </div>
@@ -816,21 +832,31 @@ function Router(props) {
 }
 
 // ===================== SHARED UI =====================
-function TopBar({ user, mode, onSwitch }) {
+function TopBar({ user, mode, onSwitch, onSignOut, sessionEmail }) {
   return (
-    <div className="sticky top-0 z-20 bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between">
-      <div className="flex items-center gap-2">
+    <div className="sticky top-0 z-20 bg-white border-b border-slate-100 px-3 py-3 flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2 min-w-0 flex-1">
         <Avatar user={user} size={36} />
-        <div>
-          <div className="text-sm font-bold leading-tight">{user.name}</div>
-          <div className="text-[11px] text-slate-400 leading-tight">{user.accessType === "temporary" ? `Guest · until ${fmtShort(user.accessExpires)}` : user.relationship}</div>
+        <div className="min-w-0">
+          <div className="text-sm font-bold leading-tight truncate">{user.name}</div>
+          <div className="text-[11px] text-slate-400 leading-tight truncate">{user.accessType === "temporary" ? `Guest · until ${fmtShort(user.accessExpires)}` : user.relationship}</div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 shrink-0">
         <span className={`text-[11px] font-semibold px-2 py-1 rounded-full ${mode === "summer" ? "bg-amber-100 text-amber-700" : "bg-sky-100 text-sky-700"}`}>
           {mode === "summer" ? <span className="flex items-center gap-1"><Sun size={12} /> Summer</span> : <span className="flex items-center gap-1"><GraduationCap size={12} /> School</span>}
         </span>
         <button onClick={onSwitch} className="text-[11px] font-semibold text-slate-400 px-2 py-1 rounded-full hover:bg-slate-100">Switch</button>
+        {onSignOut && (
+          <button
+            onClick={onSignOut}
+            title={sessionEmail ? `Sign out ${sessionEmail}` : "Sign out"}
+            aria-label="Sign out"
+            className="w-7 h-7 rounded-full grid place-items-center text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <LogOut size={14} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -877,7 +903,7 @@ function SectionTitle({ icon, children, right }) {
 }
 
 // ===================== LOGIN =====================
-function LoginScreen({ users, onPick }) {
+function LoginScreen({ users, onPick, onSignOut, sessionEmail }) {
   const isExpired = (u) => u.accessType === "temporary" && u.accessExpires && new Date(u.accessExpires + "T23:59:59") < today;
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-600 to-violet-700 flex flex-col items-center justify-center p-6 text-white" style={{ fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif" }}>
@@ -907,6 +933,16 @@ function LoginScreen({ users, onPick }) {
           })}
         </div>
         <p className="text-center text-white/40 text-[11px] mt-6">Prototype role-switcher · TODO: real auth + server-enforced access windows</p>
+        {onSignOut && (
+          <div className="text-center mt-3">
+            <button
+              onClick={onSignOut}
+              className="text-[12px] text-white/70 hover:text-white inline-flex items-center gap-1 underline-offset-2 hover:underline"
+            >
+              <LogOut size={12} /> {sessionEmail ? `Not ${sessionEmail}? Sign out` : "Sign out"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

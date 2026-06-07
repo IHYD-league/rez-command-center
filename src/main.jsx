@@ -6,7 +6,7 @@ import DataProvider from "./DataProvider.jsx";
 
 createRoot(document.getElementById("root")).render(
   <AuthGate>
-    {({ session }) => (
+    {({ session, signOut, sessionEmail }) => (
       <DataProvider session={session}>
         {({ initial, currentProfileId, sync, familyId }) => (
           <App
@@ -14,6 +14,8 @@ createRoot(document.getElementById("root")).render(
             currentProfileId={currentProfileId}
             sync={sync}
             familyId={familyId}
+            signOut={signOut}
+            sessionEmail={sessionEmail}
           />
         )}
       </DataProvider>

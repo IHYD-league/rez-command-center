@@ -62,34 +62,15 @@ export default function AuthGate({ children }) {
 
   if (status === "out") return <Login />;
 
+  // Sign out lives INSIDE the app's TopBar now, not as a floating overlay
+  // (the old fixed pill collided with the Switch button on narrow phones).
+  // We expose signOut + sessionEmail through the render-prop child so the
+  // TopBar can render its own button in the natural flexbox of the header.
+  const signOut = () => supabase.auth.signOut();
+  const sessionEmail = session?.user?.email || "";
   const renderChildren =
-    typeof children === "function" ? children({ session }) : children;
-  return (
-    <>
-      {renderChildren}
-      <button
-        onClick={() => supabase.auth.signOut()}
-        title={session?.user?.email || "Sign out"}
-        style={{
-          position: "fixed",
-          top: 8,
-          right: 8,
-          zIndex: 50,
-          background: "rgba(15,23,42,0.85)",
-          color: "white",
-          padding: "6px 12px",
-          borderRadius: 999,
-          border: 0,
-          fontSize: 12,
-          fontWeight: 600,
-          fontFamily: "system-ui, sans-serif",
-          cursor: "pointer",
-          backdropFilter: "blur(6px)",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-        }}
-      >
-        Sign out
-      </button>
-    </>
-  );
+    typeof children === "function"
+      ? children({ session, signOut, sessionEmail })
+      : children;
+  return <>{renderChildren}</>;
 }
