@@ -74,6 +74,21 @@ inside this Phase 2 bucket; don't smuggle later phases into earlier PRs.
   opens the existing TaskSheet → submit goes through `submitTask`. Token
   (🚀) sits on the current space. Treasure visible at the end, always dim
   (threshold lands in Phase 3). Parent/grandma/helper routes untouched.
+- ✅ **Phase 2 — Movement + pop-ups.** Layout flipped from grid to a
+  CONNECTED WINDING PATH: an SVG trail goes from a START marker, snakes
+  through the spaces, ends at the TREASURE. The rocket token now animates
+  along the path (`getPointAtLength`) when canonical compByTask says a
+  new space has been cleared — smooth easeOutCubic, ≤900ms. Two
+  board-flavored celebration pop-ups (confetti + rising star): a
+  "+N ⭐ · &lt;task title&gt;" on each space landing; a bigger
+  "TREASURE! 🏆" on reaching the final space (once per day, gated by
+  `treasure_claimed_on`). First migration shipped via the CLI:
+  `supabase/migrations/20260607202306_add_board_state.sql` adds
+  `board_state(family_id, profile_id, last_position, treasure_claimed_on)`
+  with RLS via the standard `family_id = my_family_id()` policy.
+  `board_state` only remembers WHERE the token was last drawn so we can
+  animate the diff; it never stores task / star / streak truth. If you
+  `delete from board_state` the rest of the app keeps working.
 
 ### Bucket A — skin existing data (low risk, do first)
 - ⏳ Kid: adventure home, missions (=tasks), star bank, streak hero card,

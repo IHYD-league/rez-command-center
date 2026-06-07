@@ -134,6 +134,11 @@ export const toApp = {
     playedBy: r.played_by,
     notes: r.notes ?? "",
   }),
+
+  boardStateRow: (r) => [r.profile_id, {
+    lastPosition: r.last_position ?? 0,
+    treasureClaimedOn: r.treasure_claimed_on ?? null,
+  }],
 };
 
 export const toDb = {
@@ -280,5 +285,12 @@ export const toDb = {
     played_on: o.playedOn ?? new Date().toISOString().slice(0, 10),
     played_by: o.playedBy ?? null,
     notes: o.notes ?? null,
+  }),
+
+  boardStateRow: (familyId) => (profileId, s) => ({
+    family_id: familyId,
+    profile_id: profileId,
+    last_position: s.lastPosition ?? 0,
+    treasure_claimed_on: s.treasureClaimedOn ?? null,
   }),
 };

@@ -387,6 +387,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const [rewardRequests, _setRewardRequests] = useState(() => initial?.rewardRequests ?? []);
   const [songs, _setSongs] = useState(() => initial?.songs ?? []);
   const [songPlays, _setSongPlays] = useState(() => initial?.songPlays ?? []);
+  // boardState is keyed by profile_id; e.g. { u_reznor: { lastPosition, treasureClaimedOn } }.
+  // It's per-profile UI memory for the Daily Adventure Board (BOARD-GAME.md
+  // §Data model). It never stores task / star / streak truth.
+  const [boardState, _setBoardState] = useState(() => initial?.boardState ?? {});
 
   // In-memory only (not in the user's persistence list — see Phase 2 notes).
   const [events, setEvents] = useState(SEED_EVENTS);
@@ -419,6 +423,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const setRewardRequests = makeSyncedSetter(_setRewardRequests, "rewardRequests", sync);
   const setSongs          = makeSyncedSetter(_setSongs,          "songs",          sync);
   const setSongPlays      = makeSyncedSetter(_setSongPlays,      "songPlays",      sync);
+  const setBoardState     = makeSyncedSetter(_setBoardState,     "boardState",     sync);
 
   const user = users.find((u) => u.id === currentUserId);
 
@@ -668,6 +673,24 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
   const removeSongPlay = (id) => setSongPlays((prev) => prev.filter((p) => p.id !== id));
 
+  // BOARD-GAME.md §Data model — board_state is purely UI memory:
+  // "where was the token last drawn for this profile?" / "did we already
+  // fire the treasure pop today?". Never task / star / streak truth.
+  const setBoardLastPosition = (profileId, position) => {
+    if (!profileId) return;
+    setBoardState((prev) => ({
+      ...prev,
+      [profileId]: { ...(prev[profileId] || {}), lastPosition: position },
+    }));
+  };
+  const setTreasureClaimed = (profileId, dateIso) => {
+    if (!profileId) return;
+    setBoardState((prev) => ({
+      ...prev,
+      [profileId]: { ...(prev[profileId] || {}), treasureClaimedOn: dateIso || TODAY_ISO },
+    }));
+  };
+
   // ---- login screen ----
   if (!user) {
     return <LoginScreen users={users} onPick={(id) => { setCurrentUserId(id); setTab("today"); }} onSignOut={signOut} sessionEmail={sessionEmail} />;
@@ -731,6 +754,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay,
     setStatDetailId,
     earnedAllTime,
+    boardState, setBoardLastPosition, setTreasureClaimed,
   };
 
   return (

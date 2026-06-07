@@ -54,6 +54,13 @@ async function loadEntities(familyId) {
     .eq("family_id", familyId);
   if (streaksErr) throw new Error(`streaks: ${streaksErr.message}`);
   out.streaks = Object.fromEntries((streaks || []).map(toApp.streakRow));
+  // Board state keyed by profile_id, same shape as streaks.
+  const { data: bs, error: bsErr } = await supabase
+    .from("board_state")
+    .select("*")
+    .eq("family_id", familyId);
+  if (bsErr) throw new Error(`board_state: ${bsErr.message}`);
+  out.boardState = Object.fromEntries((bs || []).map(toApp.boardStateRow));
   return out;
 }
 
@@ -101,14 +108,26 @@ export default function DataProvider({ session, children }) {
   // setX calls within a render coalesces into one network round trip.
   const sync = (key, value) => {
     if (!familyId) return;
-    const def = key === "streaks" ? null : ENTITIES[key];
-    if (!def && key !== "streaks") {
+    const def = key === "streaks" || key === "boardState" ? null : ENTITIES[key];
+    if (!def && key !== "streaks" && key !== "boardState") {
       console.warn("sync: unknown entity", key);
       return;
     }
     clearTimeout(debounceRefs.current[key]);
     debounceRefs.current[key] = setTimeout(async () => {
       try {
+        if (key === "boardState") {
+          // board_state: upsert per profile_id, no destructive delete
+          const rows = Object.entries(value || {}).map(([pid, s]) =>
+            toDb.boardStateRow(familyId)(pid, s)
+          );
+          if (rows.length === 0) return;
+          const { error } = await supabase
+            .from("board_state")
+            .upsert(rows, { onConflict: "family_id,profile_id" });
+          if (error) console.error("board_state sync:", error.message);
+          return;
+        }
         if (key === "streaks") {
           // streaks: upsert each activity_id, no destructive delete
           const rows = Object.entries(value || {}).map(([aid, s]) =>
