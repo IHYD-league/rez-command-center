@@ -400,6 +400,7 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
   const [activities, setActivities] = useState(SEED_ACTIVITIES);
   const [celebrate, setCelebrate] = useState(null);
   const [detailId, setDetailId] = useState(null);
+  const [statDetailId, setStatDetailId] = useState(null);
   const [progressActId, setProgressActId] = useState(null);
   const [taskNotes, setTaskNotes] = useState(SEED_TASK_NOTES);
   const [subProgress, setSubProgress] = useState({});
@@ -438,12 +439,21 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
     return m;
   }, [completions]);
 
-  const earnedToday = completions.filter((c) => c.status === "approved").reduce((s, c) => s + c.awardedStars, 0);
-  const pendingStars = completions.filter((c) => c.status === "pending").reduce((s, c) => s + c.pendingStars, 0);
-  const availableToday = todaysTasks.reduce((s, t) => s + t.starValue, 0);
+  // Cumulative ledger (drives the star bank). All-time approved + gifted -
+  // redeemed + the carried-over base = what's in the bank right now.
+  const approvedAll = completions.filter((c) => c.status === "approved");
+  const earnedAllTime = approvedAll.reduce((s, c) => s + (c.awardedStars || 0), 0);
   const redeemedTotal = redemptions.filter((r) => r.status === "approved").reduce((s, r) => s + r.cost, 0);
   const giftedTotal = gifted.reduce((s, g) => s + g.stars, 0);
-  const starBank = CHILD.starBankBase + earnedToday + giftedTotal - redeemedTotal;
+  const starBank = CHILD.starBankBase + earnedAllTime + giftedTotal - redeemedTotal;
+  // Today-only stats (what the labels actually say). Honest now.
+  const earnedToday = approvedAll
+    .filter((c) => c.completionDate === TODAY_ISO)
+    .reduce((s, c) => s + (c.awardedStars || 0), 0);
+  const pendingStars = completions
+    .filter((c) => c.status === "pending" && c.completionDate === TODAY_ISO)
+    .reduce((s, c) => s + (c.pendingStars || 0), 0);
+  const availableToday = todaysTasks.reduce((s, t) => s + t.starValue, 0);
 
   // ---- actions ----
   const submitTask = (taskId, payload) => {
@@ -702,6 +712,8 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
     kidData,
     familyId,
     songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay,
+    setStatDetailId,
+    earnedAllTime,
   };
 
   return (
@@ -737,6 +749,27 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
           if (!a) return null;
           return <ProgressSheet activity={a} streaks={streaks} onClose={() => setProgressActId(null)} />;
         })()}
+        {statDetailId && (
+          <StatDetail
+            kind={statDetailId}
+            onClose={() => setStatDetailId(null)}
+            completions={completions}
+            tasks={tasks}
+            todaysTasks={todaysTasks}
+            activities={activities}
+            users={users}
+            gifted={gifted}
+            redemptions={redemptions}
+            starBank={starBank}
+            earnedAllTime={earnedAllTime}
+            giftedTotal={giftedTotal}
+            redeemedTotal={redeemedTotal}
+            earnedToday={earnedToday}
+            pendingStars={pendingStars}
+            availableToday={availableToday}
+            base={CHILD.starBankBase}
+          />
+        )}
       </div>
     </div>
   );
@@ -1003,6 +1036,274 @@ function PriorityBadge({ level, scope }) {
     <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full" style={{ background: isMust ? "#0f172a" : P.dot, color: "#fff" }}>
       {isMust && "★ "}{P.badge}{scope && scope !== "always" ? ` · ${SCOPE_LABEL[scope]}` : ""}
     </span>
+  );
+}
+
+// StatDetail — bottom sheet that drills into one of the four summary stats.
+// Everything here is DERIVED from the canonical completions/gifted/redemptions
+// rows (ARCHITECTURE §1, §3). No new storage, no parallel counters.
+function StatDetail({
+  kind,
+  onClose,
+  completions,
+  tasks,
+  todaysTasks,
+  activities,
+  users,
+  gifted,
+  redemptions,
+  starBank,
+  earnedAllTime,
+  giftedTotal,
+  redeemedTotal,
+  earnedToday,
+  pendingStars,
+  availableToday,
+  base,
+}) {
+  // Date windows for the per-task tallies.
+  // Week = rolling 7 days ending today (inclusive). Month = current
+  // calendar month. All-time = every approved completion ever.
+  const weekStart = (() => {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6);
+    return isoLocal(d);
+  })();
+  const monthStart = TODAY_ISO.slice(0, 7) + "-01";
+
+  // Group approved completions by taskId across the windows.
+  const counts = {};
+  completions.forEach((c) => {
+    if (c.status !== "approved") return;
+    const tid = c.taskId;
+    if (!counts[tid]) counts[tid] = { week: 0, month: 0, all: 0, weekStars: 0, monthStars: 0, allStars: 0 };
+    const date = c.completionDate || "";
+    counts[tid].all += 1;
+    counts[tid].allStars += c.awardedStars || 0;
+    if (date >= monthStart) {
+      counts[tid].month += 1;
+      counts[tid].monthStars += c.awardedStars || 0;
+    }
+    if (date >= weekStart) {
+      counts[tid].week += 1;
+      counts[tid].weekStars += c.awardedStars || 0;
+    }
+  });
+
+  const taskById = Object.fromEntries((tasks || []).map((t) => [t.id, t]));
+  const userById = Object.fromEntries((users || []).map((u) => [u.id, u]));
+  const actById = Object.fromEntries((activities || []).map((a) => [a.id, a]));
+  const actFor = (t) => actById[t?.activityId || TYPE_TO_ACT[t?.activityType]];
+
+  const todaysApproved = completions
+    .filter((c) => c.status === "approved" && c.completionDate === TODAY_ISO)
+    .sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+  const todaysPending = completions
+    .filter((c) => c.status === "pending" && c.completionDate === TODAY_ISO)
+    .sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+
+  const TITLES = {
+    earned: { title: "Earned today", subtitle: "Every star Reznor banked since midnight." },
+    pending: { title: "Pending approval (today)", subtitle: "Today's submissions waiting on a grown-up." },
+    bank: { title: "Total star bank", subtitle: "What's in the piggy right now, and where it came from." },
+    available: { title: "Stars available today", subtitle: "Every star Reznor could earn if he finished everything on today's list." },
+  };
+  const meta = TITLES[kind] || TITLES.earned;
+
+  // Render a row for one task with its week / month / all-time tally.
+  const TaskTallyRow = ({ taskId }) => {
+    const t = taskById[taskId];
+    const a = actFor(t);
+    const c = counts[taskId] || { week: 0, month: 0, all: 0 };
+    return (
+      <div className="flex items-center gap-2 py-1.5">
+        <div className="w-2 self-stretch rounded-full" style={{ background: a?.color || "#cbd5e1" }} />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-slate-800 truncate">{t?.title || taskId}</div>
+          <div className="text-[10px] text-slate-400 truncate">{a?.short || a?.name || t?.activityType}</div>
+        </div>
+        <div className="grid grid-cols-3 gap-1 text-center">
+          <div className="px-2 py-0.5 rounded-md bg-emerald-50">
+            <div className="text-[10px] uppercase tracking-wide text-emerald-700/70 font-bold">7d</div>
+            <div className="text-sm font-extrabold text-emerald-700">{c.week}</div>
+          </div>
+          <div className="px-2 py-0.5 rounded-md bg-indigo-50">
+            <div className="text-[10px] uppercase tracking-wide text-indigo-700/70 font-bold">mo</div>
+            <div className="text-sm font-extrabold text-indigo-700">{c.month}</div>
+          </div>
+          <div className="px-2 py-0.5 rounded-md bg-slate-100">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500/70 font-bold">all</div>
+            <div className="text-sm font-extrabold text-slate-700">{c.all}</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // A completion line for the "today" lists.
+  const TodayLine = ({ c }) => {
+    const t = taskById[c.taskId];
+    const a = actFor(t);
+    const submittedBy = userById[c.submittedBy || c.completedBy];
+    const approvedBy = userById[c.approvedBy];
+    const stars = c.awardedStars || c.pendingStars || 0;
+    return (
+      <div className="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
+        <div className="w-9 h-9 rounded-2xl grid place-items-center shrink-0" style={{ background: (a?.color || "#94a3b8") + "22", color: a?.color || "#475569" }}>
+          <TaskIcon type={t?.activityType} color={a?.color || "#475569"} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-slate-800 truncate">{t?.title || c.taskId}</div>
+          <div className="text-[11px] text-slate-400 truncate">
+            {a?.short || a?.name || t?.activityType}
+            {submittedBy ? ` · by ${submittedBy.name}` : ""}
+            {approvedBy && submittedBy?.id !== approvedBy.id ? ` · ok'd by ${approvedBy.name}` : ""}
+          </div>
+        </div>
+        <div className="shrink-0">
+          <StarPill n={stars} tone={c.status === "approved" ? "emerald" : "amber"} />
+        </div>
+      </div>
+    );
+  };
+
+  // Body — different per kind.
+  let body = null;
+  if (kind === "earned") {
+    body = (
+      <>
+        <div className="bg-emerald-50 rounded-2xl p-4 mb-3 text-center">
+          <div className="text-4xl font-extrabold text-emerald-700">{earnedToday}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">stars earned today across {todaysApproved.length} {todaysApproved.length === 1 ? "task" : "tasks"}</div>
+        </div>
+        {todaysApproved.length === 0
+          ? <Card className="p-4 text-center text-sm text-slate-400">Nothing approved yet today. 💤</Card>
+          : <Card className="p-2">{todaysApproved.map((c) => <TodayLine key={c.id} c={c} />)}</Card>}
+      </>
+    );
+  } else if (kind === "pending") {
+    body = (
+      <>
+        <div className="bg-amber-50 rounded-2xl p-4 mb-3 text-center">
+          <div className="text-4xl font-extrabold text-amber-700">{pendingStars}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">stars sitting in today's pending — {todaysPending.length} {todaysPending.length === 1 ? "task" : "tasks"} waiting on you</div>
+        </div>
+        {todaysPending.length === 0
+          ? <Card className="p-4 text-center text-sm text-slate-400">Nothing waiting today. 🎉</Card>
+          : <Card className="p-2">{todaysPending.map((c) => <TodayLine key={c.id} c={c} />)}</Card>}
+        <p className="text-[11px] text-slate-400 px-1 mt-2">Older un-approved submissions live in the Approvals tab.</p>
+      </>
+    );
+  } else if (kind === "bank") {
+    const lineCls = "flex items-center justify-between py-2 border-b border-slate-100 last:border-0";
+    body = (
+      <>
+        <div className="bg-violet-50 rounded-2xl p-4 mb-3 text-center">
+          <div className="text-4xl font-extrabold text-violet-700">{starBank}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">stars in the bank right now</div>
+        </div>
+        <Card className="p-3">
+          <div className={lineCls}>
+            <div className="text-sm font-bold text-slate-700">Base (carried over)</div>
+            <div className="text-sm font-extrabold text-slate-800">{base}</div>
+          </div>
+          <div className={lineCls}>
+            <div className="text-sm font-bold text-emerald-700">+ Earned (all-time)</div>
+            <div className="text-sm font-extrabold text-emerald-700">{earnedAllTime}</div>
+          </div>
+          <div className={lineCls}>
+            <div className="text-sm font-bold text-pink-700">+ Gifted bonus stars</div>
+            <div className="text-sm font-extrabold text-pink-700">{giftedTotal}</div>
+          </div>
+          <div className={lineCls}>
+            <div className="text-sm font-bold text-rose-700">− Redeemed</div>
+            <div className="text-sm font-extrabold text-rose-700">{redeemedTotal}</div>
+          </div>
+          <div className="flex items-center justify-between pt-2 mt-1 border-t-2 border-slate-300">
+            <div className="text-sm font-extrabold text-slate-800">= Star bank</div>
+            <div className="text-lg font-extrabold text-violet-700">{starBank}</div>
+          </div>
+        </Card>
+      </>
+    );
+  } else if (kind === "available") {
+    // Show today's tasks with their star value and current status.
+    const compByTaskToday = {};
+    completions.forEach((c) => {
+      if (c.completionDate === TODAY_ISO) compByTaskToday[c.taskId] = c;
+    });
+    const rows = (todaysTasks || []).map((t) => ({
+      t,
+      c: compByTaskToday[t.id],
+    }));
+    const remaining = rows.filter((r) => !r.c || !["approved"].includes(r.c.status)).reduce((s, r) => s + r.t.starValue, 0);
+    body = (
+      <>
+        <div className="bg-slate-100 rounded-2xl p-4 mb-3 text-center">
+          <div className="text-4xl font-extrabold text-slate-700">{availableToday}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            stars on today's list · <span className="font-bold text-slate-700">{remaining}</span> still up for grabs
+          </div>
+        </div>
+        <Card className="p-2">
+          {rows.map(({ t, c }) => {
+            const a = actFor(t);
+            const status = c ? (c.status === "approved" ? "done" : c.status === "pending" ? "pending" : c.status) : "not started";
+            const statusCls = c?.status === "approved"
+              ? "bg-emerald-100 text-emerald-700"
+              : c?.status === "pending"
+              ? "bg-amber-100 text-amber-700"
+              : "bg-slate-100 text-slate-500";
+            return (
+              <div key={t.id} className="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
+                <div className="w-2 self-stretch rounded-full" style={{ background: a?.color || "#cbd5e1" }} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold text-slate-800 truncate">{t.title}</div>
+                  <div className="text-[11px] text-slate-400 truncate">{a?.short || a?.name || t.activityType}</div>
+                </div>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusCls}`}>{status}</span>
+                <StarPill n={t.starValue} tone="amber" />
+              </div>
+            );
+          })}
+        </Card>
+      </>
+    );
+  }
+
+  // Per-task tally section — shown on "earned" and "pending" detail pages.
+  let tally = null;
+  if (kind === "earned" || kind === "pending") {
+    const ids = Object.keys(counts).sort((a, b) => (counts[b].all - counts[a].all) || a.localeCompare(b));
+    tally = (
+      <>
+        <div className="flex items-center justify-between mt-4 mb-2 px-1">
+          <div className="text-sm font-extrabold text-slate-700">Per-task tally</div>
+          <div className="text-[10px] text-slate-400">7-day · month-to-date · all-time</div>
+        </div>
+        {ids.length === 0
+          ? <Card className="p-3 text-center text-xs text-slate-400">No approved history yet.</Card>
+          : <Card className="p-3">{ids.map((id) => <TaskTallyRow key={id} taskId={id} />)}</Card>}
+      </>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center" style={{ fontFamily: "inherit" }}>
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto">
+        <div className="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mb-4" />
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div>
+            <div className="text-lg font-extrabold tracking-tight">{meta.title}</div>
+            <div className="text-[12px] text-slate-400 mt-0.5">{meta.subtitle}</div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 p-1" title="Close"><X size={18} /></button>
+        </div>
+        {body}
+        {tally}
+        <button onClick={onClose} className="w-full mt-4 py-3 rounded-2xl bg-slate-100 text-slate-500 font-bold text-sm">Done</button>
+      </div>
+    </div>
   );
 }
 
@@ -1666,7 +1967,7 @@ function RewardsKid({ rewards, starBank, requestReward, redemptions }) {
   );
 }
 
-function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay }) {
+function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay, setStatDetailId }) {
   const approved = completions.filter((c) => c.status === "approved");
   const ctx = buildAchCtx({ completions, todaysTasks: todaysTasks || [], compByTask: compByTask || {}, starBank, streaks, books });
   const dayWins = ACHIEVEMENTS.filter((a) => a.kind === "day");
@@ -1676,8 +1977,8 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
     <div className="px-4 pt-4">
       <PiggyBank stars={starBank} />
       <div className="grid grid-cols-2 gap-2 mt-3">
-        <BigStat label="Earned today" value={earnedToday} />
-        <BigStat label="Pending" value={pendingStars} />
+        <BigStat label="Earned today" value={earnedToday} onClick={() => setStatDetailId?.("earned")} />
+        <BigStat label="Pending" value={pendingStars} onClick={() => setStatDetailId?.("pending")} />
       </div>
 
       <SectionTitle icon={<Sparkles size={16} className="text-amber-500" />}>Today's wins <span className="text-[11px] font-normal text-slate-400">· {wonToday}/{dayWins.length}</span></SectionTitle>
@@ -1743,8 +2044,21 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
     </div>
   );
 }
-function BigStat({ label, value }) {
-  return <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-amber-500">{value}</div><div className="text-[11px] text-slate-400">{label}</div></Card>;
+function BigStat({ label, value, onClick }) {
+  const body = (
+    <>
+      <div className="text-2xl font-extrabold text-amber-500">{value}</div>
+      <div className="text-[11px] text-slate-400">{label}{onClick ? " ›" : ""}</div>
+    </>
+  );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className="w-full text-left">
+        <Card className="p-3 text-center active:scale-[0.98] transition hover:border-amber-200">{body}</Card>
+      </button>
+    );
+  }
+  return <Card className="p-3 text-center">{body}</Card>;
 }
 
 // MostPlayedSongs: derive counts / last-played from the canonical
@@ -1833,7 +2147,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, user, activities, streaks, setDetailId, onEasy, undoTask, setOpenTask }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, user, activities, streaks, setDetailId, onEasy, undoTask, setOpenTask, setStatDetailId }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
@@ -1845,10 +2159,10 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         {onEasy && <button onClick={onEasy} className="text-[11px] font-bold text-amber-600 bg-amber-50 rounded-full px-2.5 py-1 flex items-center gap-1">😴 Easy mode</button>}
       </div>
       <div className="grid grid-cols-2 gap-2 mt-2">
-        <SummaryStat label="Stars available today" value={availableToday} tone="slate" />
-        <SummaryStat label="Earned today" value={earnedToday} tone="emerald" />
-        <SummaryStat label="Pending approval" value={pendingStars} tone="amber" />
-        <SummaryStat label="Total star bank" value={starBank} tone="violet" />
+        <SummaryStat label="Stars available today" value={availableToday} tone="slate" onClick={() => setStatDetailId?.("available")} />
+        <SummaryStat label="Earned today" value={earnedToday} tone="emerald" onClick={() => setStatDetailId?.("earned")} />
+        <SummaryStat label="Pending approval" value={pendingStars} tone="amber" onClick={() => setStatDetailId?.("pending")} />
+        <SummaryStat label="Total star bank" value={starBank} tone="violet" onClick={() => setStatDetailId?.("bank")} />
       </div>
 
       <StreakStrip streaks={streaks} activities={activities} />
@@ -1884,9 +2198,25 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
     </div>
   );
 }
-function SummaryStat({ label, value, tone }) {
+function SummaryStat({ label, value, tone, onClick }) {
   const tones = { slate: "text-slate-700", emerald: "text-emerald-600", amber: "text-amber-600", violet: "text-violet-600" };
-  return <Card className="p-3"><div className={`text-2xl font-extrabold ${tones[tone]}`}>{value}</div><div className="text-[11px] text-slate-400 leading-tight">{label}</div></Card>;
+  const body = (
+    <>
+      <div className={`text-2xl font-extrabold ${tones[tone]}`}>{value}</div>
+      <div className="text-[11px] text-slate-400 leading-tight flex items-center justify-between gap-1">
+        <span>{label}</span>
+        {onClick && <span className="text-slate-300 text-[10px]">›</span>}
+      </div>
+    </>
+  );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className="w-full text-left">
+        <Card className="p-3 active:scale-[0.98] transition hover:border-indigo-200">{body}</Card>
+      </button>
+    );
+  }
+  return <Card className="p-3">{body}</Card>;
 }
 function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone }) {
   const [open, setOpen] = useState(false);

@@ -103,8 +103,8 @@ Different shape from daily missions: planning over time.
 ---
 
 ## Known quirks to revisit (not bugs, just notes)
-- `earnedToday` sums all approved completions, not just today's — fix for
-  accurate daily totals.
+- ✅ `earnedToday` / `pendingStars` now count today only; star bank stays
+  cumulative via a separate `earnedAllTime` ledger.
 - Streak bumps on parent *approve*, not kid *submit* — so drums depends on a
   parent approving daily. Consider auto-approve for drums, or bump-on-submit.
 - New family-member profiles need a matching Supabase auth user before that
