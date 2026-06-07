@@ -436,7 +436,12 @@ export default function App({ initial, currentProfileId, sync, familyId } = {}) 
   // ---- actions ----
   const submitTask = (taskId, payload) => {
     const t = tasks.find((x) => x.id === taskId);
-    const needsApproval = t.approvalRequired;
+    // A parent submitting on behalf of Reznor implicitly approves the
+    // submission (they're the one who'd be approving anyway). Everyone
+    // else (kid, helper, grandparent) still goes through the existing
+    // pending → decide() flow exactly like before.
+    const submitterIsParent = user?.role === "parent";
+    const needsApproval = t.approvalRequired && !submitterIsParent;
     setCompletions((prev) => {
       const others = prev.filter((c) => c.taskId !== taskId);
       return [...others, {
@@ -1657,7 +1662,7 @@ function BigStat({ label, value }) {
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, user, activities, streaks, setDetailId, onEasy, undoTask }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, user, activities, streaks, setDetailId, onEasy, undoTask, setOpenTask }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
@@ -1695,7 +1700,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
       {pending.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="amber" mode={mode} priorities={priorities} users={users} activities={activities} onOpenDetail={setDetailId} undoTask={undoTask} />)}
 
       <SectionTitle icon={<ClipboardList size={16} className="text-slate-400" />} right={<span className="text-[11px] text-slate-400 flex items-center gap-1"><Flag size={11} /> tap to set priority</span>}>Still to do ({todo.length})</SectionTitle>
-      {todo.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="slate" mode={mode} priorities={priorities} users={users} setPriority={setPriority} clearPriority={clearPriority} activities={activities} onOpenDetail={setDetailId} />)}
+      {todo.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="slate" mode={mode} priorities={priorities} users={users} setPriority={setPriority} clearPriority={clearPriority} activities={activities} onOpenDetail={setDetailId} onMarkDone={setOpenTask} />)}
 
       <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Done ({done.length})</SectionTitle>
       {done.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} onOpenDetail={setDetailId} undoTask={undoTask} />)}
@@ -1712,7 +1717,7 @@ function SummaryStat({ label, value, tone }) {
   const tones = { slate: "text-slate-700", emerald: "text-emerald-600", amber: "text-amber-600", violet: "text-violet-600" };
   return <Card className="p-3"><div className={`text-2xl font-extrabold ${tones[tone]}`}>{value}</div><div className="text-[11px] text-slate-400 leading-tight">{label}</div></Card>;
 }
-function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask }) {
+function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone }) {
   const [open, setOpen] = useState(false);
   const by = comp?.approvedBy ? users?.find((u) => u.id === comp.approvedBy)?.name : null;
   const d = actFor(task, activities);
@@ -1737,6 +1742,15 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
           </div>
           {setPriority && <button onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }} className={`p-1.5 rounded-lg shrink-0 ${lvl !== "normal" ? "text-slate-700" : "text-slate-300"}`}><Flag size={16} className={lvl !== "normal" ? "fill-current" : ""} /></button>}
           <StarPill n={comp?.awardedStars || comp?.pendingStars || task.starValue} tone={tone === "emerald" ? "emerald" : "amber"} />
+          {onMarkDone && !comp && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onMarkDone(task); }}
+              title="Mark done for Reznor (with photo proof if needed)"
+              className="p-1.5 rounded-lg shrink-0 text-emerald-600 hover:bg-emerald-50"
+            >
+              <Check size={16} />
+            </button>
+          )}
           {undoTask && comp && (
             <button
               onClick={(e) => {

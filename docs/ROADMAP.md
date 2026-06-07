@@ -37,8 +37,15 @@ skin, not a second app.
 
 ## Phase 1 — Daily-use gaps (CURRENT FOCUS)
 - 🔧 Profile photos for all users (upload to bucket, persist, cross-device)
-- 🔧 Parent can mark tasks complete on Reznor's behalf (both directions)
-- 🔧 Parent/helper can upload proof photos (e.g. texted to them)
+- ✅ Parent can mark tasks complete on Reznor's behalf (both directions:
+  Mark done from any "Still to do" row → opens TaskSheet → submit;
+  Mark not-done from any Pending/Done row → confirm → undo. Both
+  routes go through the canonical submitTask / undoTask so stars,
+  streaks, and persistence all fire identically to the kid path.)
+- ✅ Parent/helper can upload proof photos (e.g. texted to them).
+  Helper uploads were live via HelperChecklist/EasyChecklist onPhoto;
+  parent uploads now ride the same TaskSheet path with the same
+  uploadFamilyPhoto helper writing to family-photos/&lt;family_id&gt;/proof/
 - ⏳ Helper/grandparent logins (Sara, Evie) — create auth users + link profiles
 - ⏳ Task proof photos persist (not blob URLs)
 - ⏳ Award/accomplishment files persist
