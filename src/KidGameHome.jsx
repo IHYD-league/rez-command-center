@@ -53,6 +53,82 @@ function Avatar({ avatar, size = 64 }) {
   );
 }
 
+// CosmicAura — ambient starfield + aurora gradient that sits behind the
+// hero card's gradient background. Triggers from canonical-derived
+// "today is special" state (streak milestone day, all-quests-done).
+// Pure presentation — nothing about being "in cosmic mode" is stored.
+// Rendered inside the hero card's existing `relative overflow-hidden`
+// frame, so it auto-clips at the rounded corners and never bleeds
+// into the layout above or below.
+function CosmicAura({ intensity = 1 }) {
+  // Particles generated once at mount with randomized motion params so
+  // every render of the aura feels alive (no two cycles identical). The
+  // count scales with `intensity` for future "victory + milestone same
+  // day" double-up.
+  const particles = useRef(makeCosmicParticles(Math.round(22 * intensity)));
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        overflow: "hidden",
+        borderRadius: "inherit",
+      }}
+    >
+      {/* Aurora — two overlapping radial gradients that slowly drift in
+          opposing directions. Reads as a moving light field behind the
+          card's existing fixed gradient. */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "radial-gradient(circle at 25% 75%, rgba(167,139,250,0.38), transparent 55%), radial-gradient(circle at 75% 30%, rgba(56,189,248,0.30), transparent 55%)",
+          animation: "kgh-aurora 14s ease-in-out infinite",
+          mixBlendMode: "screen",
+        }}
+      />
+      {/* Drifting stars rising slowly from below to above the card. */}
+      {particles.current.map((p, i) => (
+        <span
+          key={i}
+          style={{
+            position: "absolute",
+            left: `${p.x}%`,
+            bottom: "-12%",
+            fontSize: p.size,
+            opacity: p.opacity,
+            color: p.color,
+            animation: `kgh-cosmic-rise ${p.dur}ms linear ${p.delay}ms infinite`,
+            willChange: "transform, opacity",
+            textShadow: "0 0 6px rgba(255,255,255,0.5)",
+          }}
+        >
+          {p.glyph}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function makeCosmicParticles(n) {
+  const glyphs = ["✦", "✧", "·", "•", "✺"];
+  const palette = ["rgba(255,255,255,0.95)", "rgba(253,224,71,0.95)", "rgba(167,243,208,0.85)", "rgba(196,181,253,0.85)"];
+  return Array.from({ length: n }, (_, i) => ({
+    x: Math.random() * 100,
+    // Negative delay seeds the loop at a random phase so the field is
+    // already in motion at mount — no synchronized "first wave".
+    delay: -Math.floor(Math.random() * 10000),
+    dur: 7000 + Math.floor(Math.random() * 8000),
+    size: 8 + Math.floor(Math.random() * 14),
+    opacity: 0.45 + Math.random() * 0.5,
+    glyph: glyphs[i % glyphs.length],
+    color: palette[i % palette.length],
+  }));
+}
+
 // Tracks done → fires `justDone=true` for ~1.4s on the transition only.
 // Lets a tile play a one-shot sparkle the moment its quest becomes done,
 // without sparkling forever after. Pure transition detector — no state
@@ -432,6 +508,15 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
   const upNext = firstUndone || sideQuests.find((q) => !q.done);
   const upNextIsRequired = !!firstUndone;
 
+  // "Today is special" — derived ambient state. Two independent
+  // triggers; either lights up the cosmic aura behind the hero card.
+  // ARCHITECTURE §3: both are pure derivations from canonical data,
+  // nothing stored about being "in cosmic mode".
+  const allMainDone = mainQuests.length > 0 && mainQuests.every((q) => q.done);
+  const streakMilestone = !!(streak?.current && streak.current >= 30 && streak.current % 30 === 0);
+  const cosmicActive = allMainDone || streakMilestone;
+  const cosmicIntensity = allMainDone && streakMilestone ? 1.6 : 1;
+
   return (
     <div className="px-4 pt-4 pb-6 space-y-4">
       {/* Local keyframes for the quest tile / Up Next micro-juice. Scoped
@@ -472,6 +557,20 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           0%, 100% { opacity: 0.7; transform: translateY(0)    scale(1);    }
           50%      { opacity: 1;   transform: translateY(-2px) scale(1.05); }
         }
+        /* Cosmic ambient — slow rising stars + drifting aurora that
+           activate on streak milestone days or after a daily clear. */
+        @keyframes kgh-cosmic-rise {
+          0%   { transform: translate3d(0, 0, 0)        scale(0.7) rotate(0deg);   opacity: 0; }
+          10%  { opacity: 1; }
+          50%  { transform: translate3d(8px, -110%, 0)  scale(1)   rotate(180deg); opacity: 1; }
+          90%  { opacity: 0.6; }
+          100% { transform: translate3d(-6px, -220%, 0) scale(0.6) rotate(360deg); opacity: 0; }
+        }
+        @keyframes kgh-aurora {
+          0%, 100% { transform: translate(0, 0)    scale(1);    opacity: 0.7; }
+          33%      { transform: translate(8%, -4%) scale(1.10); opacity: 1;   }
+          66%      { transform: translate(-6%, 3%) scale(1.05); opacity: 0.85;}
+        }
         /* Bank-pop — the Stars count's overshoot bounce when a starBurst
            lands. Brief yellow flash + scale-up + tiny shake. Tuned to
            ~600ms so two back-to-back approvals stay distinct. */
@@ -490,6 +589,10 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
         className="rounded-3xl p-5 text-white relative overflow-hidden"
         style={{ background: "linear-gradient(135deg,#6366f1,#a855f7 55%,#ec4899)" }}
       >
+        {/* Cosmic ambient — only mounts when today is special. Sits
+            between the gradient bg and the content; clipped by the
+            card's `overflow-hidden` to the rounded corners. */}
+        {cosmicActive && <CosmicAura intensity={cosmicIntensity} />}
         <Sparkles className="absolute -right-4 -top-4 opacity-20" size={120} />
         <div className="flex items-center gap-3">
           <Avatar avatar={avatar} size={64} />
