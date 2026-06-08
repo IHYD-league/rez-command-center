@@ -986,42 +986,294 @@ function SectionTitle({ icon, children, right }) {
 
 // ===================== LOGIN =====================
 function LoginScreen({ users, onPick, onSignOut, sessionEmail }) {
-  const isExpired = (u) => u.accessType === "temporary" && u.accessExpires && new Date(u.accessExpires + "T23:59:59") < today;
+  const isExpired = (u) =>
+    u.accessType === "temporary" &&
+    u.accessExpires &&
+    new Date(u.accessExpires + "T23:59:59") < today;
+
+  // CSS placeholder starfield. When the painted background art lands at
+  // /public/art/login-bg.png, replace the inline `background` on the
+  // outer div with `backgroundImage: "url('/art/login-bg.png')"` and
+  // delete the decorations block — that's the whole swap.
+  const stars = useMemo(
+    () =>
+      Array.from({ length: 70 }).map((_, i) => ({
+        key: i,
+        left: Math.random() * 100,
+        top: Math.random() * 100,
+        size: Math.random() * 2 + 0.5,
+        opacity: Math.random() * 0.6 + 0.3,
+      })),
+    []
+  );
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-600 to-violet-700 flex flex-col items-center justify-center p-6 text-white" style={{ fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif" }}>
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="text-5xl mb-2">🚀</div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Reznor Command Center</h1>
-          <p className="text-white/70 text-sm mt-1">Who's logging in?</p>
+    <div
+      className="min-h-screen relative overflow-hidden"
+      style={{
+        background:
+          "radial-gradient(ellipse at 30% 18%, #5b21b6 0%, #312e81 38%, #0f172a 70%, #020617 100%)",
+        fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
+      }}
+    >
+      {/* Cosmic decorations — placeholder for the painted login-bg.png */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
+        {stars.map((s) => (
+          <div
+            key={s.key}
+            className="absolute rounded-full bg-white"
+            style={{
+              left: `${s.left}%`,
+              top: `${s.top}%`,
+              width: s.size,
+              height: s.size,
+              opacity: s.opacity,
+            }}
+          />
+        ))}
+        <div
+          className="absolute"
+          style={{
+            left: "8%",
+            top: "8%",
+            width: 96,
+            height: 96,
+            borderRadius: "50%",
+            background:
+              "radial-gradient(circle at 30% 30%, #ddd6fe 0%, #a78bfa 35%, #5b21b6 70%, transparent 90%)",
+            opacity: 0.6,
+            filter: "blur(0.5px)",
+          }}
+        />
+        <div
+          className="absolute"
+          style={{
+            right: "12%",
+            top: "17%",
+            width: 32,
+            height: 32,
+            borderRadius: "50%",
+            background:
+              "radial-gradient(circle, #67e8f9 0%, #06b6d4 40%, transparent 75%)",
+            opacity: 0.8,
+            filter: "blur(0.5px)",
+          }}
+        />
+      </div>
+
+      {/* Foreground content */}
+      <div className="relative z-10 min-h-screen flex flex-col items-center px-5 py-8 max-w-md mx-auto w-full">
+        {/* Hero spacer — placeholder for the painted kid hero */}
+        <div className="flex-1 w-full min-h-[18vh] max-h-[34vh] grid place-items-center">
+          <div
+            className="text-7xl"
+            style={{ filter: "drop-shadow(0 0 30px rgba(167, 139, 250, 0.7))" }}
+          >
+            🚀
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+
+        {/* Title */}
+        <div className="text-center">
+          <h1
+            className="text-3xl font-extrabold tracking-tight text-white"
+            style={{
+              textShadow: "0 6px 24px rgba(0,0,0,0.7), 0 2px 4px rgba(0,0,0,0.5)",
+            }}
+          >
+            Reznor Command Center
+          </h1>
+          <p
+            className="text-sm mt-1 font-semibold"
+            style={{
+              color: "#c4b5fd",
+              textShadow: "0 2px 8px rgba(0,0,0,0.6)",
+            }}
+          >
+            Who's logging in?
+          </p>
+        </div>
+
+        {/* Card grid */}
+        <div className="grid grid-cols-2 gap-3 w-full mt-5">
           {users.map((u) => {
             const expired = isExpired(u);
             const blocked = expired || u.active === false;
+            const roleLabel =
+              u.role === "kid"
+                ? "Mission Mode"
+                : blocked
+                ? expired
+                  ? "Access ended"
+                  : "Disabled"
+                : u.accessType === "temporary"
+                ? `Guest · until ${fmtShort(u.accessExpires)}`
+                : u.relationship;
             return (
-              <button key={u.id} disabled={blocked} onClick={() => !blocked && onPick(u.id)}
-                className={`bg-white/10 backdrop-blur rounded-3xl p-4 flex flex-col items-center gap-2 transition border border-white/15 ${blocked ? "opacity-40" : "active:scale-95 hover:bg-white/20"}`}>
-                <Avatar user={u} size={56} solid />
-                <div className="text-sm font-bold">{u.name}</div>
-                <div className="text-[11px] text-white/60 capitalize">
-                  {u.role === "kid" ? "Mission Mode"
-                    : blocked ? (expired ? "Access ended" : "Disabled")
-                    : u.accessType === "temporary" ? `Guest · until ${fmtShort(u.accessExpires)}`
-                    : u.relationship}
+              <button
+                key={u.id}
+                type="button"
+                disabled={blocked}
+                onClick={() => !blocked && onPick(u.id)}
+                className={`group relative rounded-3xl transition p-4 flex flex-col items-center gap-2 ${
+                  blocked ? "opacity-40" : "active:scale-95 hover:scale-[1.02]"
+                }`}
+                style={{
+                  // Profile-frame placeholder. When /art/profile-frame.png
+                  // lands, the entire `background` + `border` + corner-
+                  // bracket spans below become:
+                  //   border: 14px solid transparent;
+                  //   borderImage: "url('/art/profile-frame.png') 32 fill / 14px / 0 stretch";
+                  background: `
+                    radial-gradient(ellipse at top left, rgba(167, 139, 250, 0.28) 0%, transparent 60%),
+                    radial-gradient(ellipse at bottom right, rgba(236, 72, 153, 0.22) 0%, transparent 65%),
+                    linear-gradient(135deg, rgba(30, 27, 75, 0.85), rgba(15, 23, 42, 0.9))
+                  `,
+                  backdropFilter: "blur(8px)",
+                  boxShadow: blocked
+                    ? "none"
+                    : "0 0 28px rgba(139, 92, 246, 0.35), inset 0 1px 0 rgba(255,255,255,0.1)",
+                  border: "2px solid",
+                  borderImageSlice: 1,
+                  borderImageSource:
+                    "linear-gradient(135deg, #c084fc 0%, #ec4899 35%, #6366f1 70%, #c084fc 100%)",
+                }}
+              >
+                {/* Sci-fi corner brackets — also dropped when the painted
+                    frame's border-image takes over. */}
+                <span
+                  aria-hidden="true"
+                  className="absolute pointer-events-none"
+                  style={{
+                    top: -2,
+                    left: -2,
+                    width: 18,
+                    height: 18,
+                    borderTop: "3px solid #f9a8d4",
+                    borderLeft: "3px solid #f9a8d4",
+                    borderTopLeftRadius: 14,
+                    filter: "drop-shadow(0 0 6px #ec4899)",
+                  }}
+                />
+                <span
+                  aria-hidden="true"
+                  className="absolute pointer-events-none"
+                  style={{
+                    top: -2,
+                    right: -2,
+                    width: 18,
+                    height: 18,
+                    borderTop: "3px solid #f9a8d4",
+                    borderRight: "3px solid #f9a8d4",
+                    borderTopRightRadius: 14,
+                    filter: "drop-shadow(0 0 6px #ec4899)",
+                  }}
+                />
+                <span
+                  aria-hidden="true"
+                  className="absolute pointer-events-none"
+                  style={{
+                    bottom: -2,
+                    left: -2,
+                    width: 18,
+                    height: 18,
+                    borderBottom: "3px solid #93c5fd",
+                    borderLeft: "3px solid #93c5fd",
+                    borderBottomLeftRadius: 14,
+                    filter: "drop-shadow(0 0 6px #3b82f6)",
+                  }}
+                />
+                <span
+                  aria-hidden="true"
+                  className="absolute pointer-events-none"
+                  style={{
+                    bottom: -2,
+                    right: -2,
+                    width: 18,
+                    height: 18,
+                    borderBottom: "3px solid #93c5fd",
+                    borderRight: "3px solid #93c5fd",
+                    borderBottomRightRadius: 14,
+                    filter: "drop-shadow(0 0 6px #3b82f6)",
+                  }}
+                />
+
+                <div
+                  className="rounded-2xl overflow-hidden border-2 border-white/30 shadow-lg shrink-0"
+                  style={{ width: 84, height: 84 }}
+                >
+                  <Avatar user={u} size={84} solid />
+                </div>
+                <div className="text-sm font-extrabold text-white text-center leading-tight">
+                  {u.name}
+                </div>
+                <div
+                  className={`text-[11px] capitalize text-center ${
+                    blocked ? "text-rose-300" : "text-violet-200"
+                  }`}
+                >
+                  {roleLabel}
                 </div>
               </button>
             );
           })}
         </div>
-        <p className="text-center text-white/40 text-[11px] mt-6">Prototype role-switcher · TODO: real auth + server-enforced access windows</p>
+
+        <p
+          className="text-center text-violet-300/50 text-[10px] mt-4"
+          style={{ textShadow: "0 2px 4px rgba(0,0,0,0.5)" }}
+        >
+          Prototype role-switcher · TODO: real auth + server-enforced access windows
+        </p>
+
+        {/* Stone-arch footer band — sign-out lives here */}
         {onSignOut && (
-          <div className="text-center mt-3">
+          <div
+            className="mt-3 w-full rounded-2xl py-3 px-4 text-center relative overflow-hidden"
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(76, 29, 149, 0.45) 0%, rgba(30, 27, 75, 0.7) 100%)",
+              border: "1px solid rgba(167, 139, 250, 0.35)",
+              boxShadow:
+                "0 0 18px rgba(139, 92, 246, 0.25), inset 0 1px 0 rgba(255,255,255,0.08)",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              className="absolute"
+              style={{
+                left: 12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "#67e8f9",
+                fontSize: 13,
+                opacity: 0.55,
+                filter: "drop-shadow(0 0 4px #06b6d4)",
+              }}
+            >
+              ◆
+            </span>
+            <span
+              aria-hidden="true"
+              className="absolute"
+              style={{
+                right: 12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "#67e8f9",
+                fontSize: 13,
+                opacity: 0.55,
+                filter: "drop-shadow(0 0 4px #06b6d4)",
+              }}
+            >
+              ◆
+            </span>
             <button
               onClick={onSignOut}
-              className="text-[12px] text-white/70 hover:text-white inline-flex items-center gap-1 underline-offset-2 hover:underline"
+              className="text-[12px] text-violet-100 hover:text-white inline-flex items-center gap-1.5 underline-offset-2 hover:underline font-semibold"
             >
-              <LogOut size={12} /> {sessionEmail ? `Not ${sessionEmail}? Sign out` : "Sign out"}
+              <LogOut size={12} />{" "}
+              {sessionEmail ? `Not ${sessionEmail}? Sign out` : "Sign out"}
             </button>
           </div>
         )}
