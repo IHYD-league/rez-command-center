@@ -52,20 +52,54 @@ function Avatar({ avatar, size = 64 }) {
   );
 }
 
+// Tracks done → fires `justDone=true` for ~1.4s on the transition only.
+// Lets a tile play a one-shot sparkle the moment its quest becomes done,
+// without sparkling forever after. Pure transition detector — no state
+// other than the boolean flag; the underlying `done` prop is still the
+// canonical truth.
+function useJustDone(done) {
+  const prev = useRef(done);
+  const [justDone, setJustDone] = useState(false);
+  useEffect(() => {
+    if (!prev.current && done) {
+      setJustDone(true);
+      const t = setTimeout(() => setJustDone(false), 1400);
+      prev.current = done;
+      return () => clearTimeout(t);
+    }
+    prev.current = done;
+  }, [done]);
+  return justDone;
+}
+
 function MainQuestTile({ q, onTap }) {
   const done = q.done;
   const tappable = !!onTap && !done;
+  const justDone = useJustDone(done);
   return (
     <div
       onClick={tappable ? () => onTap(q.id) : undefined}
       role={tappable ? "button" : undefined}
       tabIndex={tappable ? 0 : undefined}
-      className={`rounded-3xl p-4 border-2 transition ${
+      className={`relative overflow-hidden rounded-3xl p-4 border-2 transition-all duration-200 ${
         done
           ? "bg-emerald-50 border-emerald-300"
-          : "bg-white border-slate-200 " + (tappable ? "cursor-pointer active:scale-[0.98] hover:border-indigo-300" : "")
+          : "bg-white border-slate-200 shadow-sm " +
+            (tappable
+              ? "cursor-pointer active:scale-[0.97] hover:border-indigo-300 hover:shadow-md hover:-translate-y-0.5"
+              : "")
       }`}
+      style={
+        justDone
+          ? {
+              boxShadow:
+                "0 0 0 4px rgba(16,185,129,0.18), 0 10px 30px -8px rgba(16,185,129,0.45)",
+              animation: "kgh-justdone 700ms ease-out 1",
+            }
+          : undefined
+      }
     >
+      {justDone && <JustDoneSparkles />}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className={`font-extrabold text-base ${done ? "text-emerald-700" : "text-slate-800"}`}>
@@ -104,15 +138,78 @@ function MainQuestTile({ q, onTap }) {
   );
 }
 
+// Tiny sparkle field rendered inside a tile that just transitioned done.
+// 6 emojis fly outward from the center over ~1s, then fade. Absolute
+// positioned inside the tile's `relative overflow-hidden`. Pointer-events
+// none so the tile is still tappable through the sparkles (it isn't
+// while done, but defensive).
+function JustDoneSparkles() {
+  const items = useRef(
+    Array.from({ length: 6 }, (_, i) => ({
+      angle: (i / 6) * Math.PI * 2 + Math.random() * 0.5,
+      delay: i * 35,
+      dist: 60 + Math.random() * 30,
+      size: 14 + Math.random() * 10,
+      emoji: ["✨", "⭐", "💫"][i % 3],
+    }))
+  );
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        overflow: "visible",
+      }}
+    >
+      {items.current.map((p, i) => {
+        const dx = Math.cos(p.angle) * p.dist;
+        const dy = Math.sin(p.angle) * p.dist - 10;
+        return (
+          <span
+            key={i}
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              fontSize: p.size,
+              transform: "translate(-50%, -50%)",
+              animation: `kgh-sparkle 1100ms cubic-bezier(.2,.7,.3,1) ${p.delay}ms forwards`,
+              ["--kgh-dx"]: `${dx}px`,
+              ["--kgh-dy"]: `${dy}px`,
+              willChange: "transform, opacity",
+              opacity: 0,
+              filter: "drop-shadow(0 0 6px rgba(16,185,129,0.6))",
+            }}
+          >
+            {p.emoji}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function SideQuestRow({ q, onTap }) {
   const tappable = !!onTap && !q.done;
+  const justDone = useJustDone(q.done);
   return (
     <div
       onClick={tappable ? () => onTap(q.id) : undefined}
       role={tappable ? "button" : undefined}
       tabIndex={tappable ? 0 : undefined}
-      className={`flex items-center justify-between bg-white border border-slate-100 rounded-2xl px-3 py-2.5 ${tappable ? "cursor-pointer active:scale-[0.98] hover:border-indigo-200" : ""}`}
+      className={`relative overflow-hidden flex items-center justify-between bg-white border border-slate-100 rounded-2xl px-3 py-2.5 transition-all duration-200 ${tappable ? "cursor-pointer active:scale-[0.98] hover:border-indigo-200 hover:shadow-sm" : ""}`}
+      style={
+        justDone
+          ? {
+              boxShadow: "0 0 0 3px rgba(16,185,129,0.15), 0 6px 18px -8px rgba(16,185,129,0.4)",
+              animation: "kgh-justdone 700ms ease-out 1",
+            }
+          : undefined
+      }
     >
+      {justDone && <JustDoneSparkles />}
       <div className="flex items-center gap-2 min-w-0">
         <div
           className={`w-6 h-6 rounded-full grid place-items-center text-[11px] font-bold ${
@@ -319,6 +416,27 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
 
   return (
     <div className="px-4 pt-4 pb-6 space-y-4">
+      {/* Local keyframes for the quest tile / Up Next micro-juice. Scoped
+          to this screen — `kgh-*` prefix avoids collision with the
+          existing rocket animations in BoardGame.jsx and the level-up
+          overlay's `lu-*` rules. */}
+      <style>{`
+        @keyframes kgh-justdone {
+          0%   { transform: scale(1); }
+          40%  { transform: scale(1.02); }
+          100% { transform: scale(1); }
+        }
+        @keyframes kgh-sparkle {
+          0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+          25%  { opacity: 1; transform: translate(calc(-50% + var(--kgh-dx) * 0.3), calc(-50% + var(--kgh-dy) * 0.3)) scale(1.1); }
+          80%  { opacity: 1; transform: translate(calc(-50% + var(--kgh-dx) * 0.95), calc(-50% + var(--kgh-dy) * 0.95)) scale(0.85); }
+          100% { opacity: 0; transform: translate(calc(-50% + var(--kgh-dx)), calc(-50% + var(--kgh-dy))) scale(0.5); }
+        }
+        @keyframes kgh-breathe {
+          0%, 100% { box-shadow: 0 4px 12px -4px rgba(16,185,129,0.25); }
+          50%      { box-shadow: 0 8px 28px -6px rgba(16,185,129,0.55), 0 0 0 4px rgba(16,185,129,0.10); }
+        }
+      `}</style>
       {/* HERO: avatar + stars + streak */}
       <div
         className="rounded-3xl p-5 text-white relative overflow-hidden"
@@ -452,9 +570,12 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
         <button
           type="button"
           onClick={() => onTapQuest?.(upNext.id)}
-          className="w-full rounded-3xl p-3.5 flex items-center gap-3 active:scale-[0.98] transition border-2 border-emerald-200 shadow-sm"
+          className="w-full rounded-3xl p-3.5 flex items-center gap-3 active:scale-[0.98] transition border-2 border-emerald-200 hover:-translate-y-0.5 hover:shadow-lg"
           style={{
             background: "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 60%, #ccfbf1 100%)",
+            // Gentle breathing glow draws the eye without thrashing. ~2.6s
+            // cycle reads as "alive", not "urgent".
+            animation: "kgh-breathe 2600ms ease-in-out infinite",
           }}
         >
           <div className="w-14 h-14 rounded-2xl bg-emerald-100 grid place-items-center shrink-0">
