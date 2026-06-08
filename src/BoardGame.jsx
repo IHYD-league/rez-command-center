@@ -100,14 +100,17 @@ const VOLCANO_PEAKS = {
   fallbackColor: "#f97316",
   treasureAnchor: { x: 50, y: 16 },
   startAnchor:    { x: 50, y: 93 },
+  // Mario-Party-style zigzag. Waypoints pushed to the edges of the
+  // painted geography so the player visibly travels left/right across
+  // the world, not just up the center spine.
   pathWaypoints: [
-    { x: 50, y: 93 },  // start (bottom-center)
-    { x: 35, y: 84 },  // lava bend left
-    { x: 50, y: 72 },  // stone pedestal w/ flower
-    { x: 65, y: 60 },  // bend right
-    { x: 50, y: 47 },  // upper fire pedestal
-    { x: 35, y: 35 },  // bend left
-    { x: 50, y: 25 },  // approach
+    { x: 50, y: 93 },  // start (bottom-center pedestal)
+    { x: 22, y: 82 },  // FAR LEFT — sweep along left lava river
+    { x: 78, y: 72 },  // FAR RIGHT — cross to right river
+    { x: 25, y: 58 },  // LEFT pedestal
+    { x: 75, y: 46 },  // RIGHT pedestal
+    { x: 30, y: 32 },  // LEFT final approach
+    { x: 50, y: 22 },  // center
     { x: 50, y: 16 },  // treasure (smiling volcano)
   ],
 };
@@ -137,13 +140,14 @@ const ENCHANTED_FOREST = {
   fallbackColor: "#a78bfa",
   treasureAnchor: { x: 50, y: 18 },
   startAnchor:    { x: 50, y: 92 },
+  // Wide zigzag through the painted clearing.
   pathWaypoints: [
     { x: 50, y: 92 },  // start at bottom clearing
-    { x: 38, y: 80 },  // bend left through grass
-    { x: 50, y: 68 },  // center stones
-    { x: 62, y: 56 },  // bend right
-    { x: 50, y: 44 },  // center
-    { x: 40, y: 32 },  // bend left toward trees
+    { x: 22, y: 80 },  // FAR LEFT — past the mushroom houses
+    { x: 78, y: 68 },  // FAR RIGHT — across the stream
+    { x: 25, y: 54 },  // LEFT clearing
+    { x: 75, y: 40 },  // RIGHT clearing
+    { x: 35, y: 26 },  // LEFT final approach
     { x: 50, y: 18 },  // treasure (top center)
   ],
 };
@@ -172,13 +176,15 @@ const CANDY_CONCERT = {
   fallbackColor: "#ec4899",
   treasureAnchor: { x: 50, y: 14 },
   startAnchor:    { x: 50, y: 92 },
+  // Wide zigzag through the candy biomes — each pedestal anchored to
+  // a painted area: purple biome left, teal/yellow cake right, etc.
   pathWaypoints: [
     { x: 50, y: 92 },  // start at bottom cupcake
-    { x: 50, y: 80 },  // cupcake pedestal
-    { x: 40, y: 68 },  // bend left toward purple biome
-    { x: 50, y: 55 },  // peppermint center
-    { x: 60, y: 42 },  // bend right toward teal cake
-    { x: 50, y: 30 },  // cake pedestal
+    { x: 22, y: 80 },  // FAR LEFT — purple biome
+    { x: 78, y: 68 },  // FAR RIGHT — yellow/lemon biome
+    { x: 25, y: 54 },  // LEFT — peppermint
+    { x: 75, y: 40 },  // RIGHT — teal cake
+    { x: 35, y: 25 },  // LEFT approach
     { x: 50, y: 14 },  // castle (treasure)
   ],
 };
@@ -340,9 +346,12 @@ function calcPositions(count, viewBoxH, theme) {
     return positions;
   }
 
-  // Procedural snake — Space Quest's original layout. Untouched.
+  // Procedural snake — wider lanes than v1 for Mario-Party-style
+  // visible horizontal travel. The middle lane still exists for
+  // diagonal sweep but the outer lanes are pushed to 15/85 so each
+  // row sweep is clearly side-to-side, not a wobble at center.
   const cols = 3;
-  const xLanes = [22, 50, 78];
+  const xLanes = [15, 50, 85];
   const rowCount = Math.max(1, Math.ceil(count / cols));
   const usableY = viewBoxH - 12;
   const positions = [];
@@ -473,40 +482,49 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
   let bg = "rgba(255,255,255,0.12)";
   let badge = null;
   let glow = false;
-  let size = "w-14 h-14 sm:w-16 sm:h-16";
+  // Smaller default chip — more world artwork visible, less "checklist"
+  // feel. Treasure stays larger because it's the goal of the journey.
+  let size = "w-11 h-11 sm:w-12 sm:h-12";
+  // The painted art layer for this space (background image). When set,
+  // the rounded-full chip background + 4px border are suppressed so the
+  // tile reads as the space itself, not "art behind a UI chip."
+  let spaceArt = null;
+  let spaceArtSize = null;
 
   if (kind === "start") {
-    content = theme.startImg
-      ? <img src={theme.startImg} alt="" className="w-12 h-12 sm:w-14 sm:h-14 object-contain" draggable={false} />
-      : <span className="text-2xl">{theme.startEmoji}</span>;
     label = theme.startLabel;
+    labelClass = "text-white/80 uppercase tracking-widest text-[9px]";
     bg = "linear-gradient(135deg, #1f2937, #0f172a)";
     ring = "rgba(255,255,255,0.4)";
-    labelClass = "text-white/70 uppercase tracking-widest text-[9px]";
+    if (theme.startImg) {
+      spaceArt = theme.startImg;
+      spaceArtSize = "w-14 h-14 sm:w-16 sm:h-16";
+      size = "w-14 h-14 sm:w-16 sm:h-16";
+      content = null;
+    } else {
+      content = <span className="text-xl">{theme.startEmoji}</span>;
+    }
   } else if (kind === "treasure") {
     const open = state === "treasure-open";
     const treasureImg = open ? theme.treasureOpenImg : theme.treasureLockedImg;
-    content = treasureImg
-      ? <img src={treasureImg} alt="" className="w-16 h-16 sm:w-20 sm:h-20 object-contain" draggable={false} />
-      : <span className="text-3xl sm:text-4xl">{theme.treasureEmoji}</span>;
     label = theme.treasureLabel;
-    labelClass = "text-white/80 text-[10px] font-bold";
+    labelClass = "text-white/90 text-[10px] font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]";
     size = "w-20 h-20 sm:w-24 sm:h-24";
-    if (open) {
-      bg = "radial-gradient(circle, #fef3c7 0%, #f59e0b 100%)";
-      ring = "rgba(253,224,71,0.95)";
-      glow = true;
-    } else {
-      bg = "radial-gradient(circle, #475569 0%, #1e293b 100%)";
-      ring = "rgba(255,255,255,0.18)";
-    }
-    // If the theme provides treasure art, suppress the circular chip
-    // background so the artwork reads cleanly (otherwise we see two
-    // chest-like shapes — the painted chest and the gradient bg).
     if (treasureImg) {
-      bg = "transparent";
-      ring = "transparent";
-      glow = false;
+      // Painted chest: NO chip background. The art is the space.
+      spaceArt = treasureImg;
+      spaceArtSize = "w-20 h-20 sm:w-24 sm:h-24";
+      content = null;
+    } else {
+      content = <span className="text-3xl sm:text-4xl">{theme.treasureEmoji}</span>;
+      if (open) {
+        bg = "radial-gradient(circle, #fef3c7 0%, #f59e0b 100%)";
+        ring = "rgba(253,224,71,0.95)";
+        glow = true;
+      } else {
+        bg = "radial-gradient(circle, #475569 0%, #1e293b 100%)";
+        ring = "rgba(255,255,255,0.18)";
+      }
     }
   } else {
     const a =
@@ -518,65 +536,104 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
     const color = a.color || theme.fallbackColor;
     const emoji = ACTIVITY_EMOJI[task.activityType] || "⭐";
     label = task.title;
+    tappable = true;
     const palette = {
-      available: { bg: color, opacity: 1, ring: "rgba(255,255,255,0.4)" },
-      pending: { bg: color, opacity: 0.92, ring: "#f59e0b" },
-      completed: { bg: "#0f5132", opacity: 0.72, ring: "rgba(255,255,255,0.2)" },
-      "needs-fix": { bg: color, opacity: 0.92, ring: "#ef4444" },
+      available: { bg: color, ring: "rgba(255,255,255,0.4)" },
+      pending: { bg: color, ring: "#f59e0b" },
+      completed: { bg: "#0f5132", ring: "rgba(255,255,255,0.2)" },
+      "needs-fix": { bg: color, ring: "#ef4444" },
     };
     const p = palette[state] || palette.available;
-    bg = p.bg;
-    ring = p.ring;
-    tappable = true;
-    content = <span className="text-2xl sm:text-3xl">{emoji}</span>;
-    // Per-theme painted tile under the task icon. When the theme
-    // provides spaceTileImg, the activity-color background is layered
-    // BEHIND the image (so completed states still tint through via
-    // opacity drop on the painted tile, keeping the "this is done" cue).
     if (theme.spaceTileImg) {
+      // Painted tile IS the space. Activity emoji floats on top.
+      // Completed/pending/needs-fix states get a small color halo
+      // (boxShadow) instead of the full colored ring — keeps attention
+      // cues without breaking the painted-tile illusion.
+      spaceArt = theme.spaceTileImg;
+      spaceArtSize = "w-12 h-12 sm:w-14 sm:h-14";
+      size = "w-12 h-12 sm:w-14 sm:h-14";
       const dim = state === "completed" ? 0.55 : 1;
-      bg = `url(${theme.spaceTileImg}) center / cover, ${p.bg}`;
-      // Subtle ring when tile art carries the visual weight; bright
-      // ring still applied on pending/needs-fix because those are
-      // explicit attention states.
-      if (state === "available" || state === "completed") {
-        ring = state === "completed" ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.55)";
-      }
       content = (
-        <span className="text-2xl sm:text-3xl" style={{ opacity: dim, filter: state === "completed" ? "grayscale(0.4)" : undefined }}>
+        <span
+          className="text-xl sm:text-2xl drop-shadow-[0_2px_3px_rgba(0,0,0,0.6)]"
+          style={{
+            opacity: dim,
+            filter: state === "completed" ? "grayscale(0.4)" : undefined,
+          }}
+        >
           {emoji}
         </span>
       );
+      // Halo color for state cue (subtle)
+      if (state === "pending") {
+        glow = true; ring = "#f59e0b";
+      } else if (state === "needs-fix") {
+        glow = true; ring = "#ef4444";
+      }
+    } else {
+      // No theme art for spaces — use the original colored circle.
+      bg = p.bg;
+      ring = p.ring;
+      content = <span className="text-xl sm:text-2xl">{emoji}</span>;
     }
+
+    // Status badges (top-right corner)
     if (state === "completed") {
       badge = (
-        <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 grid place-items-center text-white text-xs font-extrabold border-2 border-slate-900">
+        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 grid place-items-center text-white text-[10px] font-extrabold border-2 border-slate-900">
           ✓
         </div>
       );
     } else if (state === "pending") {
       badge = (
-        <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-amber-500 grid place-items-center text-white text-[11px] font-extrabold border-2 border-slate-900">
+        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-500 grid place-items-center text-white text-[9px] font-extrabold border-2 border-slate-900">
           ⏳
         </div>
       );
     } else if (state === "needs-fix") {
       badge = (
-        <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-rose-500 grid place-items-center text-white text-[10px] font-extrabold border-2 border-slate-900">
+        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-500 grid place-items-center text-white text-[9px] font-extrabold border-2 border-slate-900">
           ↺
         </div>
       );
     }
   }
 
-  const inner = (
+  // Painted-art mode: chip is transparent, art floats. Otherwise: classic
+  // rounded-full chip with bg + border.
+  const inner = spaceArt ? (
+    <div
+      ref={markerRef}
+      className={`relative ${size} grid place-items-center transition`}
+      style={{
+        boxShadow: glow
+          ? `0 0 18px ${ring}, 0 4px 12px rgba(0,0,0,0.45)`
+          : "0 4px 10px rgba(0,0,0,0.45)",
+        borderRadius: "50%",
+      }}
+    >
+      <img
+        src={spaceArt}
+        alt=""
+        draggable={false}
+        className={`absolute inset-0 ${spaceArtSize || "w-full h-full"} object-contain pointer-events-none`}
+        style={{ filter: "drop-shadow(0 3px 6px rgba(0,0,0,0.5))" }}
+      />
+      {content && (
+        <span className="relative z-10 grid place-items-center w-full h-full">
+          {content}
+        </span>
+      )}
+      {badge}
+    </div>
+  ) : (
     <div
       ref={markerRef}
       className={`relative ${size} rounded-full grid place-items-center transition`}
       style={{
         background: bg,
-        border: `4px solid ${ring}`,
-        boxShadow: glow ? `0 0 28px ${ring}` : "0 4px 14px rgba(0,0,0,0.4)",
+        border: `3px solid ${ring}`,
+        boxShadow: glow ? `0 0 24px ${ring}` : "0 4px 12px rgba(0,0,0,0.4)",
       }}
     >
       {content}
@@ -601,7 +658,16 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
       ) : (
         inner
       )}
-      <div className={`text-[10px] sm:text-[11px] font-bold text-center mt-1.5 leading-tight ${labelClass}`} style={{ maxWidth: 96 }}>
+      <div
+        className={`text-[9px] sm:text-[10px] font-bold text-center mt-1 leading-tight ${labelClass} drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)]`}
+        style={{
+          maxWidth: 72,
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+        }}
+      >
         {label}
       </div>
     </div>
