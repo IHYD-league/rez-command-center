@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft,
@@ -424,6 +424,9 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const [rewardRequests, _setRewardRequests] = useState(() => initial?.rewardRequests ?? []);
   const [songs, _setSongs] = useState(() => initial?.songs ?? []);
   const [songPlays, _setSongPlays] = useState(() => initial?.songPlays ?? []);
+  // Self-registration queue. RLS hides non-parent rows; a kid / helper
+  // sees an empty array. Refetched via reloadPending after approve/deny.
+  const [pendingRegistrations, setPendingRegistrations] = useState(() => initial?.pendingRegistrations ?? []);
   // boardState is keyed by profile_id; e.g. { u_reznor: { lastPosition, treasureClaimedOn } }.
   // It's per-profile UI memory for the Daily Adventure Board (BOARD-GAME.md
   // §Data model). It never stores task / star / streak truth.
@@ -3826,6 +3829,9 @@ function People({ users, addUser, updateUser, removeUser, familyId }) {
                 {["grandparent", "helper", "guest"].includes(u.role) && <Toggle on={!!u.easyLocked} label="💛 Lock to Easy mode" onClick={() => updateUser(u.id, { easyLocked: !u.easyLocked })} />}
               </div>
             )}
+            {u.role !== "kid" && (
+              <EmailEditor user={u} onSave={(email) => updateUser(u.id, { email })} />
+            )}
           </Card>
         );
       })}
@@ -3846,21 +3852,69 @@ function Toggle({ on, label, onClick, disabled }) {
   );
 }
 
+// Inline editor for a profile's login email. Saving an email lets that
+// person sign in via Supabase Auth with that address — the
+// claim_profile_by_email RPC stamps auth_user_id on their first login.
+function EmailEditor({ user, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(user.email || "");
+  const valid = !value.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+  const save = () => {
+    const v = value.trim().toLowerCase();
+    onSave(v || null);
+    setEditing(false);
+  };
+  const cancel = () => { setValue(user.email || ""); setEditing(false); };
+  if (!editing) {
+    return (
+      <div className="mt-2 flex items-center gap-2">
+        <span className="text-[11px] font-semibold text-slate-400 shrink-0">Login email</span>
+        <span className="text-[11px] text-slate-600 truncate flex-1">{user.email || <span className="text-slate-400 italic">not set</span>}</span>
+        <button onClick={() => setEditing(true)} className="text-[11px] font-semibold text-indigo-600 shrink-0">{user.email ? "Edit" : "Attach"}</button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2">
+      <div className="flex gap-2 items-center">
+        <input
+          type="email"
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="name@example.com"
+          className="ppl-input flex-1"
+          style={{ width: "auto" }}
+        />
+        <button disabled={!valid} onClick={save} className={`text-xs font-bold px-3 py-2 rounded-xl ${valid ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}>Save</button>
+        <button onClick={cancel} className="text-xs font-bold px-3 py-2 rounded-xl bg-slate-100 text-slate-500">Cancel</button>
+      </div>
+      <div className="text-[10px] text-slate-400 mt-1">
+        They sign up at the login screen with this email — once they do, they're auto-linked to this profile.
+      </div>
+      <style>{`.ppl-input{width:100%;border:1px solid #e2e8f0;border-radius:0.75rem;padding:0.5rem 0.7rem;font-size:0.9rem;outline:none}.ppl-input:focus{border-color:#6366f1}`}</style>
+    </div>
+  );
+}
+
 function AddPersonForm({ onCancel, onAdd }) {
   const [name, setName] = useState("");
   const [relationship, setRelationship] = useState("");
   const [role, setRole] = useState("helper");
   const [emoji, setEmoji] = useState("🙂");
+  const [email, setEmail] = useState("");
   const [temp, setTemp] = useState(false);
   const [expires, setExpires] = useState("2026-06-13");
   const [approveSimple, setApproveSimple] = useState(false);
   const emojis = ["🙂", "🧡", "🧩", "👵", "👴", "🧑", "👩", "👨", "⭐", "🦖"];
   const colors = { parent: "#2563eb", grandparent: "#7c3aed", helper: "#0d9488", guest: "#64748b" };
-  const ready = name.trim().length > 0;
+  const emailOk = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const ready = name.trim().length > 0 && emailOk;
   const submit = () => onAdd({
     name: name.trim(),
     relationship: relationship.trim() || (role === "guest" ? "Guest sitter" : role === "grandparent" ? "Grandparent" : "Helper"),
     role, emoji, color: colors[role] || "#64748b", active: true,
+    email: email.trim().toLowerCase() || null,
     accessType: temp ? "temporary" : "permanent",
     accessExpires: temp ? expires : null,
     permissions: { approveSimple, approveAll: role === "parent", viewReports: role !== "guest" },
@@ -3871,6 +3925,10 @@ function AddPersonForm({ onCancel, onAdd }) {
       <div className="font-bold text-sm mb-2">Add a person</div>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="First name" className="ppl-input" /></Field>
       <div className="mt-2"><Field label="Relationship (optional)"><input value={relationship} onChange={(e) => setRelationship(e.target.value)} placeholder="Aunt, sitter, friend…" className="ppl-input" /></Field></div>
+      <div className="mt-2">
+        <Field label="Login email (optional)"><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" className="ppl-input" /></Field>
+        <div className="text-[10px] text-slate-400 mt-1">Lets them sign in. They sign up at the login screen with this email and get auto-linked to this profile.</div>
+      </div>
 
       <div className="mt-3 text-xs font-semibold text-slate-500 mb-1">Role</div>
       <div className="grid grid-cols-2 gap-2">
