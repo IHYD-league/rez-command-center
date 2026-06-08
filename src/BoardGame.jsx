@@ -27,22 +27,28 @@ import { juice } from "./lib/juice.js";
    ===================================================================== */
 
 // Theme contract (additive — emoji themes still work):
-//   background      CSS gradient/color — always provided, used as the
-//                   fallback if bgImg fails to load.
-//   bgImg           Optional absolute path under /board/themes/<id>/.
-//                   When set, layered over the gradient as a cover image.
-//   tokenEmoji      Emoji fallback (used if tokenRestImg is null).
-//   tokenRestImg    Optional resting-state token PNG.
-//   tokenFlyImg     Optional flying-state token PNG (animation swap).
-//                   If null and tokenRestImg is set, rest art is used for
-//                   both. If both null, the emoji always renders.
-//   startEmoji      Required.
-//   startImg        Optional PNG for the START marker.
-//   treasureEmoji   Required.
+//   background        CSS gradient/color — fallback if bgImg fails to load.
+//   bgImg             Optional absolute path under /board/themes/<id>/.
+//                     Layered over the gradient as a cover image.
+//   tokenEmoji        Emoji fallback (used if tokenRestImg is null).
+//   tokenRestImg      Optional resting-state token PNG.
+//   tokenFlyImg       Optional flying-state token PNG (animation swap).
+//   startEmoji        Required.
+//   startImg          Optional PNG for the START marker.
+//   treasureEmoji     Required.
 //   treasureLockedImg / treasureOpenImg  Optional state-swapped art.
-//   spaceTileImg    Optional per-space tile art. When null, each task
-//                   space uses the kid game's activity color + emoji.
-//   fallbackColor   Used for any task space whose activity has no color.
+//   spaceTileImg      Optional per-space tile art (not yet rendered).
+//   fallbackColor     For any task space whose activity has no color.
+//   treasureAnchor    {x, y} 0-100 percentage coords inside the board's
+//                     viewBox. When set, the TREASURE space ALWAYS lands
+//                     here regardless of space count — keeps it on the
+//                     painted pedestal of the artwork. (NEW in v3.)
+//   startAnchor       {x, y} same shape — pins START. (NEW in v3.)
+//   pathWaypoints     [{x, y}, ...] anchor points the path snakes through,
+//                     bottom-up. When set, calcPositions distributes the
+//                     task spaces evenly along a polyline through these
+//                     waypoints; the path follows the painted geography
+//                     instead of the procedural snake. (NEW in v3.)
 // See docs/BOARD-THEMES.md for the full spec.
 
 const SPACE_QUEST = {
@@ -64,18 +70,21 @@ const SPACE_QUEST = {
   startLabel: "Start",
   spaceTileImg: null,
   fallbackColor: "#6366f1",
+  treasureAnchor: null,
+  startAnchor: null,
+  pathWaypoints: null,
 };
 
 // Friendly cartoon volcano + dragon. PNG assets in
-// public/board/themes/volcano-peaks/. space-tile.png is not ready yet,
-// so per-space art falls back to the activity color + emoji until that
-// drops in — board still themes correctly today.
+// public/board/themes/volcano-peaks/. Treasure anchored to the painted
+// jack-o-lantern volcano at top-center; path winds up the lava rivers
+// (artwork has stone pedestals at the points marked by the waypoints).
 const VOLCANO_PEAKS = {
   id: "volcano_peaks",
   name: "Volcano Peaks",
   background: "radial-gradient(ellipse at top, #7c2d12 0%, #431407 65%, #1c0a05 100%)",
   bgImg: "/board/themes/volcano-peaks/bg.png",
-  pathStroke: "rgba(255,180,90,0.45)",
+  pathStroke: "rgba(255,180,90,0.50)",
   pathGlow: "rgba(239,68,68,0.40)",
   tokenEmoji: "🐉",
   tokenRestImg: "/board/themes/volcano-peaks/token.png",
@@ -89,14 +98,102 @@ const VOLCANO_PEAKS = {
   startLabel: "Start",
   spaceTileImg: null,
   fallbackColor: "#f97316",
+  treasureAnchor: { x: 50, y: 16 },
+  startAnchor:    { x: 50, y: 93 },
+  pathWaypoints: [
+    { x: 50, y: 93 },  // start (bottom-center)
+    { x: 35, y: 84 },  // lava bend left
+    { x: 50, y: 72 },  // stone pedestal w/ flower
+    { x: 65, y: 60 },  // bend right
+    { x: 50, y: 47 },  // upper fire pedestal
+    { x: 35, y: 35 },  // bend left
+    { x: 50, y: 25 },  // approach
+    { x: 50, y: 16 },  // treasure (smiling volcano)
+  ],
+};
+
+// Glowing fairy clearing, mushroom houses, glowing crystals. Assets in
+// public/board/themes/enchanted-forest/. Tokens not yet provided —
+// emoji fallback used until they drop in.
+const ENCHANTED_FOREST = {
+  id: "enchanted_forest",
+  name: "Enchanted Forest",
+  background: "radial-gradient(ellipse at center, #14532d 0%, #052e16 65%, #020617 100%)",
+  bgImg: "/board/themes/enchanted-forest/bg.png",
+  pathStroke: "rgba(196,181,253,0.45)",
+  pathGlow: "rgba(168,85,247,0.40)",
+  tokenEmoji: "🦋",
+  tokenRestImg: null,
+  tokenFlyImg: null,
+  treasureEmoji: "✨",
+  treasureLockedImg: "/board/themes/enchanted-forest/treasure-locked.png",
+  treasureOpenImg: "/board/themes/enchanted-forest/treasure-open.png",
+  treasureLabel: "Fairy Trove",
+  startEmoji: "🍄",
+  startImg: "/board/themes/enchanted-forest/start.png",
+  startLabel: "Start",
+  spaceTileImg: null,
+  fallbackColor: "#a78bfa",
+  treasureAnchor: { x: 50, y: 18 },
+  startAnchor:    { x: 50, y: 92 },
+  pathWaypoints: [
+    { x: 50, y: 92 },  // start at bottom clearing
+    { x: 38, y: 80 },  // bend left through grass
+    { x: 50, y: 68 },  // center stones
+    { x: 62, y: 56 },  // bend right
+    { x: 50, y: 44 },  // center
+    { x: 40, y: 32 },  // bend left toward trees
+    { x: 50, y: 18 },  // treasure (top center)
+  ],
 };
 
 export const BOARD_THEMES = {
   space_quest: SPACE_QUEST,
   volcano_peaks: VOLCANO_PEAKS,
+  enchanted_forest: ENCHANTED_FOREST,
 };
 
 export const DEFAULT_BOARD_THEME = "space_quest";
+
+// Distribute `count` points evenly along a polyline through `waypoints`.
+// count includes START at index 0 and TREASURE at index count-1.
+// Returns positions[count]; positions[0] = waypoints[0],
+// positions[count-1] = waypoints[last], task spaces interpolated along
+// the polyline length so density matches the path's arc length, not
+// just the waypoint count.
+function positionsAlongPolyline(count, waypoints) {
+  if (count <= 0) return [];
+  if (count === 1) return [{ ...waypoints[0] }];
+  // Precompute cumulative arc length so distribution respects geometry,
+  // not waypoint index — keeps spaces evenly spaced even when bends
+  // bunch waypoints close together.
+  const cum = [0];
+  for (let i = 1; i < waypoints.length; i++) {
+    const dx = waypoints[i].x - waypoints[i - 1].x;
+    const dy = waypoints[i].y - waypoints[i - 1].y;
+    cum.push(cum[i - 1] + Math.hypot(dx, dy));
+  }
+  const total = cum[cum.length - 1] || 1;
+  const positions = [];
+  for (let i = 0; i < count; i++) {
+    const t = i / (count - 1);
+    const target = t * total;
+    // Find the segment containing this arc-length target.
+    let seg = 0;
+    while (seg < cum.length - 1 && cum[seg + 1] < target) seg++;
+    const segStart = cum[seg];
+    const segEnd = cum[seg + 1] ?? segStart;
+    const segLen = segEnd - segStart || 1;
+    const frac = Math.min(1, Math.max(0, (target - segStart) / segLen));
+    const a = waypoints[seg];
+    const b = waypoints[Math.min(seg + 1, waypoints.length - 1)];
+    positions.push({
+      x: a.x + (b.x - a.x) * frac,
+      y: a.y + (b.y - a.y) * frac,
+    });
+  }
+  return positions;
+}
 
 const ACTIVITY_EMOJI = {
   Drums: "🥁",
@@ -176,7 +273,37 @@ function deriveSpaces({ todaysTasks, compByTask, completions }) {
   return out;
 }
 
-function calcPositions(count, viewBoxH) {
+function calcPositions(count, viewBoxH, theme) {
+  // Theme-anchored path: distribute spaces along the painted geography
+  // and pin treasure/start to the artwork's anchor points. Falls back to
+  // the procedural snake for themes that don't supply waypoints.
+  if (theme?.pathWaypoints && theme.pathWaypoints.length >= 2 && count >= 2) {
+    // viewBox is in % units (0-100 by convention here), so we scale the
+    // waypoint Y values to the actual viewBoxH at the end.
+    const pct = positionsAlongPolyline(count, theme.pathWaypoints);
+    const positions = pct.map((p) => ({
+      x: p.x,
+      y: (p.y / 100) * viewBoxH,
+    }));
+    // Anchor overrides — keep treasure exactly on its painted pedestal,
+    // start at its mark. Without these the interpolation can drift a
+    // couple of percent on edge cases (count=2, etc.).
+    if (theme.startAnchor) {
+      positions[0] = {
+        x: theme.startAnchor.x,
+        y: (theme.startAnchor.y / 100) * viewBoxH,
+      };
+    }
+    if (theme.treasureAnchor) {
+      positions[count - 1] = {
+        x: theme.treasureAnchor.x,
+        y: (theme.treasureAnchor.y / 100) * viewBoxH,
+      };
+    }
+    return positions;
+  }
+
+  // Procedural snake — Space Quest's original layout. Untouched.
   const cols = 3;
   const xLanes = [22, 50, 78];
   const rowCount = Math.max(1, Math.ceil(count / cols));
@@ -433,11 +560,26 @@ export default function BoardGame({
   setOpenTask,
   user,
   boardTheme,
+  boardDailyCap,
 }) {
   // Theme resolution: parent picks via familySetting("boardTheme", ...).
   // Unknown id or missing → DEFAULT_BOARD_THEME so the board never blanks.
   const theme = BOARD_THEMES[boardTheme] || BOARD_THEMES[DEFAULT_BOARD_THEME];
-  const safeTasks = todaysTasks || [];
+  // Daily cap — parent-controlled via familySetting("boardDailyCap", N).
+  // null / undefined / non-positive = uncapped (all of today's tasks).
+  // When capped, we pick required tasks first (must-do), then extras —
+  // canonical task.required field drives the priority. Already-completed
+  // tasks count toward the cap so the kid sees what was done plus what's
+  // left, totaling N. If completed already exceeds N (parent lowered cap
+  // mid-day), we still show all completed + the cap-capped remaining.
+  const rawTasks = todaysTasks || [];
+  const safeTasks = (() => {
+    const cap = Number(boardDailyCap) > 0 ? Math.floor(Number(boardDailyCap)) : null;
+    if (!cap || rawTasks.length <= cap) return rawTasks;
+    const required = rawTasks.filter((t) => t.required);
+    const extras = rawTasks.filter((t) => !t.required);
+    return [...required, ...extras].slice(0, cap);
+  })();
   const safeComp = compByTask || {};
   const safeCompletions = completions || [];
 
@@ -478,9 +620,15 @@ export default function BoardGame({
     [safeTasks, safeComp, safeCompletions]
   );
 
+  // Themes with bgImg get a fixed-aspect viewBox so the painted geography
+  // stays proportional. Procedural themes still scale viewBoxH with space
+  // count so the snake doesn't squash.
   const rowCount = Math.max(1, Math.ceil(spaces.length / 3));
-  const VIEWBOX_H = rowCount * 38;
-  const positions = useMemo(() => calcPositions(spaces.length, VIEWBOX_H), [spaces.length, VIEWBOX_H]);
+  const VIEWBOX_H = theme?.bgImg ? 180 : rowCount * 38;
+  const positions = useMemo(
+    () => calcPositions(spaces.length, VIEWBOX_H, theme),
+    [spaces.length, VIEWBOX_H, theme]
+  );
   const pathD = useMemo(() => buildPathD(positions), [positions]);
 
   // Where the rocket SHOULD live right now: index of the last completed
@@ -831,7 +979,7 @@ export default function BoardGame({
               crossfade via opacity (single-tree avoids any DOM thrash that
               would interrupt the inherited rocketHover animation). */}
           <div
-            className="text-3xl sm:text-4xl drop-shadow-[0_3px_6px_rgba(0,0,0,0.55)] relative"
+            className="text-5xl sm:text-6xl drop-shadow-[0_4px_8px_rgba(0,0,0,0.6)] relative"
             style={{
               animation:
                 !launched && targetIdx > 0
@@ -839,12 +987,12 @@ export default function BoardGame({
                   : "rocketHover 2400ms ease-in-out infinite",
               filter:
                 !launched && targetIdx > 0
-                  ? "drop-shadow(0 0 14px rgba(253,224,71,0.6))"
+                  ? "drop-shadow(0 0 18px rgba(253,224,71,0.7))"
                   : undefined,
             }}
           >
             {theme.tokenRestImg ? (
-              <div className="relative w-12 h-12 sm:w-14 sm:h-14">
+              <div className="relative w-20 h-20 sm:w-24 sm:h-24">
                 <img
                   src={theme.tokenRestImg}
                   alt=""

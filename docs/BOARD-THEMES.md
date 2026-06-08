@@ -7,9 +7,10 @@
 
 | Theme | ID | Status | Notes |
 |---|---|---|---|
-| Space Quest | `space_quest` | ✅ Shipped (default) | Emoji-only; no asset deps. |
-| Volcano Peaks | `volcano_peaks` | 🔧 v1 shipped | All assets present except `space-tile.png` — falls back to activity-color tiles + emoji until it lands. Dragon `token.png` + `token-flying.png` animation is live. |
-| Water World | `water_world` | ⏳ Planned | Folder exists in `public/board/themes/water-world/` (or `graphics/`); awaiting assets. |
+| Space Quest | `space_quest` | ✅ Shipped (default) | Emoji-only; no asset deps. Procedural snake path. |
+| Volcano Peaks | `volcano_peaks` | ✅ v3 | Refreshed bg.png (new artwork w/ jack-o-lantern volcano + stone pedestals). `treasureAnchor` pinned to the painted volcano face; `pathWaypoints` follow the central lava river. Dragon token rest/fly animation live. `space-tile.png` still pending. |
+| Enchanted Forest | `enchanted_forest` | ✅ v3 | bg + start + treasure-locked + treasure-open present. Tokens not provided yet → emoji 🦋 fallback. Path waypoints zig through the clearing. |
+| Water World | `water_world` | ⏳ Planned | Folder exists in `graphics/board-game/water-world/`; awaiting assets. |
 
 ## Per-family, not per-profile
 
@@ -47,8 +48,27 @@ Every theme object in the `BOARD_THEMES` registry has these fields:
   startLabel:        "Start",
   spaceTileImg:      "/board/themes/<id>/space-tile.png" | null,
   fallbackColor:     "#hex",                  // activity tile color when activity has none
+
+  // v3 — art-anchored layout
+  treasureAnchor:    { x: 50, y: 16 } | null, // pinned treasure position (0-100 % into viewBox)
+  startAnchor:       { x: 50, y: 92 } | null, // pinned start position
+  pathWaypoints:     [{x,y}, ...]   | null,   // path snakes through these, bottom-up; spaces
+                                              // distribute evenly along the polyline arc length.
+                                              // Treasure + start anchors override the first/last.
 }
 ```
+
+### Path-fits-art rendering (v3)
+
+When a theme provides `pathWaypoints` (≥ 2 points), `calcPositions()` in `src/BoardGame.jsx` switches from the procedural 3-column snake to an **arc-length distribution** along the polyline. Density matches the path's actual length, so spaces stay evenly spaced even when bends bunch waypoints close together.
+
+- Waypoint coords are **percentages (0-100)** of the board's viewBox.
+- A themed board uses a **fixed viewBox height** (180 units) regardless of space count — keeps the painted geography proportional. Procedural boards (Space Quest) still scale viewBoxH with space count.
+- `treasureAnchor` + `startAnchor` are applied **after** the polyline interpolation as hard overrides — ensures treasure stays exactly on its painted pedestal even at edge counts.
+
+### Parent control: Daily Quest Cap (v3)
+
+`family_settings.boardDailyCap` (jsonb key, integer 3-14, default 9). When set, BoardGame slices `todaysTasks` to the first N (required tasks first, then extras). Treasure unlocks at full clear of the capped list. Parent dials via **More → Adventure Board → Today's Quest Cap (− / +)**. Same setting controls the board for the whole family.
 
 ### Image / emoji fallback rules
 

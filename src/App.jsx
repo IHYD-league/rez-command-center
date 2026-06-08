@@ -487,6 +487,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // "space_quest" (the original emoji-only theme). See BoardGame.jsx
   // BOARD_THEMES for the registry + docs/BOARD-THEMES.md for the spec.
   const [boardTheme, setBoardTheme] = familySetting("boardTheme", "space_quest");
+  // Daily cap on the Adventure Board — null = uncapped (show all of
+  // today's tasks). When set to a positive integer, the board picks the
+  // first N tasks (required first, then extras) so Reznor sees a focused
+  // mission for the day. Parent dials this up or down per-day.
+  const [boardDailyCap, setBoardDailyCap] = familySetting("boardDailyCap", 9);
 
   const [currentUserId, setCurrentUserId] = useState(currentProfileId || null);
   const [tab, setTab] = useState("today");
@@ -1045,6 +1050,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     boardState, setBoardLastPosition, setTreasureClaimed,
     summerQuest, setSummerQuest,
     boardTheme, setBoardTheme,
+    boardDailyCap, setBoardDailyCap,
   };
 
   return (
@@ -3766,7 +3772,7 @@ function MoreParent(props) {
   if (sub === "grades") return <BackWrap title="Grade Goals" onBack={() => setSub("menu")}><GradeGoals /></BackWrap>;
   if (sub === "recap") return <BackWrap title="Recap & Memories" onBack={() => setSub("menu")}><ParentRecap {...props} /></BackWrap>;
   if (sub === "awards") return <BackWrap title="Accomplishments" onBack={() => setSub("menu")}><Accomplishments {...props} /></BackWrap>;
-  if (sub === "board_theme") return <BackWrap title="Board Theme" onBack={() => setSub("menu")}><BoardThemePicker {...props} /></BackWrap>;
+  if (sub === "board_theme") return <BackWrap title="Adventure Board" onBack={() => setSub("menu")}><AdventureBoardSettings {...props} /></BackWrap>;
   const items = [
     { k: "portfolio", icon: <ImageIcon size={18} />, label: "Progress Portfolio", sub: "Photos, art & writing over time" },
     { k: "weekly", icon: <ClipboardList size={18} />, label: "Weekly Summary", sub: "Minutes, wins, needs attention" },
@@ -3779,7 +3785,7 @@ function MoreParent(props) {
     { k: "grades", icon: <Trophy size={18} />, label: "Grade Goals", sub: "Grades 1–6 · world's best standards" },
     { k: "recap", icon: <Share2 size={18} />, label: "Recap & Memories", sub: "Weekly/monthly export · anniversaries" },
     { k: "awards", icon: <Medal size={18} />, label: "Accomplishments", sub: "Report cards · belts · certificates" },
-    { k: "board_theme", icon: <Map size={18} />, label: "Board Theme", sub: "Pick the Daily Adventure Board's vibe" },
+    { k: "board_theme", icon: <Map size={18} />, label: "Adventure Board", sub: "Daily target · theme · controls" },
   ];
   return (
     <div className="px-4 pt-4">
@@ -3796,6 +3802,78 @@ function MoreParent(props) {
     </div>
   );
 }
+// Adventure Board parent settings — combines daily cap + theme picker.
+// Per-family settings via familySetting; instant effect on the kid's
+// next render of the Board tab.
+function AdventureBoardSettings(props) {
+  const { boardDailyCap, setBoardDailyCap, todaysTasks } = props;
+  const total = (todaysTasks || []).length;
+  const required = (todaysTasks || []).filter((t) => t.required).length;
+  const cap = Number(boardDailyCap) > 0 ? Math.floor(Number(boardDailyCap)) : null;
+  // Clamp range — at least 3 spaces to keep the path interesting, at
+  // most 14 so the board doesn't get crowded again.
+  const MIN_CAP = 3;
+  const MAX_CAP = 14;
+  const bump = (delta) => {
+    const next = (cap ?? 9) + delta;
+    setBoardDailyCap(Math.max(MIN_CAP, Math.min(MAX_CAP, next)));
+  };
+  const displayed = Math.min(cap ?? total, total);
+  return (
+    <div className="space-y-4">
+      {/* Daily target dial */}
+      <div
+        className="rounded-3xl p-4 text-white relative overflow-hidden"
+        style={{ background: "linear-gradient(135deg,#7c2d12 0%, #c2410c 50%, #ea580c 100%)" }}
+      >
+        <Sparkles className="absolute -right-3 -top-3 opacity-20" size={64} />
+        <div className="text-[10px] uppercase tracking-widest text-white/80 font-bold flex items-center gap-1.5">
+          <Map size={11} /> Today's Quest Cap
+        </div>
+        <div className="flex items-center justify-between mt-2 gap-3">
+          <button
+            type="button"
+            onClick={() => bump(-1)}
+            disabled={(cap ?? 9) <= MIN_CAP}
+            className="w-12 h-12 rounded-2xl bg-white/15 border border-white/25 backdrop-blur grid place-items-center text-2xl font-extrabold active:scale-95 disabled:opacity-30 disabled:active:scale-100"
+          >
+            −
+          </button>
+          <div className="flex-1 text-center">
+            <div className="text-5xl font-extrabold leading-none">
+              {cap ?? "All"}
+            </div>
+            <div className="text-[11px] text-white/80 mt-1.5">
+              {cap == null
+                ? `Showing all ${total} of today's tasks`
+                : `Showing ${displayed} of ${total} today`}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => bump(1)}
+            disabled={(cap ?? 9) >= MAX_CAP}
+            className="w-12 h-12 rounded-2xl bg-white/15 border border-white/25 backdrop-blur grid place-items-center text-2xl font-extrabold active:scale-95 disabled:opacity-30 disabled:active:scale-100"
+          >
+            +
+          </button>
+        </div>
+        <div className="text-[11px] text-white/80 mt-3 leading-snug">
+          Picks required tasks first ({required} today), then extras. Treasure
+          unlocks at full clear. Dial up if Reznor needs a longer day; dial
+          down if he needs a focused list.
+        </div>
+      </div>
+
+      {/* Theme picker */}
+      <div className="text-xs text-slate-500 px-1 pt-1">
+        The Daily Adventure Board's look — applies to everyone in the family.
+      </div>
+      <BoardThemePicker {...props} />
+    </div>
+  );
+}
+
 // Board theme picker — lives under More for parents. Writes through the
 // existing familySetting("boardTheme", ...) so the change takes effect
 // immediately on every device on the next render of the Board tab.
@@ -3807,9 +3885,6 @@ function BoardThemePicker({ boardTheme, setBoardTheme }) {
   const ids = Object.keys(BOARD_THEMES);
   return (
     <div className="space-y-3">
-      <div className="text-xs text-slate-500 px-1">
-        The Daily Adventure Board's look — applies to everyone in the family.
-      </div>
       <div className="grid grid-cols-1 gap-3">
         {ids.map((id) => {
           const t = BOARD_THEMES[id];
