@@ -476,7 +476,7 @@ function BoardPop({ id, kind, label, sub }) {
   );
 }
 
-function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey = 0 }) {
+function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey = 0, index, onWalkTo }) {
   // Arrival pulse — when pulseKey transitions to a fresh (non-zero)
   // value, imperatively restart a one-shot CSS animation on the marker.
   // Same force-reflow pattern as the bank-pop on KidGameHome so the
@@ -672,7 +672,17 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
       }}
     >
       {tappable ? (
-        <button type="button" onClick={() => onTap?.(task)} title={label} className="active:scale-95">
+        <button
+          type="button"
+          onClick={() => {
+            // Completed spaces: walk the token there (replay journey).
+            // All other states: open the task sheet so the kid can act.
+            if (space.state === "completed" && onWalkTo) onWalkTo(index);
+            else onTap?.(task);
+          }}
+          title={label}
+          className="active:scale-95"
+        >
           {inner}
         </button>
       ) : (
@@ -819,6 +829,42 @@ export default function BoardGame({
   // the same art as both states; this state is harmless for emoji-only
   // themes. Reset to false on every land.
   const [flying, setFlying] = useState(false);
+  // Holds the post-land "cheer" timer so a quick re-launch cancels it
+  // cleanly instead of double-flipping the flying state.
+  const cheerTimerRef = useRef(null);
+
+  // Token tap — Reznor loves making the dragon/butterfly/lollipop do
+  // its thing on demand. Each tap fires the alt-sprite crossfade for
+  // 600ms + plays a soft tap chime. Independent from animateAlong, so
+  // it works any time the token is at rest. If the token is already
+  // mid-cheer/mid-fly, the timer is just reset.
+  const onTokenTap = () => {
+    juice.haptic("light");
+    juice.sfx("tap");
+    if (cheerTimerRef.current) clearTimeout(cheerTimerRef.current);
+    setFlying(true);
+    cheerTimerRef.current = setTimeout(() => setFlying(false), 600);
+  };
+
+  // Walk-the-token: tapping a COMPLETED space animates the token from
+  // wherever it currently is back to that space. Reznor can replay his
+  // own journey — up to but not past the last canonical completion.
+  // No data mutation; this is pure visual exploration.
+  const walkToCompleted = (toIdx) => {
+    if (toIdx < 0 || toIdx >= spaces.length) return;
+    // Guard: never move past targetIdx (the canonical "real" position).
+    if (toIdx > targetIdx) return;
+    if (toIdx === tokenIdxRef.current) {
+      // Already there — just animate in place via tap-cheer.
+      onTokenTap();
+      return;
+    }
+    // Speed scales with distance, capped so a long walk isn't tedious.
+    const dist = Math.abs(toIdx - tokenIdxRef.current);
+    animateAlong(tokenIdxRef.current, toIdx, {
+      duration: Math.min(900, 280 + dist * 180),
+    });
+  };
 
   // Fix the "scrolled to the bottom" problem: when the user taps the
   // Board tab, the outer scroll container in App.jsx still holds the
@@ -866,6 +912,13 @@ export default function BoardGame({
         animRef.current = null;
         tokenIdxRef.current = toIdx;
         setFlying(false);
+        // "Made it!" cheer — flip the token back to its alt sprite
+        // for 650ms after the move finishes so every successful
+        // arrival has a visible celebration (every submit, every
+        // tap-to-walk). Cancelled if another animateAlong starts.
+        if (cheerTimerRef.current) clearTimeout(cheerTimerRef.current);
+        setFlying(true);
+        cheerTimerRef.current = setTimeout(() => setFlying(false), 650);
         onLand?.();
       }
     };
@@ -1068,6 +1121,10 @@ export default function BoardGame({
             // the SpaceMarker effect re-triggers its arrival animation
             // each time the key flips.
             pulseKey={lastLanded.idx === i ? lastLanded.t : 0}
+            // Tap-to-walk: completed spaces call this with their index
+            // instead of opening the task sheet (task's already done).
+            index={i}
+            onWalkTo={walkToCompleted}
           />
         ))}
 
@@ -1120,8 +1177,21 @@ export default function BoardGame({
               When the theme provides art, render both rest + fly PNGs and
               crossfade via opacity (single-tree avoids any DOM thrash that
               would interrupt the inherited rocketHover animation). */}
-          <div
-            className="text-5xl sm:text-6xl drop-shadow-[0_4px_8px_rgba(0,0,0,0.6)] relative"
+          {/* Token is now tappable — every tap flips the rest/alt sprite
+              for 600ms + plays a soft tap chime. This is the "let him
+              have fun" loop: Reznor can wake the dragon up any time. */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              // If we haven't launched yet (catch-up replay queued),
+              // the container handles the first tap. After launch,
+              // taps go to onTokenTap.
+              if (!launched) return;
+              onTokenTap();
+            }}
+            className="text-5xl sm:text-6xl drop-shadow-[0_4px_8px_rgba(0,0,0,0.6)] relative active:scale-95 transition-transform"
+            aria-label="Tap your character"
             style={{
               animation:
                 !launched && targetIdx > 0
@@ -1131,6 +1201,10 @@ export default function BoardGame({
                 !launched && targetIdx > 0
                   ? "drop-shadow(0 0 18px rgba(253,224,71,0.7))"
                   : undefined,
+              cursor: launched ? "pointer" : "default",
+              border: 0,
+              padding: 0,
+              background: "transparent",
             }}
           >
             {theme.tokenRestImg ? (
@@ -1155,7 +1229,7 @@ export default function BoardGame({
             ) : (
               theme.tokenEmoji
             )}
-          </div>
+          </button>
         </div>
 
         {/* Tap-to-launch invitation — appears only when there's a catch-up
