@@ -144,6 +144,27 @@ export const toApp = {
     prefs: r.prefs ?? {},
     updatedAt: r.updated_at,
   }],
+
+  event: (r) => ({
+    id: r.id,
+    title: r.title,
+    date: r.event_date,
+    category: r.category ?? "",
+    notes: r.notes ?? "",
+  }),
+
+  handoffNote: (r) => ({
+    id: r.id,
+    authorId: r.author_id,
+    note: r.note,
+    pinned: r.pinned ?? false,
+    // Cheap "time" for display — UI was using a stringy "9:40 AM";
+    // re-derive that from posted_at so reloads show consistent labels.
+    time: r.posted_at
+      ? new Date(r.posted_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : "",
+    postedAt: r.posted_at,
+  }),
 };
 
 export const toDb = {
@@ -303,5 +324,22 @@ export const toDb = {
     family_id: familyId,
     profile_id: profileId,
     prefs: s.prefs ?? {},
+  }),
+
+  event: (familyId) => (o) => ({
+    id: o.id,
+    family_id: familyId,
+    title: o.title,
+    event_date: o.date || null,
+    category: o.category ?? null,
+    notes: o.notes ?? null,
+  }),
+
+  handoffNote: (familyId) => (o) => ({
+    id: o.id,
+    family_id: familyId,
+    author_id: o.authorId ?? null,
+    note: o.note,
+    pinned: o.pinned ?? false,
   }),
 };

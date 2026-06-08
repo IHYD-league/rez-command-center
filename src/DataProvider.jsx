@@ -23,6 +23,8 @@ const ENTITIES = {
   gifted:          { table: "gifted_stars",    toApp: toApp.gifted,         toDb: toDb.gifted,         key: "id"   },
   songs:           { table: "songs",            toApp: toApp.song,           toDb: toDb.song,           key: "id"   },
   songPlays:       { table: "song_plays",       toApp: toApp.songPlay,       toDb: toDb.songPlay,       key: "id"   },
+  events:          { table: "events",           toApp: toApp.event,          toDb: toDb.event,          key: "id"   },
+  handoffNotes:    { table: "handoff_notes",    toApp: toApp.handoffNote,    toDb: toDb.handoffNote,    key: "id"   },
 };
 
 async function loadFamilyId() {
@@ -68,6 +70,15 @@ async function loadEntities(familyId) {
     .eq("family_id", familyId);
   if (upErr) throw new Error(`user_prefs: ${upErr.message}`);
   out.userPrefs = Object.fromEntries((up || []).map(toApp.userPrefsRow));
+  // family_settings — one row per family. Use maybeSingle so it's
+  // fine for fresh installs where no row exists yet.
+  const { data: fs, error: fsErr } = await supabase
+    .from("family_settings")
+    .select("settings")
+    .eq("family_id", familyId)
+    .maybeSingle();
+  if (fsErr) throw new Error(`family_settings: ${fsErr.message}`);
+  out.familySettings = fs?.settings ?? {};
   return out;
 }
 
@@ -115,7 +126,7 @@ export default function DataProvider({ session, children }) {
   // setX calls within a render coalesces into one network round trip.
   const sync = (key, value) => {
     if (!familyId) return;
-    const composite = key === "streaks" || key === "boardState" || key === "userPrefs";
+    const composite = key === "streaks" || key === "boardState" || key === "userPrefs" || key === "familySettings";
     const def = composite ? null : ENTITIES[key];
     if (!def && !composite) {
       console.warn("sync: unknown entity", key);
@@ -146,6 +157,18 @@ export default function DataProvider({ session, children }) {
             .from("user_prefs")
             .upsert(rows, { onConflict: "family_id,profile_id" });
           if (error) console.error("user_prefs sync:", error.message);
+          return;
+        }
+        if (key === "familySettings") {
+          // family_settings: one-row-per-family singleton. The value is
+          // the whole jsonb settings blob.
+          const { error } = await supabase
+            .from("family_settings")
+            .upsert(
+              { family_id: familyId, settings: value || {} },
+              { onConflict: "family_id" }
+            );
+          if (error) console.error("family_settings sync:", error.message);
           return;
         }
         if (key === "streaks") {

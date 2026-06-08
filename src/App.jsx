@@ -397,14 +397,33 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // reads via the small `setPref` helper below.
   const [userPrefs, _setUserPrefs] = useState(() => initial?.userPrefs ?? {});
 
-  // In-memory only (not in the user's persistence list — see Phase 2 notes).
-  const [events, setEvents] = useState(SEED_EVENTS);
-  const [handoff, setHandoff] = useState(SEED_HANDOFF);
-  const [mode, setMode] = useState("summer");
+  // Persisted via the dedicated `events` + `handoff_notes` tables.
+  const [events, _setEvents] = useState(() => initial?.events ?? SEED_EVENTS);
+  const [handoff, _setHandoff] = useState(() => initial?.handoffNotes ?? SEED_HANDOFF);
+  const setEvents = makeSyncedSetter(_setEvents, "events", sync);
+  const setHandoff = makeSyncedSetter(_setHandoff, "handoffNotes", sync);
+  // family_settings is the catch-all jsonb for family-level prefs.
+  // mode (summer/school) and the priorities map both live in here.
+  // Future cousins (taskNotes, tkdDays, tkdTimes) slot in alongside.
+  const [familySettings, _setFamilySettings] = useState(() => initial?.familySettings ?? {});
+  const setFamilySettings = makeSyncedSetter(_setFamilySettings, "familySettings", sync);
+  const mode = familySettings.mode || "summer";
+  const setMode = (next) => setFamilySettings((prev) => ({ ...(prev || {}), mode: next }));
+  // priorities: undefined here means "never set" → fall back to SEED so
+  // the demo overrides still show on a fresh install. Any explicit value
+  // (including {}) wins.
+  const priorities = familySettings.priorities ?? SEED_PRIORITIES;
+  const setPriorities = (updater) => {
+    setFamilySettings((prev) => {
+      const current = (prev && prev.priorities !== undefined) ? prev.priorities : SEED_PRIORITIES;
+      const nextPriorities = typeof updater === "function" ? updater(current) : updater;
+      return { ...(prev || {}), priorities: nextPriorities };
+    });
+  };
+
   const [currentUserId, setCurrentUserId] = useState(currentProfileId || null);
   const [tab, setTab] = useState("today");
   const [openTask, setOpenTask] = useState(null);
-  const [priorities, setPriorities] = useState(SEED_PRIORITIES);
   const [tkdDays, setTkdDays] = useState(["Monday"]);
   const [tkdTimes, setTkdTimes] = useState(() => Object.fromEntries(TKD_SLOTS.map((s) => [s.day, s.time])));
   const [activities, setActivities] = useState(SEED_ACTIVITIES);

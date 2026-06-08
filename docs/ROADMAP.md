@@ -52,8 +52,11 @@ skin, not a second app.
 - ⏳ Helper/grandparent logins (Sara, Evie) — create auth users + link profiles
 - ⏳ Task proof photos persist (not blob URLs)
 - ⏳ Award/accomplishment files persist
-- ⏳ Persist: calendar events, handoff notes, task priorities, summer/school mode,
-  per-task notes, TKD schedule (currently in-memory, reset on reload)
+- 🔧 Persist: calendar events ✅, handoff notes ✅, task priorities ✅,
+  summer/school mode ✅, per-task notes ⏳, TKD schedule ⏳ — first pass
+  shipped via the `family_settings` + `events` + `handoff_notes` tables.
+  The remaining (taskNotes, tkdDays, tkdTimes) join the family_settings
+  jsonb in a follow-up.
 - ⏳ Drum subtask checkboxes persist mid-progress
 
 ## Phase 2 — Game Mode skin (toggle, additive)
