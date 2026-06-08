@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Star, Flame, Trophy, Crown, Target, Sparkles, MapPin, Menu, Map } from "lucide-react";
+import { useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
    KidGameHome — Reznor's "game mode" home.
@@ -26,23 +27,27 @@ function ProgressBar({ have, need, color = "#f59e0b" }) {
 }
 
 function Avatar({ avatar, size = 64 }) {
-  const isImg = typeof avatar === "string" && /^https?:|^data:|^blob:|^\//.test(avatar);
-  if (isImg) {
+  const isDirectUrl = typeof avatar === "string" && /^(https?:|data:|blob:|\/)/.test(avatar);
+  const isStoragePath = typeof avatar === "string" && !isDirectUrl && avatar.includes("/");
+  const signed = useSignedUrl(isStoragePath ? avatar : null);
+  const src = isDirectUrl ? avatar : (isStoragePath ? signed : null);
+  if (src) {
     return (
       <img
-        src={avatar}
+        src={src}
         alt=""
         className="rounded-2xl object-cover shrink-0 border-2 border-white/40"
         style={{ width: size, height: size }}
       />
     );
   }
+  const display = isStoragePath ? "🧑‍🚀" : (avatar || "🧑‍🚀");
   return (
     <div
-      className="rounded-2xl grid place-items-center shrink-0 border-2 border-white/40 bg-white/15"
+      className="rounded-2xl grid place-items-center shrink-0 border-2 border-white/40 bg-white/15 overflow-hidden"
       style={{ width: size, height: size, fontSize: Math.round(size * 0.55) }}
     >
-      {avatar || "🧑‍🚀"}
+      {display}
     </div>
   );
 }
