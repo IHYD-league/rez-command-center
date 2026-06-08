@@ -31,7 +31,7 @@ const SEED_USERS = [
   { id: "u_krissie", name: "Krissie Lynch", role: "parent", relationship: "Mom", color: "#db2777", emoji: "👩", email: "krissielynch@gmail.com", active: true, accessType: "permanent", accessExpires: null, permissions: { approveSimple: true, approveAll: true, viewReports: true } },
   { id: "u_reznor", name: "Reznor", role: "kid", relationship: "Reznor", color: "#f59e0b", emoji: "🚀", active: true, accessType: "permanent", accessExpires: null, permissions: {} },
   { id: "u_evie", name: "Evie", role: "grandparent", relationship: "Grandma", color: "#7c3aed", emoji: "👵", active: true, accessType: "permanent", accessExpires: null, permissions: { approveSimple: true, approveAll: false, viewReports: true } },
-  { id: "u_sara", name: "Sara", role: "helper", relationship: "Helper", color: "#0d9488", emoji: "🧡", active: true, accessType: "permanent", accessExpires: null, permissions: { approveSimple: false, approveAll: false, viewReports: false } },
+  { id: "u_sara", name: "Sara", role: "helper", relationship: "Aunt", color: "#0d9488", emoji: "🧡", email: "sara.a.lanave@gmail.com", active: true, accessType: "permanent", accessExpires: null, permissions: { approveSimple: false, approveAll: false, viewReports: false } },
   { id: "u_guest", name: "Example Babysitter", role: "guest", relationship: "Guest sitter", color: "#64748b", emoji: "🧩", active: true, accessType: "temporary", accessExpires: "2026-06-13", permissions: { approveSimple: false, approveAll: false, viewReports: false } },
 ];
 
@@ -74,7 +74,7 @@ const SEED_TASKS = [
   { id: "t_bed", title: "Make Bed", category: "Chores", activityType: "Chores", required: true, starValue: 3, proofRequired: false, proofType: null, approvalRequired: false, mode: "both", minutes: 5 },
   { id: "t_toys", title: "Pick Up Toys", category: "Chores", activityType: "Chores", required: true, starValue: 3, proofRequired: false, proofType: null, approvalRequired: false, mode: "both", minutes: 10 },
   { id: "t_dishes", title: "Help With Dishes", category: "Chores", activityType: "Chores", required: false, starValue: 3, proofRequired: false, proofType: null, approvalRequired: false, mode: "both", minutes: 10 },
-  { id: "t_field", title: "Field Trip Journal", category: "Learning", activityType: "Field trips", required: false, starValue: 10, proofRequired: true, proofType: "photo", approvalRequired: true, mode: "summer", minutes: 30 },
+  { id: "t_field", title: "Field Trip Journal", category: "Learning", activityType: "Field trips", required: false, starValue: 10, proofRequired: true, proofType: "photo", approvalRequired: true, mode: "summer", minutes: 30, active: false },
   { id: "t_church", title: "Church", category: "Soul", activityType: "Church", activityId: "a_church", required: false, starValue: 10, bonusStarValue: 10, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 90, days: ["Sunday"] },
 ];
 
@@ -469,7 +469,19 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
 
   const [currentUserId, setCurrentUserId] = useState(currentProfileId || null);
   const [tab, setTab] = useState("today");
-  const [openTask, setOpenTask] = useState(null);
+  const [openTask, _setOpenTask] = useState(null);
+  // Wrap the openTask setter so every site that opens a TaskSheet
+  // (kid home, parent today, helper checklist, etc.) shares the same
+  // open-juice without each callsite needing to know about it.
+  // Fires only on the null → task transition (an actual open), not on
+  // the task → null transition (a close).
+  const setOpenTask = (t) => {
+    if (t && !openTask) {
+      juice.haptic("light");
+      juice.sfx("swipe");
+    }
+    _setOpenTask(t);
+  };
   const [activities, setActivities] = useState(SEED_ACTIVITIES);
   const [celebrate, setCelebrate] = useState(null);
   const [detailId, setDetailId] = useState(null);
@@ -4173,7 +4185,16 @@ function BottomNav({ user, tab, setTab }) {
       {items.map(({ k, icon: Icon, label }) => {
         const active = tab === k;
         return (
-          <button key={k} onClick={() => setTab(k)} className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-xl ${active ? "text-indigo-600" : "text-slate-400"}`}>
+          <button
+            key={k}
+            onClick={() => {
+              // Tapping the same tab is a no-op — don't burn juice on it.
+              if (tab === k) return;
+              juice.burst("light", "tap");
+              setTab(k);
+            }}
+            className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-xl transition active:scale-95 ${active ? "text-indigo-600" : "text-slate-400"}`}
+          >
             <Icon size={22} className={active ? "fill-indigo-100" : ""} />
             <span className="text-[10px] font-semibold">{label}</span>
           </button>

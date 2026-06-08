@@ -79,6 +79,9 @@ const SFX = {
   treasure: () => chord([1568, 1318, 1047, 1568, 2093], { dur: 0.16, type: "triangle", peak: 0.16, spread: 70 }),
   // Soft rejection — single low blip; never anything that feels punitive.
   nope: () => blip({ freq: 220, dur: 0.14, type: "sine", peak: 0.12, slideTo: 160 }),
+  // Sheet/modal open — soft rising glissando. Quick (130ms) so it
+  // doesn't compete with the kid's next input.
+  swipe: () => blip({ freq: 320, dur: 0.13, type: "sine", peak: 0.13, slideTo: 760 }),
 };
 
 // Vibration patterns. navigator.vibrate accepts a number (ms) or array
