@@ -306,6 +306,11 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
   }, [stars]);
 
   const firstUndone = mainQuests.find((q) => !q.done);
+  // For the "Up next" widget: pick a required quest if any remain, else
+  // the first un-done extra so the suggestion never goes blank while
+  // there's still anything to do. Hidden entirely once everything's done.
+  const upNext = firstUndone || sideQuests.find((q) => !q.done);
+  const upNextIsRequired = !!firstUndone;
 
   return (
     <div className="px-4 pt-4 pb-6 space-y-4">
@@ -431,6 +436,46 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               {nextBadge.value} / {nextBadge.goal}
             </div>
           </div>
+        </button>
+      )}
+
+      {/* UP NEXT — single-tap "what to do right now" card. Derived from
+          the canonical todaysTasks via the mainQuests/sideQuests already
+          on kidData. Tap → opens the same TaskSheet a tile would. Hidden
+          when everything is done; the bottom CTA shows the celebration. */}
+      {upNext && (
+        <button
+          type="button"
+          onClick={() => onTapQuest?.(upNext.id)}
+          className="w-full rounded-3xl p-3.5 flex items-center gap-3 active:scale-[0.98] transition border-2 border-emerald-200 shadow-sm"
+          style={{
+            background: "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 60%, #ccfbf1 100%)",
+          }}
+        >
+          <div className="w-14 h-14 rounded-2xl bg-emerald-100 grid place-items-center shrink-0">
+            <Target size={26} className="text-emerald-600" />
+          </div>
+          <div className="flex-1 min-w-0 text-left">
+            <div className="text-[10px] uppercase tracking-widest text-emerald-700 font-bold">
+              Up next {upNextIsRequired ? "" : "· extra"}
+            </div>
+            <div className="text-base font-extrabold text-slate-800 truncate leading-tight">
+              {upNext.title}
+            </div>
+            <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+              <Sparkles size={11} className="text-amber-500" />
+              +{upNext.xp} XP
+              {upNext.subtasks && upNext.subtasks.length > 0 && (
+                <>
+                  <span className="text-slate-300">·</span>
+                  <span>
+                    {upNext.subtasks.filter((s) => s.done).length} / {upNext.subtasks.length} parts
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="text-2xl text-emerald-600 shrink-0">▶</div>
         </button>
       )}
 

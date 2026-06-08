@@ -114,7 +114,13 @@ inside this Phase 2 bucket; don't smuggle later phases into earlier PRs.
   where the full trophy case lives. No new flags ("has_badge", etc.) —
   everything is recomputed each render from the canonical streaks +
   starBank + completed-books, etc.
-- ⏳ "What should Reznor do next?" widget (logic over existing tasks)
+- ✅ "What should Reznor do next?" widget — green "Up next" card on
+  KidGameHome between the hero and the Adventure Board entry. Picks the
+  first un-done required quest, falls back to the first un-done extra so
+  it never goes blank while there's anything to do. Single tap → opens
+  the same TaskSheet a quest tile would. Shows the title, XP reward, and
+  sub-part progress when relevant (e.g. "1 / 3 parts" on drums). Hidden
+  once everything's done; the existing bottom CTA handles the celebration.
 - ⏳ Dad Power-Up / parent engagement stats (approvals this week, etc.)
 
 ### Bucket C — new systems (each its own table, build one at a time)
