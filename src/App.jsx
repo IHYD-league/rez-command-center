@@ -2967,10 +2967,76 @@ function GiftStarsCard({ giftStars }) {
 // ===================== PARENT: APPROVALS =====================
 function Approvals({ completions, tasks, users, decide }) {
   const pending = completions.filter((c) => c.status === "pending");
+  // Today's approved-stars tally — derived from canonical completions.
+  // Resets at the date roll. Gives the existing starBurst.fly a real
+  // destination on the parent side so taps to Approve fire the full
+  // fly-to-bank + bank-pop loop instead of silently no-op'ing.
+  const approvedToday = completions
+    .filter((c) => c.status === "approved" && c.completionDate === TODAY_ISO)
+    .reduce((s, c) => s + (c.awardedStars || 0), 0);
+  // Bank-pop wiring: same imperative-restart-on-landed pattern as the
+  // kid hero card. The chip below carries the data-star-bank attr;
+  // when stars land here we flash + scale the count.
+  const tallyRef = useRef(null);
+  useEffect(() => {
+    return starBurst.onLanded(() => {
+      const el = tallyRef.current;
+      if (!el) return;
+      el.style.animation = "none";
+      void el.offsetWidth;
+      el.style.animation = "appBankPop 600ms ease-out";
+    });
+  }, []);
   return (
     <div className="px-4 pt-4">
+      <style>{`
+        @keyframes appBankPop {
+          0%   { transform: scale(1);    color: inherit;          text-shadow: none; }
+          25%  { transform: scale(1.28); color: #fde047;
+                 text-shadow: 0 0 14px rgba(253,224,71,0.85), 0 0 28px rgba(251,191,36,0.6); }
+          55%  { transform: scale(0.96); color: #fef3c7;
+                 text-shadow: 0 0 10px rgba(253,224,71,0.5); }
+          80%  { transform: scale(1.06); color: inherit;          text-shadow: 0 0 6px rgba(253,224,71,0.3); }
+          100% { transform: scale(1);    color: inherit;          text-shadow: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          @keyframes appBankPop {
+            0%   { color: inherit; }
+            30%  { color: #fde047; text-shadow: 0 0 10px rgba(253,224,71,0.6); }
+            100% { color: inherit; text-shadow: none; }
+          }
+        }
+      `}</style>
       <h2 className="font-extrabold text-lg px-1">Approval Queue</h2>
       <p className="text-xs text-slate-400 px-1 mb-2">Stars stay pending until you approve.</p>
+      {/* Today's tally — also the destination for the star-burst fly
+          animation. Persistent presence so the parent watches their
+          impact accumulate as they work through the queue. */}
+      <div
+        className="rounded-3xl p-4 mb-3 text-white relative overflow-hidden"
+        style={{ background: "linear-gradient(135deg,#6366f1,#a855f7 55%,#ec4899)" }}
+      >
+        <Sparkles className="absolute -right-3 -top-3 opacity-20" size={80} />
+        <div className="flex items-center gap-3 relative">
+          <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur grid place-items-center">
+            <Star size={24} className="fill-amber-300 text-amber-300" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">Approved Today</div>
+            <div className="flex items-baseline gap-2">
+              <span
+                ref={tallyRef}
+                data-star-bank
+                className="text-3xl font-extrabold leading-none"
+                style={{ display: "inline-block", transformOrigin: "left center" }}
+              >
+                {approvedToday}
+              </span>
+              <span className="text-sm font-bold text-white/70">⭐ banked</span>
+            </div>
+          </div>
+        </div>
+      </div>
       {pending.length === 0 && <Card className="p-6 text-center text-slate-400 text-sm mt-4">All caught up! 🎉</Card>}
       {pending.map((c) => {
         const t = tasks.find((x) => x.id === c.taskId);
