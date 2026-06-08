@@ -102,9 +102,18 @@ inside this Phase 2 bucket; don't smuggle later phases into earlier PRs.
 - ⏳ Game-mode toggle in settings (per user)
 
 ### Bucket B — computed-from-truth (no new storage)
-- ⏳ XP & levels (formula: XP = stars × 10; level every N XP)
-- ⏳ Badges / titles (derived from milestones already tracked, e.g. 310 streak
-  → "Drumming Knight")
+- ✅ XP & levels (XP = stars × 10; triangular curve 50·n·(n-1); titles
+  Spark / Sprout / Explorer / Champion / Hero / Knight / Legend / Royalty
+  / Cosmic / G.O.A.T.). Hero card on KidGameHome now has a Level chip
+  with an XP progress bar. ARCHITECTURE §3 — nothing stored; every value
+  derives from the canonical star bank.
+- ✅ Badges / titles + "almost there" pull-forward. ACHIEVEMENTS already
+  existed in the KidStars trophy case; a new `nextBadgeFor(ctx)` derives
+  the closest-to-threshold unearned trophy and renders it as a tappable
+  card on KidGameHome above Main Quests. Tap → routes to the Stars tab
+  where the full trophy case lives. No new flags ("has_badge", etc.) —
+  everything is recomputed each render from the canonical streaks +
+  starBank + completed-books, etc.
 - ⏳ "What should Reznor do next?" widget (logic over existing tasks)
 - ⏳ Dad Power-Up / parent engagement stats (approvals this week, etc.)
 

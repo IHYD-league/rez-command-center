@@ -330,6 +330,35 @@ function buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, 
   return { doneToday, allToday, drumsDone, photoToday, starBank, booksFinished, spanishBook, drumStreak: streaks?.a_drums?.current || 0, spaStreak: streaks?.a_spa?.current || 0 };
 }
 
+// ---- HERO XP + LEVELS (computed at display time — ARCHITECTURE §3) ----
+// XP = stars × 10. Level curve is a simple triangular arithmetic:
+//   xpForLevel(n) = 50 · n · (n - 1)
+//   → L1 0  L2 100  L3 300  L4 600  L5 1000  L6 1500  L7 2100  L8 2800
+// Reznor at ~80 ⭐ = 800 XP ≈ mid-Level-4. Feels honest about what he's
+// already accomplished. Inverse: level = floor((50 + √(2500+200·xp))/100).
+function xpForLevel(n) { return Math.max(0, 50 * n * (n - 1)); }
+function levelFromXp(xp) {
+  if (!xp || xp < 0) return 1;
+  return Math.max(1, Math.floor((50 + Math.sqrt(2500 + 200 * xp)) / 100));
+}
+const LEVEL_TITLES = [
+  "Spark", "Sprout", "Explorer", "Champion", "Hero",
+  "Knight", "Legend", "Royalty", "Cosmic", "G.O.A.T.",
+];
+function levelTitle(n) { return LEVEL_TITLES[Math.min(Math.max(n, 1) - 1, LEVEL_TITLES.length - 1)]; }
+
+// "Next badge" — derived from the canonical ACHIEVEMENTS list above.
+// Picks the unearned-with-a-goal trophy that's closest to its threshold,
+// so the kid sees the one he's most likely to clear next.
+function nextBadgeFor(ctx) {
+  const trophies = ACHIEVEMENTS.filter((a) => a.kind === "trophy" && a.goal);
+  const unearned = trophies.filter((a) => !a.test(ctx));
+  if (unearned.length === 0) return null;
+  return unearned
+    .map((a) => ({ a, p: a.val ? Math.min(1, a.val(ctx) / a.goal) : 0 }))
+    .sort((a, b) => b.p - a.p)[0].a;
+}
+
 // ---- STREAKS: milestone badges (★ = big reward) ----
 const STREAK_TIERS = [
   { d: 5,   emoji: "🌱", label: "Sprout",        big: false },
@@ -771,12 +800,38 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
   const _booksFinished = (books || []).filter((b) => b.status === "finished").length;
   const _songsToday = (songPlays || []).filter((p) => p.playedOn === TODAY_ISO).length;
+  // Hero XP + level — derived, never stored. See xpForLevel / levelFromXp.
+  const _xp = starBank * 10;
+  const _levelN = levelFromXp(_xp);
+  const _xpAtLevel = xpForLevel(_levelN);
+  const _xpAtNext = xpForLevel(_levelN + 1);
+  // Next-badge pull-forward — derived from the canonical ACHIEVEMENTS list.
+  const _achCtx = buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books });
+  const _nextBadge = nextBadgeFor(_achCtx);
+  const _nextBadgeValue = _nextBadge?.val ? _nextBadge.val(_achCtx) : 0;
   const kidData = {
     name: user.name,
     avatar: user.photo || user.emoji || "🧑‍🚀",
     stars: starBank,
     streak: { current: _drumCurrent, milestone: _milestone, fillPct: (_drumCurrent / _milestone) * 100 },
     nextReward: { title: CHILD.nextReward, cost: CHILD.nextRewardCost, have: starBank },
+    xp: _xp,
+    level: {
+      value: _levelN,
+      title: levelTitle(_levelN),
+      xpIntoLevel: _xp - _xpAtLevel,
+      xpToNext: _xpAtNext - _xpAtLevel,
+      pct: _xpAtNext > _xpAtLevel ? ((_xp - _xpAtLevel) / (_xpAtNext - _xpAtLevel)) * 100 : 100,
+    },
+    nextBadge: _nextBadge && {
+      id: _nextBadge.id,
+      emoji: _nextBadge.emoji,
+      title: _nextBadge.title,
+      desc: _nextBadge.desc,
+      value: _nextBadgeValue,
+      goal: _nextBadge.goal,
+      pct: Math.min(100, (_nextBadgeValue / _nextBadge.goal) * 100),
+    },
     mainQuests: todaysTasks.filter((t) => t.required).map(_questFromTask),
     sideQuests: todaysTasks.filter((t) => !t.required).map(_questFromTask),
     stats: [
@@ -914,6 +969,7 @@ function Router(props) {
         onTapStars={() => props.setStatDetailId?.("bank")}
         onOpenMenu={() => props.setTab("missions")}
         onOpenBoard={() => props.setTab("board")}
+        onTapBadges={() => props.setTab("stars")}
       />
     );
   }

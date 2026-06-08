@@ -273,7 +273,7 @@ function StatCard({ label, value }) {
   );
 }
 
-export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest, onTapStars, onOpenBoard }) {
+export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest, onTapStars, onOpenBoard, onTapBadges }) {
   if (!data) return null;
   const {
     name,
@@ -285,6 +285,8 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
     sideQuests = [],
     stats = [],
     mapStops = [],
+    level,
+    nextBadge,
   } = data;
 
   // Fire the celebration when the canonical star total ticks up. We derive
@@ -364,6 +366,25 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           </div>
         </div>
 
+        {level && (
+          <div className="mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
+                <Crown size={12} className="text-amber-300" /> Hero level
+              </div>
+              <div className="text-[11px] font-bold text-white/90">
+                {level.xpIntoLevel} / {level.xpToNext} XP
+              </div>
+            </div>
+            <div className="text-sm font-extrabold mt-0.5">
+              Lv {level.value} · {level.title}
+            </div>
+            <div className="mt-1.5">
+              <ProgressBar have={level.xpIntoLevel} need={level.xpToNext} color="#fcd34d" />
+            </div>
+          </div>
+        )}
+
         {nextReward && (
           <div className="mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10">
             <div className="flex items-center justify-between gap-2">
@@ -381,6 +402,37 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           </div>
         )}
       </div>
+
+      {/* NEXT BADGE — pull-forward card. Reads the closest unearned trophy
+          from the canonical ACHIEVEMENTS list so Reznor sees what's almost
+          in reach. Nothing stored; recomputes on every render. */}
+      {nextBadge && (
+        <button
+          type="button"
+          onClick={onTapBadges}
+          className="w-full rounded-2xl bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-200 p-3 flex items-center gap-3 active:scale-[0.98] transition shadow-sm"
+        >
+          <div className="text-4xl shrink-0">{nextBadge.emoji}</div>
+          <div className="flex-1 min-w-0 text-left">
+            <div className="text-[10px] uppercase tracking-widest text-amber-700 font-bold">
+              Almost there
+            </div>
+            <div className="text-sm font-extrabold text-slate-800 truncate">
+              {nextBadge.title}
+            </div>
+            <div className="text-[11px] text-slate-500 truncate">{nextBadge.desc}</div>
+            <div className="mt-1.5 h-1.5 bg-amber-200/60 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-amber-500 transition-all"
+                style={{ width: `${nextBadge.pct}%` }}
+              />
+            </div>
+            <div className="text-[10px] text-amber-700 font-bold mt-0.5">
+              {nextBadge.value} / {nextBadge.goal}
+            </div>
+          </div>
+        </button>
+      )}
 
       {/* DAILY ADVENTURE BOARD entry — sits right under the hero so the kid
           can jump straight to the board without scrolling to the bottom nav. */}
