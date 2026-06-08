@@ -7,7 +7,7 @@ import {
 import KidGameHome from "./KidGameHome.jsx";
 import SongLogger from "./SongLogger.jsx";
 import BoardGame from "./BoardGame.jsx";
-import CustomizationHub, { FONT_SCALE_PCT } from "./CustomizationHub.jsx";
+import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
@@ -875,8 +875,21 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex justify-center" style={{ fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif" }}>
-      <div className="w-full max-w-md bg-slate-50 min-h-screen flex flex-col relative shadow-xl">
+    <div
+      className="min-h-screen flex justify-center"
+      style={{
+        // Themed page surface (Customization Hub Phase 2). Inline style
+        // wins over the old `bg-slate-50` class — the "white" theme's
+        // bg is slate-50 so default behaviour is preserved.
+        background: (THEMES[currentPrefs.theme] || THEMES.white).bg,
+        color: (THEMES[currentPrefs.theme] || THEMES.white).fg,
+        fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
+      }}
+    >
+      <div
+        className="w-full max-w-md min-h-screen flex flex-col relative shadow-xl"
+        style={{ background: (THEMES[currentPrefs.theme] || THEMES.white).bg }}
+      >
         <TopBar user={user} mode={mode} onSwitch={() => { setCurrentUserId(null); }} onSignOut={signOut} sessionEmail={sessionEmail} onOpenHub={() => setHubOpen(true)} />
         <div className="flex-1 overflow-y-auto pb-24">
           <Router tab={tab} {...shared} />

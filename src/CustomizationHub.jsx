@@ -340,12 +340,93 @@ export const FONT_SCALE_PCT = {
   largest: 150,
 };
 
+// THEMES — applied as the page "stage" beneath the existing cards.
+// Cards stay structurally white/colored; the surface they sit on changes.
+// Per-profile; lives in prefs.theme. Adding a new theme = one entry here.
+export const THEMES = {
+  white: {
+    id: "white",
+    label: "White",
+    sample: "☀️",
+    description: "Bright and crisp — the default.",
+    bg: "#f1f5f9",
+    fg: "#0f172a",
+  },
+  blue: {
+    id: "blue",
+    label: "Blue",
+    sample: "💧",
+    description: "Cool and calm.",
+    bg: "#dbeafe",
+    fg: "#0f172a",
+  },
+  black: {
+    id: "black",
+    label: "Night",
+    sample: "🌙",
+    description: "High-contrast dark mode — easier on tired eyes.",
+    bg: "#0f172a",
+    fg: "#f8fafc",
+  },
+  colorful: {
+    id: "colorful",
+    label: "Colorful",
+    sample: "🌈",
+    description: "Bright kid palette.",
+    bg: "linear-gradient(135deg, #fce7f3 0%, #ddd6fe 50%, #cffafe 100%)",
+    fg: "#0f172a",
+  },
+};
+
 const FONT_SCALE_OPTIONS = [
   { value: "regular", label: "Regular", sample: "Aa", scale: 1.0 },
   { value: "large", label: "Large", sample: "Aa", scale: 1.15 },
   { value: "larger", label: "Larger", sample: "Aa", scale: 1.3 },
   { value: "largest", label: "Largest", sample: "Aa", scale: 1.5 },
 ];
+
+function ThemeModule({ prefs, setPref }) {
+  const value = prefs.theme || "white";
+  const ids = Object.keys(THEMES);
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {ids.map((id) => {
+        const t = THEMES[id];
+        const active = value === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setPref("theme", id)}
+            className={`p-3 rounded-2xl text-left transition active:scale-[0.98] border-2 ${
+              active
+                ? "border-indigo-500 ring-2 ring-indigo-200"
+                : "border-slate-200 hover:border-indigo-200"
+            }`}
+            style={{
+              background: t.bg,
+              color: t.fg,
+            }}
+          >
+            <div className="flex items-end justify-between gap-2">
+              <div className="text-3xl leading-none">{t.sample}</div>
+              <div
+                className="text-[10px] uppercase tracking-wider font-bold"
+                style={{ opacity: 0.6 }}
+              >
+                {id === "white" ? "Default" : ""}
+              </div>
+            </div>
+            <div className="text-sm font-bold mt-2">{t.label}</div>
+            <div className="text-[10px] mt-0.5" style={{ opacity: 0.7 }}>
+              {t.description}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function FontScaleModule({ prefs, setPref }) {
   const value = prefs.fontScale || "regular";
@@ -408,21 +489,12 @@ const HUB_MODULES = [
       "Bumping this up makes every screen's text bigger. Stays per-profile, so Grandma and Mike can be different.",
     Render: FontScaleModule,
   },
-  // Phase 2 hook — leave a visible placeholder so it's obvious where the
-  // next module slots in. Replace with the real Render when shipping.
   {
     id: "theme",
     title: "Theme",
     icon: Palette,
-    description: "Background and contrast — white, blue, black, and a colorful palette.",
-    Render: () => (
-      <div className="rounded-2xl border-2 border-dashed border-slate-200 p-4 text-center">
-        <div className="text-xs font-bold text-slate-500">Coming next</div>
-        <div className="text-[11px] text-slate-400 mt-1">
-          Background / contrast / palette — Phase 2 of the hub.
-        </div>
-      </div>
-    ),
+    description: "Background and contrast — White, Blue, Night, or Colorful. Per-profile.",
+    Render: ThemeModule,
   },
 ];
 
