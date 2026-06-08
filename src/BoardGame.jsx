@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { juice } from "./lib/juice.js";
 
 /* =====================================================================
    BoardGame — Daily Adventure Board, Phase 2.5 (pre-themes).
@@ -224,7 +225,21 @@ function BoardPop({ id, kind, label, sub }) {
   );
 }
 
-function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities }) {
+function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey = 0 }) {
+  // Arrival pulse — when pulseKey transitions to a fresh (non-zero)
+  // value, imperatively restart a one-shot CSS animation on the marker.
+  // Same force-reflow pattern as the bank-pop on KidGameHome so the
+  // animation can re-trigger if the rocket lands here again later
+  // (undo + redo, or a second day visit).
+  const markerRef = useRef(null);
+  useEffect(() => {
+    if (!pulseKey) return;
+    const el = markerRef.current;
+    if (!el) return;
+    el.style.animation = "none";
+    void el.offsetWidth;
+    el.style.animation = "bgSpaceLand 700ms ease-out";
+  }, [pulseKey]);
   const { kind, state, task } = space;
   const xPct = x;
   const yPct = (y / viewBoxH) * 100;
@@ -302,6 +317,7 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities }) {
 
   const inner = (
     <div
+      ref={markerRef}
       className={`relative ${size} rounded-full grid place-items-center transition`}
       style={{
         background: bg,
@@ -428,6 +444,10 @@ export default function BoardGame({
   // We auto-launch when there's nothing to replay (targetIdx === 0).
   const [launched, setLaunched] = useState(false);
   const [pop, setPop] = useState(null);
+  // Last landing — { idx, t } where idx is the space the rocket just
+  // arrived at and t is a timestamp keying a one-shot pulse animation.
+  // Lets the landed space react instead of being a passive destination.
+  const [lastLanded, setLastLanded] = useState({ idx: -1, t: 0 });
 
   // Fix the "scrolled to the bottom" problem: when the user taps the
   // Board tab, the outer scroll container in App.jsx still holds the
@@ -538,7 +558,16 @@ export default function BoardGame({
       duration: Math.min(900, 350 + Math.max(0, targetIdx - tokenIdxRef.current) * 250),
       onLand: () => {
         const landed = spaces[targetIdx];
+        // Pulse the space the rocket just arrived on — visible
+        // "you made it here" feedback. The timestamp is the key so
+        // back-to-back landings on the same space (rare; would be
+        // an undo→redo) each re-trigger the pulse.
+        setLastLanded({ idx: targetIdx, t: Date.now() });
         if (landed?.kind === "treasure") {
+          // Treasure landing — big juice. Same `treasure` SFX as a
+          // reward redemption + a success haptic to signal "this is
+          // the big one".
+          juice.burst("success", "treasure");
           setPop({
             id: Date.now(),
             kind: "treasure",
@@ -546,6 +575,9 @@ export default function BoardGame({
             sub: "All missions complete!",
           });
         } else if (landed?.kind === "task") {
+          // Per-space landing — softer juice so the treasure ending
+          // still feels distinct after multiple of these.
+          juice.burst("medium", "approve");
           const starsCount = landed.task?.starValue || 0;
           setPop({
             id: Date.now(),
@@ -571,6 +603,10 @@ export default function BoardGame({
   // through is safe — the kid never has to tap twice.
   const launchNow = () => {
     if (launched) return;
+    // Lift-off juice — soft whoosh + light buzz. Distinct from the
+    // per-space landings so the kid can tell "I started" from "I
+    // arrived somewhere".
+    juice.burst("light", "swipe");
     setLaunched(true);
   };
 
@@ -650,6 +686,10 @@ export default function BoardGame({
             onTap={setOpenTask}
             theme={theme}
             activities={activities}
+            // pulseKey changes when THIS space just had a landing —
+            // the SpaceMarker effect re-triggers its arrival animation
+            // each time the key flips.
+            pulseKey={lastLanded.idx === i ? lastLanded.t : 0}
           />
         ))}
 
@@ -675,6 +715,25 @@ export default function BoardGame({
             @keyframes hintBob {
               0%, 100% { transform: translateY(0); }
               50%      { transform: translateY(-4px); }
+            }
+            /* Space arrival pulse — fired imperatively on the marker
+               when the rocket lands. Scale overshoot + bright halo
+               that decays. 700ms total. */
+            @keyframes bgSpaceLand {
+              0%   { transform: scale(1);    box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+              30%  { transform: scale(1.22); box-shadow: 0 0 0 8px rgba(253,224,71,0.45), 0 0 28px rgba(253,224,71,0.7); }
+              60%  { transform: scale(0.96); box-shadow: 0 0 0 4px rgba(253,224,71,0.25), 0 0 18px rgba(253,224,71,0.4); }
+              100% { transform: scale(1);    box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+              @keyframes rocketReady   { 0%, 100% { transform: none; } }
+              @keyframes rocketHover   { 0%, 100% { transform: none; } }
+              @keyframes hintBob       { 0%, 100% { transform: none; } }
+              @keyframes bgSpaceLand   {
+                0%   { box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+                40%  { box-shadow: 0 0 0 6px rgba(253,224,71,0.45); }
+                100% { box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+              }
             }
           `}</style>
           {/* A rocket should always look like it's flying. Pre-launch it
