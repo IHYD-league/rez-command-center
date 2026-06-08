@@ -10,6 +10,8 @@ import BoardGame from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 import { juice } from "./lib/juice.js";
+import { starBurst } from "./lib/starBurst.js";
+import StarBurstLayer from "./StarBurstLayer.jsx";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -594,7 +596,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     // Juice: pending submission = uplifting two-tone blip; auto-approved
     // submission = full approve fanfare (because stars actually land).
     if (needsApproval) juice.burst("medium", "submit");
-    else juice.burst("success", "approve");
+    else {
+      juice.burst("success", "approve");
+      // Stars actually landed → fly them to the bank chip.
+      starBurst.fly({ value: t.starValue });
+    }
   };
 
   const addAward = (a) => setAwards((prev) => [a, ...prev]);
@@ -625,6 +631,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       const aid = tk?.activityId || TYPE_TO_ACT[tk?.activityType];
       if (aid) bumpStreak(aid); // only bumps if that activity is being tracked
       juice.burst("success", "approve");
+      // Find the pending completion still in current state (the
+      // setCompletions above hasn't applied yet on this tick) and use
+      // its pendingStars + bonus as the fly amount.
+      const pending = completions.find((c) => c.taskId === taskId && c.status === "pending");
+      const flyValue = (pending?.pendingStars || 0) + (bonus || 0);
+      starBurst.fly({ value: flyValue || 1 });
     } else if (decision === "needs_fix") {
       juice.burst("warning", "nope");
     } else if (decision === "reject") {
@@ -1004,6 +1016,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
           />
         )}
       </div>
+      <StarBurstLayer />
     </div>
   );
 }

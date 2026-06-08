@@ -346,7 +346,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                   </span>
                   {tappable && <span className="text-white/40 text-[10px]">›</span>}
                 </div>
-                <div className="text-2xl font-extrabold leading-none mt-1"><AnimatedNumber value={stars} /></div>
+                <div data-star-bank className="text-2xl font-extrabold leading-none mt-1"><AnimatedNumber value={stars} /></div>
               </>
             );
             return tappable ? (
