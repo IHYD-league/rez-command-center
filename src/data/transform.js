@@ -145,6 +145,14 @@ export const toApp = {
     updatedAt: r.updated_at,
   }],
 
+  // SummerQuest per-profile progress. Same composite-key shape as
+  // boardStateRow / userPrefsRow. `done` is the brief §2 contract:
+  // { "1": {build,math,code,read}, ..., "7": {...} }.
+  summerQuestRow: (r) => [r.profile_id, {
+    mode: r.mode || "home",
+    done: r.done || {},
+  }],
+
   event: (r) => ({
     id: r.id,
     title: r.title,
@@ -324,6 +332,13 @@ export const toDb = {
     family_id: familyId,
     profile_id: profileId,
     prefs: s.prefs ?? {},
+  }),
+
+  summerQuestRow: (familyId) => (profileId, s) => ({
+    family_id: familyId,
+    profile_id: profileId,
+    mode: s.mode || "home",
+    done: s.done || {},
   }),
 
   event: (familyId) => (o) => ({

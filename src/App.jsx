@@ -5,6 +5,7 @@ import {
   Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map, Settings
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
+import SummerQuest from "./SummerQuest.jsx";
 import SongLogger from "./SongLogger.jsx";
 import BoardGame from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
@@ -435,6 +436,14 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // profile_id. The Customization Hub writes here; the rest of the app
   // reads via the small `setPref` helper below.
   const [userPrefs, _setUserPrefs] = useState(() => initial?.userPrefs ?? {});
+
+  // summerQuest is per-profile Summer Quest progress, keyed by profile_id.
+  // Shape per slot: { mode: "home" | "car", done: { "1": {...}, ... "7": {...} } }
+  // Owned by Reznor's profile in v1 — parents acting on his behalf write to
+  // the same slot via the same RLS row. Star crossover into starBank is
+  // intentionally NOT here (v2 scope per the integration brief §4.5).
+  const [summerQuest, _setSummerQuest] = useState(() => initial?.summerQuest ?? {});
+  const setSummerQuest = makeSyncedSetter(_setSummerQuest, "summerQuest", sync);
 
   // Persisted via the dedicated `events` + `handoff_notes` tables.
   const [events, _setEvents] = useState(() => initial?.events ?? SEED_EVENTS);
@@ -976,6 +985,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     setStatDetailId,
     earnedAllTime,
     boardState, setBoardLastPosition, setTreasureClaimed,
+    summerQuest, setSummerQuest,
   };
 
   return (
@@ -1087,6 +1097,7 @@ function Router(props) {
     if (tab === "streaks") return <KidStreaks {...props} />;
     if (tab === "missions") return <KidMissions {...props} />;
     if (tab === "board") return <BoardGame {...props} />;
+    if (tab === "school") return <SummerQuestRoute {...props} />;
     const openQuestSheet = (questId) => {
       const t = props.tasks.find((x) => x.id === questId);
       if (t) props.setOpenTask(t);
@@ -1111,12 +1122,50 @@ function Router(props) {
     if (tab === "rewards") return <RewardsParent {...props} />;
     if (tab === "calendar") return <CalendarView {...props} />;
     if (tab === "more") return <MoreParent {...props} />;
+    if (tab === "school") return <SummerQuestRoute {...props} />;
     return <ParentTodayHome {...props} />;
   }
-  // helper / grandparent
+  // helper / grandparent. SummerQuest is exposed to helpers (Krissie /
+  // Sara support Reznor in the curriculum) but hidden from grandparent
+  // — Evie's view stays focused on the today checklist + care notes.
+  if (user.role === "helper" && tab === "school") return <SummerQuestRoute {...props} />;
   if (tab === "notes") return <HelperNotes {...props} />;
   if (tab === "care") return <CareInfo {...props} />;
   return <HelperToday {...props} />;
+}
+
+// SummerQuestRoute — thin wrapper that resolves Reznor's profile slot
+// out of the per-profile summerQuest map, applies the brief §2 contract
+// to <SummerQuest>, and persists writes through the existing
+// setSummerQuest sync (composite-key upsert to summer_quest_progress).
+// Owner identity model: progress always belongs to the kid (Reznor),
+// regardless of who's currently acting as the active profile — same
+// trick submitTask uses (`users.find(u => u.role === "kid")`). Parents
+// + helpers can edit on his behalf; the row in Supabase is Reznor's.
+function SummerQuestRoute(props) {
+  const kid = (props.users || []).find((u) => u.role === "kid");
+  if (!kid) {
+    return (
+      <div className="px-4 pt-6 text-sm text-slate-500">
+        Summer Quest needs a kid profile in this family. Add one in the
+        People view first.
+      </div>
+    );
+  }
+  const slot = props.summerQuest?.[kid.id] || { mode: "home", done: {} };
+  return (
+    <SummerQuest
+      child={kid.name || "Reznor"}
+      initialMode={slot.mode}
+      initialDone={slot.done}
+      onSave={({ mode, done }) =>
+        props.setSummerQuest((prev) => ({
+          ...prev,
+          [kid.id]: { mode, done },
+        }))
+      }
+    />
+  );
 }
 
 // ===================== SHARED UI =====================
@@ -4389,6 +4438,7 @@ function BottomNav({ user, tab, setTab }) {
       { k: "dream", icon: Target, label: "Dream" },
       { k: "rewards", icon: Gift, label: "Rewards" },
       { k: "stars", icon: Star, label: "Stars" },
+      { k: "school", icon: GraduationCap, label: "Quest" },
     ],
     parent: [
       { k: "today", icon: Home, label: "Today" },
@@ -4396,6 +4446,7 @@ function BottomNav({ user, tab, setTab }) {
       { k: "rewards", icon: Gift, label: "Rewards" },
       { k: "calendar", icon: CalIcon, label: "Calendar" },
       { k: "more", icon: ClipboardList, label: "More" },
+      { k: "school", icon: GraduationCap, label: "School" },
     ],
     grandparent: [
       { k: "today", icon: ClipboardList, label: "Checklist" },
@@ -4404,6 +4455,7 @@ function BottomNav({ user, tab, setTab }) {
     ],
     helper: [
       { k: "today", icon: ClipboardList, label: "Checklist" },
+      { k: "school", icon: GraduationCap, label: "School" },
       { k: "notes", icon: Users, label: "Notes" },
       { k: "care", icon: Heart, label: "Care" },
     ],

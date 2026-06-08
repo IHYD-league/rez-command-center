@@ -79,6 +79,14 @@ async function loadEntities(familyId) {
     .maybeSingle();
   if (fsErr) throw new Error(`family_settings: ${fsErr.message}`);
   out.familySettings = fs?.settings ?? {};
+  // summer_quest_progress keyed by profile_id — Summer Quest v1 arm.
+  // Same composite-key + family-scope shape as board_state / user_prefs.
+  const { data: sq, error: sqErr } = await supabase
+    .from("summer_quest_progress")
+    .select("*")
+    .eq("family_id", familyId);
+  if (sqErr) throw new Error(`summer_quest_progress: ${sqErr.message}`);
+  out.summerQuest = Object.fromEntries((sq || []).map(toApp.summerQuestRow));
   return out;
 }
 
@@ -126,7 +134,7 @@ export default function DataProvider({ session, children }) {
   // setX calls within a render coalesces into one network round trip.
   const sync = (key, value) => {
     if (!familyId) return;
-    const composite = key === "streaks" || key === "boardState" || key === "userPrefs" || key === "familySettings";
+    const composite = key === "streaks" || key === "boardState" || key === "userPrefs" || key === "familySettings" || key === "summerQuest";
     const def = composite ? null : ENTITIES[key];
     if (!def && !composite) {
       console.warn("sync: unknown entity", key);
@@ -157,6 +165,19 @@ export default function DataProvider({ session, children }) {
             .from("user_prefs")
             .upsert(rows, { onConflict: "family_id,profile_id" });
           if (error) console.error("user_prefs sync:", error.message);
+          return;
+        }
+        if (key === "summerQuest") {
+          // summer_quest_progress: upsert per profile_id, same
+          // composite-key pattern as boardState / userPrefs.
+          const rows = Object.entries(value || {}).map(([pid, s]) =>
+            toDb.summerQuestRow(familyId)(pid, s)
+          );
+          if (rows.length === 0) return;
+          const { error } = await supabase
+            .from("summer_quest_progress")
+            .upsert(rows, { onConflict: "family_id,profile_id" });
+          if (error) console.error("summer_quest_progress sync:", error.message);
           return;
         }
         if (key === "familySettings") {

@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Little Legends Treasures — Summer Quest</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --parch:#FBF1DC;
+    --parch2:#F4E4C3;
+    --ink:#3a2b1a;
+    --ink-soft:#7a6750;
+    --gold:#E8A82C;
+    --gold-d:#c2871a;
+    --teal:#1f8a8a;
+    --build:#E8552B; --build-t:#FCE3D9;
+    --math:#1F6FB2;  --math-t:#DCEBF7;
+    --code:#2E8B57;  --code-t:#DCEFE4;
+    --read:#B23A86;  --read-t:#F7DCEC;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  body{
+    font-family:'Nunito',system-ui,sans-serif;color:var(--ink);
+    background:
+      radial-gradient(circle at 20% 0%, #fff6e3 0%, transparent 45%),
+      radial-gradient(circle at 90% 100%, #f6e6c4 0%, transparent 50%),
+      var(--parch);
+    background-attachment:fixed;
+    min-height:100vh;padding:0 0 40px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .phone{max-width:480px;margin:0 auto;padding:20px 16px 0;}
+  .ff{font-family:'Fredoka',sans-serif;}
+
+  /* ---------- TOP BRAND ---------- */
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:4px;}
+  .brand .mark{font-size:26px;filter:drop-shadow(0 2px 0 rgba(0,0,0,.12));}
+  .brand .name{font-family:'Fredoka';font-weight:600;font-size:15px;letter-spacing:.02em;color:var(--ink-soft);}
+  h1.title{font-family:'Fredoka';font-weight:700;font-size:34px;line-height:1;margin-top:6px;}
+  h1.title .gold{color:var(--gold-d);}
+  .subtitle{font-size:14px;color:var(--ink-soft);margin-top:6px;font-weight:600;}
+
+  /* ---------- STATS ---------- */
+  .stats{display:flex;gap:10px;margin:16px 0 6px;}
+  .stat{flex:1;background:#fff;border:2.5px solid var(--ink);border-radius:16px;padding:11px 12px;
+        box-shadow:0 3px 0 var(--ink);}
+  .stat .v{font-family:'Fredoka';font-weight:700;font-size:21px;line-height:1;}
+  .stat .l{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);margin-top:3px;}
+  .bar{height:14px;background:#e9d9b6;border:2.5px solid var(--ink);border-radius:20px;overflow:hidden;margin:12px 0 2px;}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),#f2c45a);transition:width .5s cubic-bezier(.2,.8,.2,1);}
+  .bar-cap{font-size:12px;font-weight:700;color:var(--ink-soft);text-align:center;margin-bottom:4px;}
+
+  /* ---------- MODE TOGGLE ---------- */
+  .mode-wrap{margin:18px 0 6px;}
+  .seg{display:flex;background:#fff;border:2.5px solid var(--ink);border-radius:16px;padding:5px;gap:5px;box-shadow:0 3px 0 var(--ink);}
+  .seg button{flex:1;border:none;background:transparent;font-family:'Fredoka';font-weight:600;font-size:15px;
+        padding:11px 8px;border-radius:11px;cursor:pointer;color:var(--ink-soft);transition:.15s;}
+  .seg button.on{background:var(--ink);color:#fff;}
+  .seg button.on.road{background:var(--teal);}
+  .mode-help{font-size:12.5px;color:var(--ink-soft);font-weight:600;margin-top:9px;padding:0 4px;line-height:1.45;}
+  .mode-help b{color:var(--teal);}
+
+  /* ---------- TRAIL / MAP ---------- */
+  .trail-h{font-family:'Fredoka';font-weight:600;font-size:13px;letter-spacing:.1em;text-transform:uppercase;
+        color:var(--ink-soft);margin:22px 2px 12px;}
+  .trail{position:relative;}
+  .trail::before{content:"";position:absolute;left:27px;top:18px;bottom:30px;width:4px;
+        background:repeating-linear-gradient(var(--gold-d) 0 8px, transparent 8px 16px);border-radius:4px;z-index:0;}
+  .stop{position:relative;z-index:1;display:flex;gap:14px;align-items:stretch;margin-bottom:14px;width:100%;
+        background:none;border:none;padding:0;text-align:left;cursor:pointer;font-family:inherit;}
+  .medal{flex:none;width:56px;height:56px;border-radius:50%;background:#fff;border:3px solid var(--ink);
+        display:flex;align-items:center;justify-content:center;font-family:'Fredoka';font-weight:700;font-size:22px;
+        box-shadow:0 3px 0 var(--ink);}
+  .stop.done .medal{background:var(--gold);}
+  .stop.here .medal{animation:pulse 1.6s ease-in-out infinite;}
+  .card{flex:1;background:#fff;border:2.5px solid var(--ink);border-radius:16px;padding:12px 14px;
+        box-shadow:0 3px 0 var(--ink);transition:transform .12s;}
+  .stop:active .card{transform:translateY(2px);box-shadow:0 1px 0 var(--ink);}
+  .card .wk{font-family:'Fredoka';font-weight:700;font-size:18px;line-height:1.05;}
+  .card .tg{font-size:12.5px;color:var(--ink-soft);font-weight:600;margin-top:2px;}
+  .gems-mini{margin-top:8px;font-size:14px;letter-spacing:1px;}
+  .gems-mini .e{opacity:.22;}
+  .gems-mini .e.on{opacity:1;}
+  .here-flag{display:inline-block;background:var(--teal);color:#fff;font-family:'Fredoka';font-weight:600;
+        font-size:11px;padding:2px 9px;border-radius:20px;margin-top:8px;}
+  .crown{position:absolute;top:-10px;left:34px;font-size:20px;z-index:2;}
+
+  /* ---------- FOOTER NOTE ---------- */
+  .note{background:var(--parch2);border:2.5px dashed var(--ink);border-radius:16px;padding:14px 16px;margin:18px 0 6px;}
+  .note p{font-size:13px;font-weight:600;color:var(--ink);line-height:1.5;}
+  .note p + p{margin-top:7px;}
+  .reset{display:block;width:100%;margin-top:14px;background:none;border:none;color:var(--ink-soft);
+        font-family:'Nunito';font-weight:700;font-size:12.5px;text-decoration:underline;cursor:pointer;padding:8px;}
+
+  /* ---------- WEEK VIEW ---------- */
+  .back{background:#fff;border:2.5px solid var(--ink);border-radius:13px;font-family:'Fredoka';font-weight:600;
+        font-size:14px;padding:9px 15px;cursor:pointer;box-shadow:0 3px 0 var(--ink);margin-bottom:16px;}
+  .back:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink);}
+  .wk-head{display:flex;align-items:center;gap:14px;margin-bottom:6px;}
+  .wk-head .medal{width:62px;height:62px;font-size:25px;}
+  .wk-head .wn{font-family:'Fredoka';font-weight:700;font-size:27px;line-height:1;}
+  .wk-head .wt{font-size:13.5px;color:var(--ink-soft);font-weight:600;margin-top:4px;}
+  .mode-chip{display:inline-flex;align-items:center;gap:6px;font-family:'Fredoka';font-weight:600;font-size:13px;
+        padding:6px 13px;border-radius:20px;margin:14px 0 4px;border:2px solid var(--ink);}
+  .mode-chip.home{background:var(--parch2);}
+  .mode-chip.road{background:var(--teal);color:#fff;border-color:var(--teal);}
+  .pick-hint{font-size:13px;font-weight:600;color:var(--ink-soft);margin:12px 2px 14px;line-height:1.45;}
+
+  .quest{border:3px solid var(--ink);border-radius:18px;padding:15px 16px;margin-bottom:14px;
+        box-shadow:0 4px 0 var(--ink);transition:.15s;}
+  .quest.b{background:var(--build-t);} .quest.b .qlbl{color:var(--build);}
+  .quest.m{background:var(--math-t);}  .quest.m .qlbl{color:var(--math);}
+  .quest.c{background:var(--code-t);}  .quest.c .qlbl{color:var(--code);}
+  .quest.r{background:var(--read-t);}  .quest.r .qlbl{color:var(--read);}
+  .quest.is-done{filter:saturate(.55);}
+  .qtop{display:flex;align-items:center;gap:9px;margin-bottom:7px;}
+  .qemoji{font-size:22px;}
+  .qlbl{font-family:'Fredoka';font-weight:600;font-size:13px;letter-spacing:.05em;text-transform:uppercase;}
+  .qtext{font-size:15.5px;font-weight:700;line-height:1.4;color:var(--ink);}
+  .qbtn{margin-top:13px;width:100%;border:2.5px solid var(--ink);border-radius:13px;background:#fff;
+        font-family:'Fredoka';font-weight:600;font-size:15px;padding:11px;cursor:pointer;box-shadow:0 3px 0 var(--ink);
+        transition:.1s;display:flex;align-items:center;justify-content:center;gap:8px;}
+  .qbtn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink);}
+  .qbtn.done{background:var(--gold);color:var(--ink);}
+
+  .chest{background:var(--ink);color:#fff;border-radius:18px;padding:20px;text-align:center;margin:6px 0 4px;}
+  .chest .big{font-family:'Fredoka';font-weight:700;font-size:21px;}
+  .chest .sm{font-size:13.5px;color:#e7d6b4;font-weight:600;margin-top:5px;}
+
+  /* ---------- CELEBRATION ---------- */
+  .overlay{position:fixed;inset:0;background:rgba(40,28,12,.55);display:flex;align-items:center;justify-content:center;
+        z-index:50;padding:24px;animation:fade .25s ease;}
+  .pop{background:#fff;border:4px solid var(--ink);border-radius:24px;padding:28px 24px;max-width:340px;width:100%;
+        text-align:center;box-shadow:0 8px 0 var(--gold-d);animation:bounce .5s cubic-bezier(.2,1.4,.4,1);position:relative;z-index:2;}
+  .pop .pe{font-size:64px;line-height:1;animation:wiggle 1.2s ease-in-out infinite;}
+  .pop h2{font-family:'Fredoka';font-weight:700;font-size:24px;margin:12px 0 6px;}
+  .pop p{font-size:14.5px;font-weight:600;color:var(--ink-soft);line-height:1.5;}
+  .pop button{margin-top:18px;background:var(--gold);border:3px solid var(--ink);border-radius:14px;
+        font-family:'Fredoka';font-weight:700;font-size:16px;padding:12px 22px;cursor:pointer;box-shadow:0 4px 0 var(--ink);}
+  .pop button:active{transform:translateY(2px);box-shadow:0 2px 0 var(--ink);}
+  .confetti{position:fixed;inset:0;pointer-events:none;z-index:1;overflow:hidden;}
+  .confetti span{position:absolute;top:-30px;font-size:20px;animation:fall linear forwards;}
+
+  @keyframes pulse{0%,100%{box-shadow:0 3px 0 var(--ink), 0 0 0 0 rgba(31,138,138,.5);}50%{box-shadow:0 3px 0 var(--ink), 0 0 0 10px rgba(31,138,138,0);}}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  @keyframes bounce{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}
+  @keyframes wiggle{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
+  @keyframes fall{to{transform:translateY(110vh) rotate(360deg);}}
+  @keyframes gempop{0%{transform:scale(0)}60%{transform:scale(1.4)}100%{transform:scale(1)}}
+</style>
+</head>
+<body>
+  <div class="phone" id="app"></div>
+
+<script>
+/* ============ CURRICULUM DATA ============ */
+var THREADS = [
+  {k:"build", cls:"b", emoji:"🎨", home:"Make & Build", car:"Dream & Design"},
+  {k:"math",  cls:"m", emoji:"🔢", home:"Lego Math",    car:"Travel Math"},
+  {k:"code",  cls:"c", emoji:"🤖", home:"Coding",        car:"Coding on the Go"},
+  {k:"read",  cls:"r", emoji:"📚", home:"Reading",       car:"Reading & Listening"}
+];
+
+var WEEKS = [
+  {n:1, name:"Inventors' Workshop", tag:"Just dream and make.",
+   build:{home:"Dream up your game! Pick the theme and paint the board and cards.",
+          car:"Dream Designer — invent your game out loud. Name it, describe the heroes and the board."},
+   math:{home:"Lego part-whole: \u201cYou have 12 bricks, give me 5 \u2014 show me what's left.\u201d",
+          car:"Snack Math \u2014 \u201cYou have 10 goldfish, eat 3. How many left?\u201d"},
+   code:{home:"The Sandwich Robot \u2014 give exact steps; the grown-up follows them TOO literally!",
+          car:"Robot Driver \u2014 give turn-by-turn directions to a make-believe place; the driver follows EXACTLY. Fix the bugs!"},
+   read:{home:"Pick your summer book. Draw one comic panel of your favorite moment.",
+          car:"Audiobook Adventure \u2014 start your summer book as an audiobook (or read the road signs!)."}},
+
+  {n:2, name:"The Rulebook", tag:"Turn the idea into a real game.",
+   build:{home:"Write the rules together and choose your Lego playing pieces.",
+          car:"Rule Maker \u2014 say your game's rules out loud, one by one. Mom writes them down."},
+   math:{home:"Roll dice 20 times and tally \u2014 which number wins?",
+          car:"Car Counter \u2014 tally red cars vs blue cars for 5 minutes. Which won, and by how many?"},
+   code:{home:"Arrow mazes \u2014 program a path (up, up, right) for a grown-up to walk.",
+          car:"Finger Maze \u2014 \u201cleft, left, right, straight\u201d \u2014 guide a grown-up's finger through a pretend maze."},
+   read:{home:"Spanish day \u2014 read in Spanish and draw a panel in Spanish.",
+          car:"Spanish Spotting \u2014 name 5 things out the window in Spanish (or play Spanish songs / audiobook)."}},
+
+  {n:3, name:"Playtest & Fix", tag:"Version 1 is never the final version.",
+   build:{home:"Play your game with the family. Find what's boring and make Version 2!",
+          car:"Fix-It Talk \u2014 what's the most boring part of your game? How would you make it more fun?"},
+   math:{home:"Stack each player's points in bricks \u2014 who has more, by how many?",
+          car:"Who's Winning? \u2014 keep score in a road-trip game. Who has more points, and by how many?"},
+   code:{home:"Find the Bug \u2014 spot the silly mistake in the grown-up's instructions.",
+          car:"Find the Bug \u2014 a grown-up gives silly directions (\u201cput on shoes to get a snack\u201d). What's wrong?"},
+   read:{home:"Read together and guess: what happens next, and why?",
+          car:"Story Predict \u2014 pause the audiobook: what happens next, and why?"}},
+
+  {n:4, name:"Hello, Screen", tag:"Take the paper game digital.",
+   build:{home:"Open ScratchJr and make a character move!",
+          car:"Screen Sketch \u2014 ScratchJr at a rest stop, or draw your hero in the travel notebook."},
+   math:{home:"Groups of \u2014 build 3 piles of 4 bricks. How many total?",
+          car:"Groups Game \u2014 \u201c4 wheels on each car, 3 cars \u2014 how many wheels?\u201d"},
+   code:{home:"ScratchJr basics \u2014 make a sprite move and react to a tap.",
+          car:"Tap Story \u2014 plan out loud: when you tap your hero, what happens? Say the steps."},
+   read:{home:"Make your own one-page comic, Cat Kid style.",
+          car:"Comic in Your Head \u2014 invent a one-page comic and tell it panel by panel."}},
+
+  {n:5, name:"Make It Move", tag:"Add interaction. Make it feel real.",
+   build:{home:"Add a second character in ScratchJr \u2014 make them talk!",
+          car:"Two-Hero Tale \u2014 invent a second character. What do they say to each other?"},
+   math:{home:"Build a tower EXACTLY 10 bricks. Now one 3 taller.",
+          car:"Guess the Distance \u2014 \u201chow many minutes to the next sign?\u201d Then check. Were you close?"},
+   code:{home:"Loops! Make something repeat. Peek at big-kid Scratch if you're flying.",
+          car:"Repeat Game \u2014 clap a pattern (clap-clap-stomp) and LOOP it 3 times. That's a loop!"},
+   read:{home:"Label your game in English AND Spanish.",
+          car:"Both Languages \u2014 name 5 road things in English AND Spanish."}},
+
+  {n:6, name:"Director's Chair", tag:"Your pick. Curiosity leads.",
+   build:{home:"YOUR pick \u2014 go big on art, code, Lego, or a stop-motion movie.",
+          car:"You Pick \u2014 what do you most want to dream up right now? You lead!"},
+   math:{home:"Cooking fractions or a pretend store with coins \u2014 you choose!",
+          car:"Money Math \u2014 you've got $5 at the snack shop. What can you buy?"},
+   code:{home:"Finish one small game, start to end \u2014 your own idea.",
+          car:"Teach Back \u2014 explain to Mom how a robot would do something, step by step."},
+   read:{home:"Flip it \u2014 YOU read to the grown-ups today.",
+          car:"Read Aloud \u2014 read a sign, a menu, or a page to the whole car."}},
+
+  {n:7, name:"Showcase & Ship", tag:"You hold the thing you dreamed up.",
+   build:{home:"Family game night with YOUR game \u2014 you teach the rules!",
+          car:"Big Pitch \u2014 give the 30-second pitch for your game like a real inventor!"},
+   math:{home:"You're the official scorekeeper tonight.",
+          car:"Scorekeeper \u2014 you run the points for the whole car-game tournament."},
+   code:{home:"Show off what you built. What would Version 3 be?",
+          car:"Version 3 \u2014 what's the NEXT awesome thing you'd add? Dream big."},
+   read:{home:"Finish your book and pick the next adventure.",
+          car:"Next Adventure \u2014 pick the book or audiobook for the drive home."}}
+];
+
+var KEY = "lltSummerQuest_v1";
+var CHILD = "Reznor";
+
+/* ============ STATE ============ */
+var state = { mode:"home", done:{}, view:"map", week:1 };
+WEEKS.forEach(function(w){ state.done[w.n] = {build:false,math:false,code:false,read:false}; });
+
+/* ============ STORAGE ============ */
+async function load(){
+  try{
+    if(window.storage){
+      var r = await window.storage.get(KEY, false);
+      if(r && r.value){
+        var saved = JSON.parse(r.value);
+        if(saved.mode) state.mode = saved.mode;
+        if(saved.done){
+          WEEKS.forEach(function(w){
+            if(saved.done[w.n]) state.done[w.n] = Object.assign(state.done[w.n], saved.done[w.n]);
+          });
+        }
+      }
+    }
+  }catch(e){ /* first run or storage unavailable — defaults are fine */ }
+}
+async function save(){
+  try{
+    if(window.storage){
+      await window.storage.set(KEY, JSON.stringify({mode:state.mode, done:state.done}), false);
+    }
+  }catch(e){ /* keep going with in-memory state */ }
+}
+
+/* ============ HELPERS ============ */
+function weekDoneCount(n){ var d=state.done[n]; return (d.build?1:0)+(d.math?1:0)+(d.code?1:0)+(d.read?1:0); }
+function weekConquered(n){ return weekDoneCount(n)===4; }
+function totalGems(){ var t=0; WEEKS.forEach(function(w){ t+=weekDoneCount(w.n); }); return t; }
+function weeksConquered(){ var t=0; WEEKS.forEach(function(w){ if(weekConquered(w.n)) t++; }); return t; }
+function currentWeek(){ for(var i=0;i<WEEKS.length;i++){ if(!weekConquered(WEEKS[i].n)) return WEEKS[i].n; } return null; }
+function esc(s){ return s; }
+
+/* ============ RENDER: MAP ============ */
+function renderMap(){
+  var gems = totalGems(), wc = weeksConquered(), here = currentWeek();
+  var pct = Math.round((gems/28)*100);
+
+  var stops = WEEKS.map(function(w){
+    var dc = weekDoneCount(w.n), conq = weekConquered(w.n), isHere = (w.n===here);
+    var dots = THREADS.map(function(t){ return '<span class="e'+(state.done[w.n][t.k]?' on':'')+'">\uD83D\uDC8E</span>'; }).join('');
+    var flag = isHere ? '<div class="here-flag">\uD83D\uDCCD You are here</div>' :
+               (conq ? '<div class="here-flag" style="background:var(--gold-d)">\uD83C\uDFC6 Conquered</div>' : '');
+    return ''+
+      '<button class="stop'+(conq?' done':'')+(isHere?' here':'')+'" onclick="openWeek('+w.n+')">'+
+        (conq?'<div class="crown">\uD83D\uDC51</div>':'')+
+        '<div class="medal">'+(conq?'\uD83C\uDFC6':w.n)+'</div>'+
+        '<div class="card">'+
+          '<div class="wk">'+w.name+'</div>'+
+          '<div class="tg">'+w.tag+'</div>'+
+          '<div class="gems-mini">'+dots+' <span style="font-size:12px;color:var(--ink-soft);font-weight:700">'+dc+'/4</span></div>'+
+          flag+
+        '</div>'+
+      '</button>';
+  }).join('');
+
+  return ''+
+  '<div class="brand"><span class="mark">\uD83D\uDC8E</span><span class="name">Little Legends Treasures</span></div>'+
+  '<h1 class="title">Summer <span class="gold">Quest</span></h1>'+
+  '<div class="subtitle">'+CHILD+"'s 7-week adventure \u2014 learn like the best kids in the world.</div>"+
+
+  '<div class="stats">'+
+    '<div class="stat"><div class="v">\uD83D\uDC8E '+gems+' / 28</div><div class="l">Treasures</div></div>'+
+    '<div class="stat"><div class="v">\uD83C\uDFC6 '+wc+' / 7</div><div class="l">Weeks conquered</div></div>'+
+  '</div>'+
+  '<div class="bar"><i style="width:'+pct+'%"></i></div>'+
+  '<div class="bar-cap">'+(wc===7?'\uD83D\uDC51 LEGEND! You finished the whole adventure!':'The treasure map to the end of summer')+'</div>'+
+
+  '<div class="mode-wrap">'+
+    '<div class="seg">'+
+      '<button class="'+(state.mode==="home"?"on":"")+'" onclick="setMode(\'home\')">\uD83C\uDFE0 At Home</button>'+
+      '<button class="'+(state.mode==="car"?"on road":"")+'" onclick="setMode(\'car\')">\uD83D\uDE97 On the Road</button>'+
+    '</div>'+
+    '<div class="mode-help">'+(state.mode==="car"
+        ? '\uD83D\uDE97 <b>Road mode is on.</b> Every quest is now a car-friendly version \u2014 perfect for the drive up to NorCal to see Xander.'
+        : 'Heading up to NorCal to hang with Xander? Flip to <b>On the Road</b> for fun car versions of every quest.')+'</div>'+
+  '</div>'+
+
+  '<div class="trail-h">\uD83D\uDDFA\uFE0F The Journey</div>'+
+  '<div class="trail">'+stops+'</div>'+
+
+  '<div class="note">'+
+    '<p>\uD83C\uDFC3 Drums, dance, swim &amp; taekwondo keep going all summer \u2014 they\u2019re the base of everything.</p>'+
+    '<p>\u2728 Missing a day is totally fine. What matters is having fun and getting to the end of the adventure.</p>'+
+  '</div>'+
+  '<button class="reset" onclick="resetAll()">Start the whole adventure over</button>';
+}
+
+/* ============ RENDER: WEEK ============ */
+function renderWeek(){
+  var w = WEEKS[state.week-1];
+  var conq = weekConquered(w.n);
+  var modeLabelKey = state.mode==="car" ? "car":"home";
+
+  var quests = THREADS.map(function(t){
+    var isDone = state.done[w.n][t.k];
+    var label = state.mode==="car" ? t.car : t.home;
+    var text  = w[t.k][modeLabelKey];
+    return ''+
+      '<div class="quest '+t.cls+(isDone?' is-done':'')+'">'+
+        '<div class="qtop"><span class="qemoji">'+t.emoji+'</span><span class="qlbl">'+label+'</span></div>'+
+        '<div class="qtext">'+text+'</div>'+
+        '<button class="qbtn'+(isDone?' done':'')+'" onclick="toggleQuest('+w.n+',\''+t.k+'\')">'+
+          (isDone?'\uD83D\uDC8E Treasure earned!':'Tap when you do it')+
+        '</button>'+
+      '</div>';
+  }).join('');
+
+  var chest = conq ?
+    '<div class="chest"><div class="big">\uD83C\uDFC6 Week '+w.n+' conquered!</div>'+
+    '<div class="sm">You earned all 4 treasures. You\u2019re building your legend, '+CHILD+'.</div></div>' : '';
+
+  var chip = state.mode==="car"
+      ? '<div class="mode-chip road">\uD83D\uDE97 Road mode \u2014 car-friendly quests</div>'
+      : '<div class="mode-chip home">\uD83C\uDFE0 At-home quests</div>';
+
+  return ''+
+  '<button class="back" onclick="goMap()">\u2190 The Journey</button>'+
+  '<div class="wk-head">'+
+    '<div class="medal'+(conq?' ':'')+'" style="'+(conq?'background:var(--gold)':'')+'">'+(conq?'\uD83C\uDFC6':w.n)+'</div>'+
+    '<div><div class="wn">'+w.name+'</div><div class="wt">'+w.tag+'</div></div>'+
+  '</div>'+
+  chip+
+  '<div class="pick-hint">Pick whatever you feel like today \u2014 any quest, any order. Do one, do all four. \uD83D\uDC8E</div>'+
+  quests+
+  chest+
+  '<div style="height:20px"></div>';
+}
+
+/* ============ MAIN RENDER ============ */
+function render(){
+  document.getElementById("app").innerHTML = (state.view==="map") ? renderMap() : renderWeek();
+  window.scrollTo(0,0);
+}
+
+/* ============ ACTIONS ============ */
+function openWeek(n){ state.week=n; state.view="week"; render(); }
+function goMap(){ state.view="map"; render(); }
+function setMode(m){ state.mode=m; save(); render(); }
+
+function toggleQuest(n,k){
+  var wasConq = weekConquered(n);
+  var wasAll = (weeksConquered()===7);
+  state.done[n][k] = !state.done[n][k];
+  save();
+  render();
+  if(!wasConq && weekConquered(n)){
+    if(!wasAll && weeksConquered()===7){ celebrate("all", n); }
+    else { celebrate("week", n); }
+  }
+}
+
+function resetAll(){
+  if(!confirm("Start the whole Summer Quest over? This clears all treasures.")) return;
+  WEEKS.forEach(function(w){ state.done[w.n]={build:false,math:false,code:false,read:false}; });
+  save(); render();
+}
+
+/* ============ CELEBRATION ============ */
+function celebrate(type, n){
+  var msg, emoji, head;
+  if(type==="all"){
+    emoji="\uD83D\uDC51"; head="YOU'RE A LEGEND!";
+    msg=CHILD+", you finished all 7 weeks of the Summer Quest. You dreamed it AND you built it. \uD83C\uDF89";
+  } else {
+    emoji="\uD83C\uDFC6"; head="Week "+n+" conquered!";
+    msg="All 4 treasures earned! Look how far you\u2019ve come, "+CHILD+". On to the next adventure!";
+  }
+  var pieces="";
+  var set=["\uD83D\uDC8E","\u2B50","\uD83C\uDF89","\uD83D\uDFE1","\uD83D\uDD37","\uD83D\uDFE2","\uD83D\uDD36"];
+  for(var i=0;i<26;i++){
+    var left=Math.random()*100, dur=(2.4+Math.random()*2.2).toFixed(2), delay=(Math.random()*0.6).toFixed(2);
+    pieces+='<span style="left:'+left+'%;animation-duration:'+dur+'s;animation-delay:'+delay+'s">'+set[i%set.length]+'</span>';
+  }
+  var ov=document.createElement("div");
+  ov.className="overlay"; ov.id="celebrate";
+  ov.innerHTML='<div class="confetti">'+pieces+'</div>'+
+    '<div class="pop"><div class="pe">'+emoji+'</div><h2>'+head+'</h2><p>'+msg+'</p>'+
+    '<button onclick="closeCelebrate()">Keep going! \uD83D\uDE80</button></div>';
+  document.body.appendChild(ov);
+}
+function closeCelebrate(){ var e=document.getElementById("celebrate"); if(e) e.remove(); }
+
+/* expose for inline handlers */
+window.openWeek=openWeek; window.goMap=goMap; window.setMode=setMode;
+window.toggleQuest=toggleQuest; window.resetAll=resetAll; window.closeCelebrate=closeCelebrate;
+
+/* ============ BOOT ============ */
+(async function(){ await load(); render(); })();
+</script>
+</body>
+</html>
