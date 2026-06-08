@@ -26,19 +26,77 @@ import { juice } from "./lib/juice.js";
         position. ONE sweep, no per-space confetti. Tap anywhere to skip.
    ===================================================================== */
 
+// Theme contract (additive — emoji themes still work):
+//   background      CSS gradient/color — always provided, used as the
+//                   fallback if bgImg fails to load.
+//   bgImg           Optional absolute path under /board/themes/<id>/.
+//                   When set, layered over the gradient as a cover image.
+//   tokenEmoji      Emoji fallback (used if tokenRestImg is null).
+//   tokenRestImg    Optional resting-state token PNG.
+//   tokenFlyImg     Optional flying-state token PNG (animation swap).
+//                   If null and tokenRestImg is set, rest art is used for
+//                   both. If both null, the emoji always renders.
+//   startEmoji      Required.
+//   startImg        Optional PNG for the START marker.
+//   treasureEmoji   Required.
+//   treasureLockedImg / treasureOpenImg  Optional state-swapped art.
+//   spaceTileImg    Optional per-space tile art. When null, each task
+//                   space uses the kid game's activity color + emoji.
+//   fallbackColor   Used for any task space whose activity has no color.
+// See docs/BOARD-THEMES.md for the full spec.
+
 const SPACE_QUEST = {
-  id: "space-quest",
+  id: "space_quest",
   name: "Space Quest",
   background: "radial-gradient(ellipse at top, #1e3a8a 0%, #0f172a 65%, #020617 100%)",
+  bgImg: null,
   pathStroke: "rgba(255,255,255,0.22)",
   pathGlow: "rgba(99,102,241,0.35)",
   tokenEmoji: "🚀",
+  tokenRestImg: null,
+  tokenFlyImg: null,
   treasureEmoji: "🏆",
+  treasureLockedImg: null,
+  treasureOpenImg: null,
   treasureLabel: "Mission Treasure",
   startEmoji: "🛸",
+  startImg: null,
   startLabel: "Start",
+  spaceTileImg: null,
   fallbackColor: "#6366f1",
 };
+
+// Friendly cartoon volcano + dragon. PNG assets in
+// public/board/themes/volcano-peaks/. space-tile.png is not ready yet,
+// so per-space art falls back to the activity color + emoji until that
+// drops in — board still themes correctly today.
+const VOLCANO_PEAKS = {
+  id: "volcano_peaks",
+  name: "Volcano Peaks",
+  background: "radial-gradient(ellipse at top, #7c2d12 0%, #431407 65%, #1c0a05 100%)",
+  bgImg: "/board/themes/volcano-peaks/bg.png",
+  pathStroke: "rgba(255,180,90,0.45)",
+  pathGlow: "rgba(239,68,68,0.40)",
+  tokenEmoji: "🐉",
+  tokenRestImg: "/board/themes/volcano-peaks/token.png",
+  tokenFlyImg: "/board/themes/volcano-peaks/token-flying.png",
+  treasureEmoji: "🏆",
+  treasureLockedImg: "/board/themes/volcano-peaks/treasure-locked.png",
+  treasureOpenImg: "/board/themes/volcano-peaks/treasure-open.png",
+  treasureLabel: "Dragon's Hoard",
+  startEmoji: "🌋",
+  startImg: "/board/themes/volcano-peaks/start.png",
+  startLabel: "Start",
+  spaceTileImg: null,
+  fallbackColor: "#f97316",
+};
+
+export const BOARD_THEMES = {
+  space_quest: SPACE_QUEST,
+  volcano_peaks: VOLCANO_PEAKS,
+};
+
+export const DEFAULT_BOARD_THEME = "space_quest";
 
 const ACTIVITY_EMOJI = {
   Drums: "🥁",
@@ -254,14 +312,19 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
   let size = "w-14 h-14 sm:w-16 sm:h-16";
 
   if (kind === "start") {
-    content = <span className="text-2xl">{theme.startEmoji}</span>;
+    content = theme.startImg
+      ? <img src={theme.startImg} alt="" className="w-12 h-12 sm:w-14 sm:h-14 object-contain" draggable={false} />
+      : <span className="text-2xl">{theme.startEmoji}</span>;
     label = theme.startLabel;
     bg = "linear-gradient(135deg, #1f2937, #0f172a)";
     ring = "rgba(255,255,255,0.4)";
     labelClass = "text-white/70 uppercase tracking-widest text-[9px]";
   } else if (kind === "treasure") {
     const open = state === "treasure-open";
-    content = <span className="text-3xl sm:text-4xl">{theme.treasureEmoji}</span>;
+    const treasureImg = open ? theme.treasureOpenImg : theme.treasureLockedImg;
+    content = treasureImg
+      ? <img src={treasureImg} alt="" className="w-16 h-16 sm:w-20 sm:h-20 object-contain" draggable={false} />
+      : <span className="text-3xl sm:text-4xl">{theme.treasureEmoji}</span>;
     label = theme.treasureLabel;
     labelClass = "text-white/80 text-[10px] font-bold";
     size = "w-20 h-20 sm:w-24 sm:h-24";
@@ -272,6 +335,14 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
     } else {
       bg = "radial-gradient(circle, #475569 0%, #1e293b 100%)";
       ring = "rgba(255,255,255,0.18)";
+    }
+    // If the theme provides treasure art, suppress the circular chip
+    // background so the artwork reads cleanly (otherwise we see two
+    // chest-like shapes — the painted chest and the gradient bg).
+    if (treasureImg) {
+      bg = "transparent";
+      ring = "transparent";
+      glow = false;
     }
   } else {
     const a =
@@ -361,8 +432,11 @@ export default function BoardGame({
   activities,
   setOpenTask,
   user,
+  boardTheme,
 }) {
-  const theme = SPACE_QUEST;
+  // Theme resolution: parent picks via familySetting("boardTheme", ...).
+  // Unknown id or missing → DEFAULT_BOARD_THEME so the board never blanks.
+  const theme = BOARD_THEMES[boardTheme] || BOARD_THEMES[DEFAULT_BOARD_THEME];
   const safeTasks = todaysTasks || [];
   const safeComp = compByTask || {};
   const safeCompletions = completions || [];
@@ -384,7 +458,9 @@ export default function BoardGame({
       <div
         className="min-h-screen px-4 pt-6 pb-24 text-white relative overflow-hidden"
         style={{
-          background: theme.background,
+          background: theme.bgImg
+            ? `url(${theme.bgImg}) center top / cover no-repeat, ${theme.background}`
+            : theme.background,
           fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
         }}
       >
@@ -448,6 +524,11 @@ export default function BoardGame({
   // arrived at and t is a timestamp keying a one-shot pulse animation.
   // Lets the landed space react instead of being a passive destination.
   const [lastLanded, setLastLanded] = useState({ idx: -1, t: 0 });
+  // Token mid-flight state — drives the rest/fly image swap. Themes
+  // without flying art (or themes that only set tokenRestImg) treat
+  // the same art as both states; this state is harmless for emoji-only
+  // themes. Reset to false on every land.
+  const [flying, setFlying] = useState(false);
 
   // Fix the "scrolled to the bottom" problem: when the user taps the
   // Board tab, the outer scroll container in App.jsx still holds the
@@ -476,6 +557,7 @@ export default function BoardGame({
       onLand?.();
       return;
     }
+    setFlying(true);
     const pathEl = pathRef.current;
     const total = pathEl.getTotalLength();
     const lenAt = (idx) => total * (idx / (positions.length - 1));
@@ -493,6 +575,7 @@ export default function BoardGame({
       } else {
         animRef.current = null;
         tokenIdxRef.current = toIdx;
+        setFlying(false);
         onLand?.();
       }
     };
@@ -621,7 +704,12 @@ export default function BoardGame({
       ref={outerRef}
       className="min-h-screen px-3 pt-4 pb-24 relative overflow-hidden"
       style={{
-        background: theme.background,
+        // bgImg layers ON TOP of the gradient — the gradient stays as a
+        // fallback if the PNG fails to load and as the bottom layer
+        // through any transparent edges of the painted background.
+        background: theme.bgImg
+          ? `url(${theme.bgImg}) center top / cover no-repeat, ${theme.background}`
+          : theme.background,
         fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
       }}
     >
@@ -738,9 +826,12 @@ export default function BoardGame({
           `}</style>
           {/* A rocket should always look like it's flying. Pre-launch it
               gets the BIG pulse+glow "tap me" cue. After launch it settles
-              into the slower rocketHover bob — continuous, never static. */}
+              into the slower rocketHover bob — continuous, never static.
+              When the theme provides art, render both rest + fly PNGs and
+              crossfade via opacity (single-tree avoids any DOM thrash that
+              would interrupt the inherited rocketHover animation). */}
           <div
-            className="text-3xl sm:text-4xl drop-shadow-[0_3px_6px_rgba(0,0,0,0.55)]"
+            className="text-3xl sm:text-4xl drop-shadow-[0_3px_6px_rgba(0,0,0,0.55)] relative"
             style={{
               animation:
                 !launched && targetIdx > 0
@@ -752,7 +843,28 @@ export default function BoardGame({
                   : undefined,
             }}
           >
-            {theme.tokenEmoji}
+            {theme.tokenRestImg ? (
+              <div className="relative w-12 h-12 sm:w-14 sm:h-14">
+                <img
+                  src={theme.tokenRestImg}
+                  alt=""
+                  draggable={false}
+                  className="absolute inset-0 w-full h-full object-contain transition-opacity duration-200 ease-out"
+                  style={{ opacity: flying && theme.tokenFlyImg ? 0 : 1 }}
+                />
+                {theme.tokenFlyImg && (
+                  <img
+                    src={theme.tokenFlyImg}
+                    alt=""
+                    draggable={false}
+                    className="absolute inset-0 w-full h-full object-contain transition-opacity duration-200 ease-out"
+                    style={{ opacity: flying ? 1 : 0 }}
+                  />
+                )}
+              </div>
+            ) : (
+              theme.tokenEmoji
+            )}
           </div>
         </div>
 

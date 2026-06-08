@@ -612,6 +612,90 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           @keyframes kgh-aurora       { 0%, 100% { transform: none; opacity: 0.7; } }
         }
       `}</style>
+      {/* DRUM STREAK HERO — standalone "A year of drums" presentation
+          card. Sits ABOVE the Hero card per the new default layout.
+          Reads canonical streak data; nothing new stored. Designed to
+          read as the kid's signature stat — flame, count, goal, glow. */}
+      {streak && (
+        <div
+          className="rounded-3xl p-4 text-white relative overflow-hidden border-2 border-orange-500/30"
+          style={{
+            background:
+              "linear-gradient(135deg,#7f1d1d 0%, #c2410c 35%, #ea580c 65%, #facc15 100%)",
+            boxShadow: "0 12px 30px -10px rgba(249, 115, 22, 0.55)",
+          }}
+        >
+          {/* Heat-haze pulse behind the contents — same kgh-heat animation
+              as the original chip, scaled up. */}
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "radial-gradient(circle at 20% 70%, rgba(254,243,199,0.35), transparent 55%), radial-gradient(circle at 80% 30%, rgba(239,68,68,0.30), transparent 55%)",
+              animation: "kgh-heat 2400ms ease-in-out infinite",
+              pointerEvents: "none",
+            }}
+          />
+          <div className="flex items-center gap-3 relative">
+            {/* Big flickering flame */}
+            <div
+              aria-hidden
+              className="shrink-0 w-16 h-16 rounded-2xl bg-white/10 backdrop-blur grid place-items-center text-5xl"
+              style={{
+                transformOrigin: "50% 80%",
+                animation: "kgh-flame-sway 1700ms ease-in-out infinite",
+              }}
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  transformOrigin: "50% 70%",
+                  animation: "kgh-flame-flicker 1100ms ease-in-out infinite",
+                  filter:
+                    "drop-shadow(0 0 8px rgba(251,146,60,0.85)) drop-shadow(0 0 18px rgba(239,68,68,0.6))",
+                }}
+              >
+                🔥
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold flex items-center gap-1.5">
+                <Flame size={11} className="text-amber-200" />
+                A Year of Drums
+              </div>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span
+                  className="text-4xl font-extrabold leading-none"
+                  style={{
+                    textShadow:
+                      "0 0 10px rgba(253,224,71,0.65), 0 0 22px rgba(251,146,60,0.5)",
+                  }}
+                >
+                  <AnimatedNumber value={streak?.current ?? 0} />
+                </span>
+                <span className="text-base font-bold text-white/80 leading-none">
+                  / {streak?.milestone ?? 365}
+                </span>
+              </div>
+              <div className="mt-2">
+                <ProgressBar
+                  have={streak?.current ?? 0}
+                  need={streak?.milestone ?? 365}
+                  color="#fde047"
+                />
+              </div>
+              <div className="text-[11px] text-white/85 font-semibold mt-1.5">
+                {(streak?.current ?? 0) >= (streak?.milestone ?? 365)
+                  ? "🏆 You did it!"
+                  : `Don't break the chain · ${Math.max(0, (streak?.milestone ?? 365) - (streak?.current ?? 0))} days to go`}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* HERO: avatar + stars + streak */}
       <div
         className="rounded-3xl p-5 text-white relative overflow-hidden"
@@ -789,6 +873,39 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
         </button>
       )}
 
+      {/* DAILY ADVENTURE BOARD entry — moved ABOVE Up Next per the new
+          default layout. Kid can jump straight into the board from the
+          home screen without scrolling. */}
+      {onOpenBoard && (
+        <button
+          type="button"
+          onClick={onOpenBoard}
+          className="w-full rounded-3xl p-3.5 flex items-center gap-3 active:scale-[0.98] transition relative overflow-hidden border-2 border-white/15 shadow-lg"
+          style={{
+            background: "linear-gradient(135deg, #1e293b 0%, #4338ca 35%, #7c3aed 70%, #ec4899 100%)",
+          }}
+        >
+          {/* sprinkle of stars baked into the gradient */}
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "18%", top: "22%", color: "rgba(255,255,255,0.5)", fontSize: 10 }}>✦</span>
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "44%", top: "68%", color: "rgba(255,255,255,0.4)", fontSize: 9 }}>✦</span>
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "72%", top: "30%", color: "rgba(255,255,255,0.5)", fontSize: 11 }}>✦</span>
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "86%", top: "60%", color: "rgba(255,255,255,0.35)", fontSize: 8 }}>✦</span>
+          <div className="w-12 h-12 rounded-2xl bg-white/15 grid place-items-center backdrop-blur border border-white/25 shrink-0 relative z-10">
+            <span className="text-2xl">🚀</span>
+          </div>
+          <div className="flex-1 text-left relative z-10 min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold">Space Quest</div>
+            <div className="text-base font-extrabold text-white tracking-tight leading-tight mt-0.5">
+              Daily Adventure Board
+            </div>
+            <div className="text-[11px] text-white/80 mt-0.5 truncate">
+              Fly your rocket through today's missions →
+            </div>
+          </div>
+          <Map size={20} className="text-white/80 relative z-10 shrink-0" />
+        </button>
+      )}
+
       {/* UP NEXT — single-tap "what to do right now" card. Derived from
           the canonical todaysTasks via the mainQuests/sideQuests already
           on kidData. Tap → opens the same TaskSheet a tile would. Hidden
@@ -829,38 +946,6 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
             </div>
           </div>
           <div className="text-2xl text-emerald-600 shrink-0">▶</div>
-        </button>
-      )}
-
-      {/* DAILY ADVENTURE BOARD entry — sits right under the hero so the kid
-          can jump straight to the board without scrolling to the bottom nav. */}
-      {onOpenBoard && (
-        <button
-          type="button"
-          onClick={onOpenBoard}
-          className="w-full rounded-3xl p-3.5 flex items-center gap-3 active:scale-[0.98] transition relative overflow-hidden border-2 border-white/15 shadow-lg"
-          style={{
-            background: "linear-gradient(135deg, #1e293b 0%, #4338ca 35%, #7c3aed 70%, #ec4899 100%)",
-          }}
-        >
-          {/* sprinkle of stars baked into the gradient */}
-          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "18%", top: "22%", color: "rgba(255,255,255,0.5)", fontSize: 10 }}>✦</span>
-          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "44%", top: "68%", color: "rgba(255,255,255,0.4)", fontSize: 9 }}>✦</span>
-          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "72%", top: "30%", color: "rgba(255,255,255,0.5)", fontSize: 11 }}>✦</span>
-          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "86%", top: "60%", color: "rgba(255,255,255,0.35)", fontSize: 8 }}>✦</span>
-          <div className="w-12 h-12 rounded-2xl bg-white/15 grid place-items-center backdrop-blur border border-white/25 shrink-0 relative z-10">
-            <span className="text-2xl">🚀</span>
-          </div>
-          <div className="flex-1 text-left relative z-10 min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold">Space Quest</div>
-            <div className="text-base font-extrabold text-white tracking-tight leading-tight mt-0.5">
-              Daily Adventure Board
-            </div>
-            <div className="text-[11px] text-white/80 mt-0.5 truncate">
-              Fly your rocket through today's missions →
-            </div>
-          </div>
-          <Map size={20} className="text-white/80 relative z-10 shrink-0" />
         </button>
       )}
 

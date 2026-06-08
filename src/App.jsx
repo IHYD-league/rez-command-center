@@ -7,7 +7,7 @@ import {
 import KidGameHome from "./KidGameHome.jsx";
 import SummerQuest from "./SummerQuest.jsx";
 import SongLogger from "./SongLogger.jsx";
-import BoardGame from "./BoardGame.jsx";
+import BoardGame, { BOARD_THEMES, DEFAULT_BOARD_THEME } from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 import { supabase } from "./lib/supabase.js";
@@ -482,6 +482,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   );
   const [taskNotes, setTaskNotes] = familySetting("taskNotes", SEED_TASK_NOTES);
   const [subProgress, setSubProgress] = familySetting("subProgress", {});
+  // Board theme — parent picks; one theme per family because the board
+  // is a shared family canvas, not a per-profile view. Default is
+  // "space_quest" (the original emoji-only theme). See BoardGame.jsx
+  // BOARD_THEMES for the registry + docs/BOARD-THEMES.md for the spec.
+  const [boardTheme, setBoardTheme] = familySetting("boardTheme", "space_quest");
 
   const [currentUserId, setCurrentUserId] = useState(currentProfileId || null);
   const [tab, setTab] = useState("today");
@@ -1039,6 +1044,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     earnedAllTime,
     boardState, setBoardLastPosition, setTreasureClaimed,
     summerQuest, setSummerQuest,
+    boardTheme, setBoardTheme,
   };
 
   return (
@@ -3760,6 +3766,7 @@ function MoreParent(props) {
   if (sub === "grades") return <BackWrap title="Grade Goals" onBack={() => setSub("menu")}><GradeGoals /></BackWrap>;
   if (sub === "recap") return <BackWrap title="Recap & Memories" onBack={() => setSub("menu")}><ParentRecap {...props} /></BackWrap>;
   if (sub === "awards") return <BackWrap title="Accomplishments" onBack={() => setSub("menu")}><Accomplishments {...props} /></BackWrap>;
+  if (sub === "board_theme") return <BackWrap title="Board Theme" onBack={() => setSub("menu")}><BoardThemePicker {...props} /></BackWrap>;
   const items = [
     { k: "portfolio", icon: <ImageIcon size={18} />, label: "Progress Portfolio", sub: "Photos, art & writing over time" },
     { k: "weekly", icon: <ClipboardList size={18} />, label: "Weekly Summary", sub: "Minutes, wins, needs attention" },
@@ -3772,6 +3779,7 @@ function MoreParent(props) {
     { k: "grades", icon: <Trophy size={18} />, label: "Grade Goals", sub: "Grades 1–6 · world's best standards" },
     { k: "recap", icon: <Share2 size={18} />, label: "Recap & Memories", sub: "Weekly/monthly export · anniversaries" },
     { k: "awards", icon: <Medal size={18} />, label: "Accomplishments", sub: "Report cards · belts · certificates" },
+    { k: "board_theme", icon: <Map size={18} />, label: "Board Theme", sub: "Pick the Daily Adventure Board's vibe" },
   ];
   return (
     <div className="px-4 pt-4">
@@ -3788,6 +3796,80 @@ function MoreParent(props) {
     </div>
   );
 }
+// Board theme picker — lives under More for parents. Writes through the
+// existing familySetting("boardTheme", ...) so the change takes effect
+// immediately on every device on the next render of the Board tab.
+// Per-family by design (one theme per family canvas); per-profile theme
+// would need a different storage location and is captured as a possible
+// v2 in docs/BOARD-THEMES.md.
+function BoardThemePicker({ boardTheme, setBoardTheme }) {
+  const active = boardTheme || DEFAULT_BOARD_THEME;
+  const ids = Object.keys(BOARD_THEMES);
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-slate-500 px-1">
+        The Daily Adventure Board's look — applies to everyone in the family.
+      </div>
+      <div className="grid grid-cols-1 gap-3">
+        {ids.map((id) => {
+          const t = BOARD_THEMES[id];
+          const isActive = id === active;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setBoardTheme(id)}
+              className={`relative w-full rounded-2xl overflow-hidden border-2 transition active:scale-[0.99] text-left ${
+                isActive ? "border-indigo-500 ring-2 ring-indigo-200" : "border-slate-200 hover:border-indigo-200"
+              }`}
+            >
+              <div
+                className="h-28 w-full relative"
+                style={{
+                  background: t.bgImg
+                    ? `url(${t.bgImg}) center / cover, ${t.background}`
+                    : t.background,
+                }}
+              >
+                <div className="absolute inset-0 flex items-center justify-around p-3">
+                  {t.startImg ? (
+                    <img src={t.startImg} alt="" className="w-10 h-10 object-contain drop-shadow-lg" draggable={false} />
+                  ) : (
+                    <span className="text-3xl drop-shadow-lg">{t.startEmoji}</span>
+                  )}
+                  {t.tokenRestImg ? (
+                    <img src={t.tokenRestImg} alt="" className="w-12 h-12 object-contain drop-shadow-lg" draggable={false} />
+                  ) : (
+                    <span className="text-3xl drop-shadow-lg">{t.tokenEmoji}</span>
+                  )}
+                  {t.treasureLockedImg ? (
+                    <img src={t.treasureLockedImg} alt="" className="w-12 h-12 object-contain drop-shadow-lg" draggable={false} />
+                  ) : (
+                    <span className="text-3xl drop-shadow-lg">{t.treasureEmoji}</span>
+                  )}
+                </div>
+              </div>
+              <div className="p-3 bg-white flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-sm text-slate-800">{t.name}</div>
+                  <div className="text-[11px] text-slate-400">
+                    {isActive ? "Active on the board" : "Tap to switch"}
+                  </div>
+                </div>
+                {isActive && (
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">
+                    Active
+                  </div>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function BackWrap({ title, onBack, children }) {
   return (
     <div className="px-4 pt-4">
