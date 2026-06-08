@@ -436,6 +436,24 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           0%, 100% { box-shadow: 0 4px 12px -4px rgba(16,185,129,0.25); }
           50%      { box-shadow: 0 8px 28px -6px rgba(16,185,129,0.55), 0 0 0 4px rgba(16,185,129,0.10); }
         }
+        /* Streak fire — flame flicker + sway + heat-glow pulse. The
+           flame combines two independent keyframes at coprime durations
+           (1.1s + 1.7s) so the motion never visibly loops. */
+        @keyframes kgh-flame-flicker {
+          0%, 100% { transform: scaleY(1)    scaleX(1)    skewX(0deg);   filter: brightness(1); }
+          22%      { transform: scaleY(1.12) scaleX(0.94) skewX(-1.5deg); filter: brightness(1.15); }
+          48%      { transform: scaleY(0.92) scaleX(1.06) skewX(1deg);   filter: brightness(0.92); }
+          70%      { transform: scaleY(1.08) scaleX(0.97) skewX(-0.5deg); filter: brightness(1.1); }
+        }
+        @keyframes kgh-flame-sway {
+          0%, 100% { transform: rotate(0deg);  }
+          33%      { transform: rotate(-3deg); }
+          66%      { transform: rotate(3deg);  }
+        }
+        @keyframes kgh-heat {
+          0%, 100% { opacity: 0.7; transform: translateY(0)    scale(1);    }
+          50%      { opacity: 1;   transform: translateY(-2px) scale(1.05); }
+        }
       `}</style>
       {/* HERO: avatar + stars + streak */}
       <div
@@ -480,15 +498,63 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               <div className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10">{inner}</div>
             );
           })()}
-          <div className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10">
-            <div className="text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center gap-1">
+          <div className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10 relative overflow-hidden">
+            {/* Heat glow — radial orange aura behind the number that
+                pulses subtly. Pointer-events none so the chip stays
+                inert (it's not tappable). */}
+            <div
+              aria-hidden
+              style={{
+                position: "absolute",
+                inset: 0,
+                background:
+                  "radial-gradient(circle at 22% 62%, rgba(251,146,60,0.45), rgba(239,68,68,0.18) 35%, transparent 65%)",
+                animation: "kgh-heat 2200ms ease-in-out infinite",
+                pointerEvents: "none",
+              }}
+            />
+            <div className="relative text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center gap-1">
               <Flame size={11} className="text-orange-300" /> Drum streak
             </div>
-            <div className="text-2xl font-extrabold leading-none mt-1">
-              <AnimatedNumber value={streak?.current ?? 0} />
-              <span className="text-xs font-bold text-white/60 ml-1">/ {streak?.milestone ?? 365}</span>
+            <div className="relative text-2xl font-extrabold leading-none mt-1 flex items-baseline gap-1">
+              <span
+                aria-hidden
+                style={{
+                  // Outer span owns the sway (rotate). Inner owns the
+                  // flicker (scale/skew). CSS animations don't compose
+                  // transforms, so we split across two elements to get
+                  // independent motion at coprime durations — reads as
+                  // an organic flame instead of a strobe.
+                  display: "inline-block",
+                  transformOrigin: "50% 80%",
+                  animation: "kgh-flame-sway 1700ms ease-in-out infinite",
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-block",
+                    fontSize: "1em",
+                    lineHeight: 1,
+                    transformOrigin: "50% 70%",
+                    animation: "kgh-flame-flicker 1100ms ease-in-out infinite",
+                    filter:
+                      "drop-shadow(0 0 4px rgba(251,146,60,0.85)) drop-shadow(0 0 10px rgba(239,68,68,0.5))",
+                  }}
+                >
+                  🔥
+                </span>
+              </span>
+              <span
+                style={{
+                  textShadow:
+                    "0 0 8px rgba(251,146,60,0.55), 0 0 16px rgba(239,68,68,0.35)",
+                }}
+              >
+                <AnimatedNumber value={streak?.current ?? 0} />
+              </span>
+              <span className="text-xs font-bold text-white/60">/ {streak?.milestone ?? 365}</span>
             </div>
-            <div className="mt-1.5">
+            <div className="relative mt-1.5">
               <ProgressBar have={streak?.current ?? 0} need={streak?.milestone ?? 365} color="#fb923c" />
             </div>
           </div>
