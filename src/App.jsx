@@ -9,6 +9,7 @@ import SongLogger from "./SongLogger.jsx";
 import BoardGame from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
+import { juice } from "./lib/juice.js";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -590,6 +591,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
         setCelebrate({ name: act?.short || t.title, streak: next, record: next > s.longest, color: act?.color || "#f97316" });
       }
     }
+    // Juice: pending submission = uplifting two-tone blip; auto-approved
+    // submission = full approve fanfare (because stars actually land).
+    if (needsApproval) juice.burst("medium", "submit");
+    else juice.burst("success", "approve");
   };
 
   const addAward = (a) => setAwards((prev) => [a, ...prev]);
@@ -619,11 +624,17 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       const tk = tasks.find((x) => x.id === taskId);
       const aid = tk?.activityId || TYPE_TO_ACT[tk?.activityType];
       if (aid) bumpStreak(aid); // only bumps if that activity is being tracked
+      juice.burst("success", "approve");
+    } else if (decision === "needs_fix") {
+      juice.burst("warning", "nope");
+    } else if (decision === "reject") {
+      juice.burst("warning", "nope");
     }
   };
 
   const requestReward = (reward) => {
     setRedemptions((prev) => [...prev, { id: "rd_" + Date.now(), rewardId: reward.id, title: reward.title, cost: reward.starCost, status: "requested", requestedBy: currentUserId }]);
+    juice.burst("medium", "treasure");
   };
   const decideReward = (rdId, status) => {
     setRedemptions((prev) => prev.map((r) => r.id === rdId ? { ...r, status } : r));
@@ -779,6 +790,47 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       document.documentElement.style.fontSize = prev;
     };
   }, [currentPrefs.fontScale]);
+
+  // Push juice prefs (sfx + haptics) to the module singleton whenever the
+  // active profile's sound settings change. Defaults: both on. If a user
+  // never opens the hub Sound module, they get the full juice experience.
+  useEffect(() => {
+    const s = currentPrefs.sound || {};
+    juice.setEnabled({
+      sfx: s.sfx !== false,
+      haptic: s.haptic !== false,
+    });
+  }, [currentPrefs.sound]);
+
+  // iOS Safari requires AudioContext.resume() inside a user gesture before
+  // the first oscillator will sound. Listen once for any pointer/touch
+  // anywhere in the document and unlock. juice.unlock() is idempotent.
+  useEffect(() => {
+    const unlock = () => juice.unlock();
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("touchstart", unlock, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("touchstart", unlock);
+    };
+  }, []);
+
+  // Level-up detector — fires the levelUp fanfare + heavy haptic when the
+  // hero level crosses up. Derived purely from starBank → no extra storage.
+  // The first render seeds the ref with the current level so we don't fire
+  // on app load, only on actual transitions during the session.
+  const _seenLevelRef = React.useRef(null);
+  useEffect(() => {
+    const lvl = levelFromXp(starBank * 10);
+    if (_seenLevelRef.current === null) {
+      _seenLevelRef.current = lvl;
+      return;
+    }
+    if (lvl > _seenLevelRef.current) {
+      juice.burst("success", "levelUp");
+    }
+    _seenLevelRef.current = lvl;
+  }, [starBank]);
 
   const [hubOpen, setHubOpen] = useState(false);
 

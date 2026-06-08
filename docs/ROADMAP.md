@@ -121,6 +121,16 @@ inside this Phase 2 bucket; don't smuggle later phases into earlier PRs.
   the same TaskSheet a quest tile would. Shows the title, XP reward, and
   sub-part progress when relevant (e.g. "1 / 3 parts" on drums). Hidden
   once everything's done; the existing bottom CTA handles the celebration.
+- ✅ **Juice System v1 — haptics + SFX.** Module-level `juice` singleton
+  (`src/lib/juice.js`) wraps WebAudio (synthesized chiptune SFX, no asset
+  downloads) and `navigator.vibrate`. Wired into submitTask, decide
+  (approve/needs_fix/reject), requestReward, and a level-up detector
+  (derived from starBank, fires the fanfare when the hero level crosses
+  up). First-pointer/touch listener resumes the AudioContext for iOS.
+  Per-profile prefs `sound: { sfx, haptic }` ride the existing
+  user_prefs sync — no migration. New "Sound & Feel" module in the
+  Customization Hub with live previews on toggle. Defaults to both on
+  so a fresh profile gets the full experience.
 - ⏳ Dad Power-Up / parent engagement stats (approvals this week, etc.)
 
 ### Bucket C — new systems (each its own table, build one at a time)

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { X, Type, Palette, Camera, Image as ImageIcon } from "lucide-react";
+import { X, Type, Palette, Camera, Image as ImageIcon, Volume2, Smartphone } from "lucide-react";
+import { juice } from "./lib/juice.js";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
@@ -464,6 +465,76 @@ function FontScaleModule({ prefs, setPref }) {
   );
 }
 
+// SoundModule — two independent toggles (sfx + haptics). Defaults are
+// "on" for both; only an explicit `false` in prefs.sound turns them off.
+// Tapping a toggle previews the channel so the chooser can hear/feel the
+// difference immediately.
+function SoundModule({ prefs, setPref }) {
+  const s = prefs.sound || {};
+  const sfxOn = s.sfx !== false;
+  const hapticOn = s.haptic !== false;
+  const toggle = (key, nextVal, previewSfx, previewHaptic) => {
+    setPref("sound", { ...s, [key]: nextVal });
+    // Preview the channel on enable so the chooser hears/feels the
+    // difference immediately. Briefly force-enable that channel because
+    // the App-level useEffect that resyncs juice.setEnabled from the new
+    // prefs hasn't run yet. After this paint it will, replacing this
+    // temporary state with the canonical one.
+    if (nextVal) {
+      juice.setEnabled({
+        sfx: key === "sfx" ? true : sfxOn,
+        haptic: key === "haptic" ? true : hapticOn,
+      });
+      if (previewSfx) juice.sfx(previewSfx);
+      if (previewHaptic) juice.haptic(previewHaptic);
+    }
+  };
+  const Row = ({ Icon, label, hint, on, onToggle }) => (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`w-full p-3 rounded-2xl border-2 transition active:scale-[0.99] flex items-center gap-3 ${
+        on ? "border-indigo-500 bg-indigo-50" : "border-slate-200 bg-white hover:border-indigo-200"
+      }`}
+    >
+      <div className={`w-10 h-10 rounded-xl grid place-items-center ${on ? "bg-indigo-500 text-white" : "bg-slate-100 text-slate-500"}`}>
+        <Icon size={20} />
+      </div>
+      <div className="min-w-0 flex-1 text-left">
+        <div className="text-sm font-bold text-slate-800">{label}</div>
+        <div className="text-[11px] text-slate-500">{hint}</div>
+      </div>
+      <div
+        className={`shrink-0 w-11 h-6 rounded-full p-0.5 transition ${on ? "bg-indigo-500" : "bg-slate-300"}`}
+        aria-hidden
+      >
+        <div
+          className="w-5 h-5 rounded-full bg-white shadow transition-transform"
+          style={{ transform: on ? "translateX(20px)" : "translateX(0)" }}
+        />
+      </div>
+    </button>
+  );
+  return (
+    <div className="flex flex-col gap-2">
+      <Row
+        Icon={Volume2}
+        label="Sounds"
+        hint="Quest blips, star chimes, level-up fanfare."
+        on={sfxOn}
+        onToggle={() => toggle("sfx", !sfxOn, "approve", null)}
+      />
+      <Row
+        Icon={Smartphone}
+        label="Vibration"
+        hint="A little buzz when something good happens. (Android / some PWAs.)"
+        on={hapticOn}
+        onToggle={() => toggle("haptic", !hapticOn, null, "success")}
+      />
+    </div>
+  );
+}
+
 // HUB_MODULES — the registry. Adding a new option means appending an
 // entry here. The hub renders each module in order; each module gets
 // (prefs, setPref) so it never needs to know about persistence.
@@ -471,6 +542,7 @@ function FontScaleModule({ prefs, setPref }) {
 // Convention for the prefs jsonb keys:
 //   fontScale: "regular" | "large" | "larger" | "largest"
 //   theme:     "white" | "blue" | "black" | …   (Phase 2)
+//   sound:     { sfx: bool, haptic: bool }      (Phase 3)
 //   …more as we add modules.
 const HUB_MODULES = [
   {
@@ -495,6 +567,13 @@ const HUB_MODULES = [
     icon: Palette,
     description: "Background and contrast — White, Blue, Night, or Colorful. Per-profile.",
     Render: ThemeModule,
+  },
+  {
+    id: "sound",
+    title: "Sound & Feel",
+    icon: Volume2,
+    description: "Pick the juice. Sounds for actions and a buzz when good things happen.",
+    Render: SoundModule,
   },
 ];
 
