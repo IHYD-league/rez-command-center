@@ -951,8 +951,16 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       }}
     >
       <div
-        className="w-full max-w-md min-h-screen flex flex-col relative shadow-xl"
-        style={{ background: (THEMES[currentPrefs.theme] || THEMES.white).bg }}
+        className="w-full max-w-md h-screen flex flex-col relative shadow-xl overflow-hidden"
+        style={{
+          background: (THEMES[currentPrefs.theme] || THEMES.white).bg,
+          // 100dvh wins on modern Safari/Chrome (dynamic viewport — adjusts
+          // when iOS Safari's URL bar shows/hides). h-screen class is the
+          // fallback for browsers that don't know dvh. Clamping height here
+          // is what makes BottomNav stay at the viewport bottom: now only
+          // the inner content area scrolls, not the whole page.
+          height: "100dvh",
+        }}
       >
         <TopBar user={user} mode={mode} onSwitch={() => { setCurrentUserId(null); }} onSignOut={signOut} sessionEmail={sessionEmail} onOpenHub={() => setHubOpen(true)} />
         <div className="flex-1 overflow-y-auto pb-24">
@@ -4143,7 +4151,13 @@ function BottomNav({ user, tab, setTab }) {
   };
   const items = sets[user.role] || sets.helper;
   return (
-    <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-slate-100 flex justify-around px-2 py-2 pb-3">
+    <div
+      className="absolute bottom-0 left-0 right-0 bg-white border-t border-slate-100 flex justify-around px-2 py-2"
+      // Honor the iPhone home-indicator safe area so the nav floats above
+      // the gesture bar instead of sitting under it. Falls back to ~12px
+      // (matches the previous pb-3) on devices without an inset.
+      style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+    >
       {items.map(({ k, icon: Icon, label }) => {
         const active = tab === k;
         return (
