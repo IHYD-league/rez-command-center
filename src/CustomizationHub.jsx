@@ -194,8 +194,16 @@ function AvatarCropper({ file, busy, onCancel, onConfirm }) {
                 position: "absolute",
                 left: "50%",
                 top: "50%",
+                // Tailwind preflight sets `img { max-width: 100%; height:
+                // auto }`, which silently squashes the natural dimensions
+                // before our transform runs. Override both so the image
+                // sizes itself at its real natural pixels; the transform
+                // then scales it to fit the viewport.
+                maxWidth: "none",
+                maxHeight: "none",
                 width: imgDims.w,
                 height: imgDims.h,
+                display: "block",
                 transform: `translate(-50%, -50%) translate(${tx}px, ${ty}px) scale(${scale})`,
                 transformOrigin: "center",
                 userSelect: "none",
