@@ -937,6 +937,16 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
 
   const [hubOpen, setHubOpen] = useState(false);
 
+  // Welcome overlay — re-fires on every app open + every profile switch.
+  // Was previously gated by currentPrefs.onboarded (one-shot per profile);
+  // user feedback was "I want the Hi Mike / Hi Reznor moment every time
+  // I come back". Now it's pure in-session state: shows on mount, hides
+  // when dismissed, resets to shown when currentUserId changes.
+  const [welcomeDismissed, setWelcomeDismissed] = useState(false);
+  useEffect(() => {
+    setWelcomeDismissed(false);
+  }, [currentUserId]);
+
   // ---- login screen ----
   if (!user) {
     return <LoginScreen users={users} onPick={(id) => { setCurrentUserId(id); setTab("today"); }} onSignOut={signOut} sessionEmail={sessionEmail} />;
@@ -1119,10 +1129,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       </div>
       <StarBurstLayer />
       <LevelUpLayer />
-      {!currentPrefs.onboarded && (
+      {!welcomeDismissed && (
         <OnboardingOverlay
           user={user}
-          onDismiss={() => setPref("onboarded", true)}
+          onDismiss={() => setWelcomeDismissed(true)}
         />
       )}
     </div>
