@@ -14,6 +14,7 @@ import { starBurst } from "./lib/starBurst.js";
 import StarBurstLayer from "./StarBurstLayer.jsx";
 import { levelUp } from "./lib/levelUp.js";
 import LevelUpLayer from "./LevelUpLayer.jsx";
+import OnboardingOverlay from "./OnboardingOverlay.jsx";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -1049,6 +1050,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       </div>
       <StarBurstLayer />
       <LevelUpLayer />
+      {!currentPrefs.onboarded && (
+        <OnboardingOverlay
+          user={user}
+          onDismiss={() => setPref("onboarded", true)}
+        />
+      )}
     </div>
   );
 }
