@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Star, Flame, Trophy, Crown, Target, Sparkles, MapPin, Menu, Map } from "lucide-react";
 import { useSignedUrl } from "./lib/storage.js";
+import { starBurst } from "./lib/starBurst.js";
 
 /* =====================================================================
    KidGameHome — Reznor's "game mode" home.
@@ -407,6 +408,23 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
     prevStarsRef.current = stars;
   }, [stars]);
 
+  // Bank-pop on burst arrival. The starBurst dispatcher fires `landed`
+  // after the longest in-flight star reaches the destination. When that
+  // happens we imperatively restart a CSS animation on the bank number
+  // — animating via a ref + force-reflow so the AnimatedNumber tween
+  // underneath isn't disrupted (a key-based remount would jump it).
+  const bankRef = useRef(null);
+  useEffect(() => {
+    return starBurst.onLanded(() => {
+      const el = bankRef.current;
+      if (!el) return;
+      el.style.animation = "none";
+      // Force reflow so the next assignment counts as a state change.
+      void el.offsetWidth;
+      el.style.animation = "kgh-bank-pop 600ms ease-out";
+    });
+  }, []);
+
   const firstUndone = mainQuests.find((q) => !q.done);
   // For the "Up next" widget: pick a required quest if any remain, else
   // the first un-done extra so the suggestion never goes blank while
@@ -454,6 +472,18 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           0%, 100% { opacity: 0.7; transform: translateY(0)    scale(1);    }
           50%      { opacity: 1;   transform: translateY(-2px) scale(1.05); }
         }
+        /* Bank-pop — the Stars count's overshoot bounce when a starBurst
+           lands. Brief yellow flash + scale-up + tiny shake. Tuned to
+           ~600ms so two back-to-back approvals stay distinct. */
+        @keyframes kgh-bank-pop {
+          0%   { transform: scale(1);    color: inherit;          text-shadow: none; }
+          25%  { transform: scale(1.28); color: #fde047;
+                 text-shadow: 0 0 14px rgba(253,224,71,0.85), 0 0 28px rgba(251,191,36,0.6); }
+          55%  { transform: scale(0.96); color: #fef3c7;
+                 text-shadow: 0 0 10px rgba(253,224,71,0.5); }
+          80%  { transform: scale(1.06); color: inherit;          text-shadow: 0 0 6px rgba(253,224,71,0.3); }
+          100% { transform: scale(1);    color: inherit;          text-shadow: none; }
+        }
       `}</style>
       {/* HERO: avatar + stars + streak */}
       <div
@@ -482,7 +512,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                   </span>
                   {tappable && <span className="text-white/40 text-[10px]">›</span>}
                 </div>
-                <div data-star-bank className="text-2xl font-extrabold leading-none mt-1"><AnimatedNumber value={stars} /></div>
+                <div ref={bankRef} data-star-bank className="text-2xl font-extrabold leading-none mt-1" style={{ display: "inline-block", transformOrigin: "left center" }}><AnimatedNumber value={stars} /></div>
               </>
             );
             return tappable ? (

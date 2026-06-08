@@ -16,7 +16,14 @@
 // singleton, no React context — call it from any handler.
 
 let listeners = new Set();
+let landedListeners = new Set();
 let lastTap = null;
+
+// Tuned to match the longest possible per-star flight in StarBurstLayer:
+// max delay (12 * 35ms cascade) + max duration (700 + 4*40 ≈ 860ms) +
+// a small safety margin so the bank pop and the last star's land
+// optically coincide.
+const FLIGHT_MS = 1180;
 
 if (typeof window !== "undefined") {
   const onTap = (e) => {
@@ -62,10 +69,21 @@ export const starBurst = {
     listeners.forEach((fn) => {
       try { fn(event); } catch {}
     });
+    // Fire `landed` once the last star reaches the destination — UI
+    // can pop / shake the bank in sync with the visual arrival.
+    setTimeout(() => {
+      landedListeners.forEach((fn) => {
+        try { fn(event); } catch {}
+      });
+    }, FLIGHT_MS);
   },
   subscribe(fn) {
     listeners.add(fn);
     return () => listeners.delete(fn);
+  },
+  onLanded(fn) {
+    landedListeners.add(fn);
+    return () => landedListeners.delete(fn);
   },
 };
 
