@@ -113,8 +113,9 @@ const VOLCANO_PEAKS = {
 };
 
 // Glowing fairy clearing, mushroom houses, glowing crystals. Assets in
-// public/board/themes/enchanted-forest/. Tokens not yet provided —
-// emoji fallback used until they drop in.
+// public/board/themes/enchanted-forest/. Token "fly" alt is the winking
+// variant — semantically the same crossfade-on-animate slot, just a
+// different motion for a non-flying character.
 const ENCHANTED_FOREST = {
   id: "enchanted_forest",
   name: "Enchanted Forest",
@@ -123,8 +124,8 @@ const ENCHANTED_FOREST = {
   pathStroke: "rgba(196,181,253,0.45)",
   pathGlow: "rgba(168,85,247,0.40)",
   tokenEmoji: "🦋",
-  tokenRestImg: null,
-  tokenFlyImg: null,
+  tokenRestImg: "/board/themes/enchanted-forest/token.png",
+  tokenFlyImg: "/board/themes/enchanted-forest/token-wink.png",
   treasureEmoji: "✨",
   treasureLockedImg: "/board/themes/enchanted-forest/treasure-locked.png",
   treasureOpenImg: "/board/themes/enchanted-forest/treasure-open.png",
@@ -132,7 +133,7 @@ const ENCHANTED_FOREST = {
   startEmoji: "🍄",
   startImg: "/board/themes/enchanted-forest/start.png",
   startLabel: "Start",
-  spaceTileImg: null,
+  spaceTileImg: "/board/themes/enchanted-forest/space-tile.png",
   fallbackColor: "#a78bfa",
   treasureAnchor: { x: 50, y: 18 },
   startAnchor:    { x: 50, y: 92 },
@@ -147,10 +148,46 @@ const ENCHANTED_FOREST = {
   ],
 };
 
+// Candy Concert — pastel candy kingdom with a castle at the top, peppermint
+// + cupcake + cake pedestals along the cookie path. Token "fly" alt is
+// the cheering variant. Full asset set including space-tile.png.
+const CANDY_CONCERT = {
+  id: "candy_concert",
+  name: "Candy Concert",
+  background: "radial-gradient(ellipse at top, #fbcfe8 0%, #f9a8d4 55%, #be185d 100%)",
+  bgImg: "/board/themes/candy-concert/bg.png",
+  pathStroke: "rgba(244,114,182,0.55)",
+  pathGlow: "rgba(236,72,153,0.45)",
+  tokenEmoji: "🍭",
+  tokenRestImg: "/board/themes/candy-concert/token.png",
+  tokenFlyImg: "/board/themes/candy-concert/token-cheer.png",
+  treasureEmoji: "🏰",
+  treasureLockedImg: "/board/themes/candy-concert/treasure-locked.png",
+  treasureOpenImg: "/board/themes/candy-concert/treasure-open.png",
+  treasureLabel: "Candy Castle",
+  startEmoji: "🧁",
+  startImg: "/board/themes/candy-concert/start.png",
+  startLabel: "Start",
+  spaceTileImg: "/board/themes/candy-concert/space-tile.png",
+  fallbackColor: "#ec4899",
+  treasureAnchor: { x: 50, y: 14 },
+  startAnchor:    { x: 50, y: 92 },
+  pathWaypoints: [
+    { x: 50, y: 92 },  // start at bottom cupcake
+    { x: 50, y: 80 },  // cupcake pedestal
+    { x: 40, y: 68 },  // bend left toward purple biome
+    { x: 50, y: 55 },  // peppermint center
+    { x: 60, y: 42 },  // bend right toward teal cake
+    { x: 50, y: 30 },  // cake pedestal
+    { x: 50, y: 14 },  // castle (treasure)
+  ],
+};
+
 export const BOARD_THEMES = {
   space_quest: SPACE_QUEST,
   volcano_peaks: VOLCANO_PEAKS,
   enchanted_forest: ENCHANTED_FOREST,
+  candy_concert: CANDY_CONCERT,
 };
 
 export const DEFAULT_BOARD_THEME = "space_quest";
@@ -492,6 +529,25 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
     ring = p.ring;
     tappable = true;
     content = <span className="text-2xl sm:text-3xl">{emoji}</span>;
+    // Per-theme painted tile under the task icon. When the theme
+    // provides spaceTileImg, the activity-color background is layered
+    // BEHIND the image (so completed states still tint through via
+    // opacity drop on the painted tile, keeping the "this is done" cue).
+    if (theme.spaceTileImg) {
+      const dim = state === "completed" ? 0.55 : 1;
+      bg = `url(${theme.spaceTileImg}) center / cover, ${p.bg}`;
+      // Subtle ring when tile art carries the visual weight; bright
+      // ring still applied on pending/needs-fix because those are
+      // explicit attention states.
+      if (state === "available" || state === "completed") {
+        ring = state === "completed" ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.55)";
+      }
+      content = (
+        <span className="text-2xl sm:text-3xl" style={{ opacity: dim, filter: state === "completed" ? "grayscale(0.4)" : undefined }}>
+          {emoji}
+        </span>
+      );
+    }
     if (state === "completed") {
       badge = (
         <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 grid place-items-center text-white text-xs font-extrabold border-2 border-slate-900">

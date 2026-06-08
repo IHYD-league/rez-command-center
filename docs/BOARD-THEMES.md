@@ -9,7 +9,8 @@
 |---|---|---|---|
 | Space Quest | `space_quest` | ✅ Shipped (default) | Emoji-only; no asset deps. Procedural snake path. |
 | Volcano Peaks | `volcano_peaks` | ✅ v3 | Refreshed bg.png (new artwork w/ jack-o-lantern volcano + stone pedestals). `treasureAnchor` pinned to the painted volcano face; `pathWaypoints` follow the central lava river. Dragon token rest/fly animation live. `space-tile.png` still pending. |
-| Enchanted Forest | `enchanted_forest` | ✅ v3 | bg + start + treasure-locked + treasure-open present. Tokens not provided yet → emoji 🦋 fallback. Path waypoints zig through the clearing. |
+| Enchanted Forest | `enchanted_forest` | ✅ v3 complete | Full asset set: bg + start + treasure-locked + treasure-open + token + token-wink + space-tile. The "fly" alt slot is `token-wink.png` (animation-state semantic is "alt during motion" — works for fly, wink, cheer). Path waypoints zig through the fairy clearing. |
+| Candy Concert | `candy_concert` | ✅ v3 | Full asset set: bg + start + treasure-locked + treasure-open + token + token-cheer + space-tile. Castle treasure at top; cookie path winds through cupcake / peppermint / cake pedestals. Token alt is `token-cheer.png`. |
 | Water World | `water_world` | ⏳ Planned | Folder exists in `graphics/board-game/water-world/`; awaiting assets. |
 
 ## Per-family, not per-profile
@@ -73,10 +74,10 @@ When a theme provides `pathWaypoints` (≥ 2 points), `calcPositions()` in `src/
 ### Image / emoji fallback rules
 
 - `bgImg` is **layered over** `background` (gradient stays as the floor).
-- `tokenRestImg` → if null, `tokenEmoji` renders alone. If set, both `tokenRestImg` + `tokenFlyImg` render and crossfade by opacity (`flying` state in BoardGame).
+- `tokenRestImg` → if null, `tokenEmoji` renders alone. If set, both `tokenRestImg` + `tokenFlyImg` render and crossfade by opacity (`flying` state in BoardGame). The "fly" slot is semantically **"alt state during motion"** — works for fly (dragon), wink (fairy), cheer (candy character), or whatever motion the theme calls for.
 - `treasureLockedImg` / `treasureOpenImg` → state-swapped per `space.state === "treasure-open"`. When art is present, the circular chip background is suppressed so the painted art reads clean.
 - `startImg` → straight swap of emoji ↔ image.
-- `spaceTileImg` → not used in v1 rendering. Reserved for when per-space painted tiles ship. Currently each task space uses the activity's color + emoji regardless of theme.
+- `spaceTileImg` → v3: now rendered. When set, the painted tile is layered over the activity-color circle as the chip background. The activity emoji + completion badge still render on top. Completed tasks dim the emoji + apply grayscale so the "done" state still reads.
 
 ## Asset spec
 
