@@ -59,13 +59,26 @@ Every theme object in the `BOARD_THEMES` registry has these fields:
 }
 ```
 
-### Path-fits-art rendering (v3)
+### Path-fits-art rendering (v3 / v4)
 
-When a theme provides `pathWaypoints` (≥ 2 points), `calcPositions()` in `src/BoardGame.jsx` switches from the procedural 3-column snake to an **arc-length distribution** along the polyline. Density matches the path's actual length, so spaces stay evenly spaced even when bends bunch waypoints close together.
+When a theme provides `pathWaypoints` (≥ 2 points), `calcPositions()` in `src/BoardGame.jsx` switches from the procedural 3-column snake to one of two modes:
 
-- Waypoint coords are **percentages (0-100)** of the board's viewBox.
-- A themed board uses a **fixed viewBox height** (180 units) regardless of space count — keeps the painted geography proportional. Procedural boards (Space Quest) still scale viewBoxH with space count.
-- `treasureAnchor` + `startAnchor` are applied **after** the polyline interpolation as hard overrides — ensures treasure stays exactly on its painted pedestal even at edge counts.
+**Snap mode (v4)** — when `pathWaypoints.length === count` (space count = waypoint count exactly), each space lands at its waypoint position 1:1. This is how a theme bakes task positions into the artwork: paint N pedestals into bg.png, list N coords in `pathWaypoints`, set `boardDailyCap` to (N − 2). Volcano Peaks does this with 11 painted fire-circle pedestals matching START + 9 tasks + TREASURE at the default daily cap of 9.
+
+**Interpolate mode (v3)** — when counts differ (e.g., parent dials the daily cap from 9 to 5), distributes spaces along the waypoint polyline using arc-length math. Density matches the path's actual length, so spaces stay evenly spaced even when bends bunch waypoints close together. Spaces still trace the painted geography — they just won't land on the exact painted pedestals.
+
+Both modes:
+- Use percentages (0-100) of the board's viewBox for waypoint coords.
+- Use a **fixed viewBox height** (180 units) for themed boards — keeps the painted geography proportional regardless of space count. Procedural boards (Space Quest) still scale viewBoxH with space count.
+- Apply `treasureAnchor` + `startAnchor` as **hard overrides** after positioning — ensures treasure stays exactly on its painted pedestal at every count.
+
+**To bake painted positions into a new theme:**
+
+1. Design the bg.png with N visible pedestals/markers for spaces.
+2. Measure each pedestal's center as `{x%, y%}` of the image dimensions.
+3. List the N coordinates in `pathWaypoints` in the order the player should visit them (typically a snake from bottom-up).
+4. Set `treasureAnchor` + `startAnchor` to match the painted START + TREASURE positions exactly.
+5. Document the "intended daily cap" for this theme in the status table.
 
 ### Parent control: Daily Quest Cap (v3)
 

@@ -98,20 +98,25 @@ const VOLCANO_PEAKS = {
   startLabel: "Start",
   spaceTileImg: null,
   fallbackColor: "#f97316",
-  treasureAnchor: { x: 50, y: 16 },
+  treasureAnchor: { x: 50, y: 14 },
   startAnchor:    { x: 50, y: 93 },
-  // Mario-Party-style zigzag. Waypoints pushed to the edges of the
-  // painted geography so the player visibly travels left/right across
-  // the world, not just up the center spine.
+  // Painted-position SNAP — 11 coords matching the 11 baked pedestals
+  // in bg.png (START + 3x3 grid of fire-circle pedestals + TREASURE).
+  // Calc switches to snap-mode when count === waypoints.length, so
+  // each space lands EXACTLY on its painted stone ring.
+  // Snake order from bottom: BL → BC → BR → MR → MC → ML → TL → TC → TR.
   pathWaypoints: [
-    { x: 50, y: 93 },  // start (bottom-center pedestal)
-    { x: 22, y: 82 },  // FAR LEFT — sweep along left lava river
-    { x: 78, y: 72 },  // FAR RIGHT — cross to right river
-    { x: 25, y: 58 },  // LEFT pedestal
-    { x: 75, y: 46 },  // RIGHT pedestal
-    { x: 30, y: 32 },  // LEFT final approach
-    { x: 50, y: 22 },  // center
-    { x: 50, y: 16 },  // treasure (smiling volcano)
+    { x: 50, y: 93 },  // START — bottom fire-emblem pedestal
+    { x: 22, y: 80 },  // bottom-left
+    { x: 50, y: 80 },  // bottom-center
+    { x: 78, y: 80 },  // bottom-right
+    { x: 78, y: 62 },  // middle-right
+    { x: 50, y: 62 },  // middle-center
+    { x: 22, y: 62 },  // middle-left
+    { x: 28, y: 45 },  // top-left
+    { x: 50, y: 45 },  // top-center
+    { x: 72, y: 45 },  // top-right
+    { x: 50, y: 14 },  // TREASURE — smiling volcano face
   ],
 };
 
@@ -321,16 +326,31 @@ function calcPositions(count, viewBoxH, theme) {
   // and pin treasure/start to the artwork's anchor points. Falls back to
   // the procedural snake for themes that don't supply waypoints.
   if (theme?.pathWaypoints && theme.pathWaypoints.length >= 2 && count >= 2) {
-    // viewBox is in % units (0-100 by convention here), so we scale the
-    // waypoint Y values to the actual viewBoxH at the end.
-    const pct = positionsAlongPolyline(count, theme.pathWaypoints);
-    const positions = pct.map((p) => ({
-      x: p.x,
-      y: (p.y / 100) * viewBoxH,
-    }));
+    let positions;
+    if (theme.pathWaypoints.length === count) {
+      // SNAP MODE — waypoint count matches space count exactly. Use them
+      // as exact positions, one per space. This is how a theme can bake
+      // task positions into its artwork (e.g., Volcano Peaks has 11
+      // painted fire pedestals matching START + 9 tasks + TREASURE at
+      // the default daily cap).
+      positions = theme.pathWaypoints.map((p) => ({
+        x: p.x,
+        y: (p.y / 100) * viewBoxH,
+      }));
+    } else {
+      // INTERPOLATE MODE — different count (e.g., parent dialed the cap
+      // from 9 to 5). Distribute count points along the waypoint
+      // polyline by arc length so spaces still trace the painted
+      // geography, just at a different density.
+      const pct = positionsAlongPolyline(count, theme.pathWaypoints);
+      positions = pct.map((p) => ({
+        x: p.x,
+        y: (p.y / 100) * viewBoxH,
+      }));
+    }
     // Anchor overrides — keep treasure exactly on its painted pedestal,
-    // start at its mark. Without these the interpolation can drift a
-    // couple of percent on edge cases (count=2, etc.).
+    // start at its mark. Idempotent in snap mode (waypoint already
+    // matches), insurance in interpolate mode.
     if (theme.startAnchor) {
       positions[0] = {
         x: theme.startAnchor.x,
