@@ -2163,11 +2163,90 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
 
   const alreadyApproved = existing?.status === "approved";
 
+  // Slide-up + drag-to-dismiss. `visible` flips true on the next frame
+  // after mount so the sheet animates UP from translateY(100%) instead
+  // of being there on first paint. handleClose runs the reverse animation
+  // before calling parent onClose so the dismiss isn't a snap-cut.
+  // Reduced-motion users skip the animation timing — the sheet just
+  // appears/disappears.
+  const reduced = useRef(typeof window !== "undefined" && window.matchMedia
+    ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false).current;
+  const [visible, setVisible] = useState(false);
+  const [dragOffset, setDragOffset] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const dragStart = useRef(null);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  const ANIM_MS = reduced ? 0 : 280;
+  const handleClose = () => {
+    if (reduced) { onClose(); return; }
+    setVisible(false);
+    setTimeout(onClose, ANIM_MS);
+  };
+  // Pointer events on the handle row — only the top strip drags. Lets
+  // the inner content area still scroll normally on long forms.
+  const onHandleDown = (e) => {
+    dragStart.current = { y: e.clientY, t: Date.now() };
+    setDragging(true);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  };
+  const onHandleMove = (e) => {
+    if (!dragStart.current) return;
+    const dy = e.clientY - dragStart.current.y;
+    setDragOffset(Math.max(0, dy));
+  };
+  const onHandleUp = (e) => {
+    if (!dragStart.current) return;
+    const dy = e.clientY - dragStart.current.y;
+    const dt = Date.now() - dragStart.current.t;
+    const velocity = dy / Math.max(1, dt); // px/ms
+    dragStart.current = null;
+    setDragging(false);
+    if (dy > 120 || velocity > 0.5) {
+      handleClose();
+    } else {
+      setDragOffset(0); // snap back via the transition
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center" style={{ fontFamily: "inherit" }}>
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto">
-        <div className="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mb-4" />
+      <div
+        onClick={handleClose}
+        className="absolute inset-0"
+        style={{
+          background: "rgba(15, 23, 42, 0.5)",
+          backdropFilter: visible ? "blur(6px)" : "blur(0px)",
+          WebkitBackdropFilter: visible ? "blur(6px)" : "blur(0px)",
+          opacity: visible ? 1 : 0,
+          transition: `opacity ${ANIM_MS}ms ease-out, backdrop-filter ${ANIM_MS}ms ease-out, -webkit-backdrop-filter ${ANIM_MS}ms ease-out`,
+        }}
+      />
+      <div
+        className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto shadow-2xl"
+        style={{
+          transform: visible ? `translateY(${dragOffset}px)` : "translateY(100%)",
+          // During an active drag the sheet must track the finger 1:1 with
+          // no easing. On release / mount / dismiss the transition kicks
+          // back in for a clean slide.
+          transition: dragging ? "none" : `transform ${ANIM_MS}ms cubic-bezier(.32,.72,0,1)`,
+          willChange: "transform",
+        }}
+      >
+        <div
+          onPointerDown={onHandleDown}
+          onPointerMove={onHandleMove}
+          onPointerUp={onHandleUp}
+          onPointerCancel={onHandleUp}
+          className="pt-1 pb-2 -mx-5 -mt-5 px-5 mb-2 cursor-grab active:cursor-grabbing touch-none"
+          // touch-none + the pointer capture above stop iOS Safari from
+          // hijacking the gesture as a page scroll while the user is
+          // dragging the handle bar down.
+        >
+          <div className="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mt-2" />
+        </div>
         <div className="flex items-center gap-3 mb-1">
           <div className="w-11 h-11 rounded-2xl bg-amber-100 grid place-items-center"><TaskIcon type={task.activityType} /></div>
           <div>
@@ -2244,10 +2323,10 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
               className={`w-full py-4 rounded-2xl font-extrabold text-white text-base transition ${ready ? "bg-emerald-500 active:scale-95" : "bg-slate-200 text-slate-400"}`}>
               {task.approvalRequired ? "Submit for Stars ⭐" : "Mark Done ✓"}
             </button>
-            <button onClick={onClose} className="w-full py-2 text-slate-400 text-sm font-semibold">Cancel</button>
+            <button onClick={handleClose} className="w-full py-2 text-slate-400 text-sm font-semibold">Cancel</button>
           </div>
         )}
-        {alreadyApproved && <button onClick={onClose} className="w-full py-3 mt-4 text-slate-400 text-sm font-semibold">Close</button>}
+        {alreadyApproved && <button onClick={handleClose} className="w-full py-3 mt-4 text-slate-400 text-sm font-semibold">Close</button>}
       </div>
       <style>{`.input{width:100%;border:1px solid #e2e8f0;border-radius:1rem;padding:0.6rem 0.8rem;font-size:0.9rem;outline:none}.input:focus{border-color:#6366f1}`}</style>
     </div>
