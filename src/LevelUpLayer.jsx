@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { levelUp } from "./lib/levelUp.js";
+import { prefersReducedMotion } from "./lib/motion.js";
 
 // LevelUpLayer — full-screen cinematic takeover for hero level-ups.
 // Subscribes to the levelUp dispatcher; when an event arrives, renders
@@ -42,7 +43,10 @@ export default function LevelUpLayer() {
 function Takeover({ level, prevLevel, title, onDismiss }) {
   // Confetti pieces are spawned once at mount; each falls + rotates with
   // its own randomized timing so the field doesn't pulse together.
-  const pieces = useRef(makePieces(36));
+  // Under reduced motion we skip them entirely — the cinematic lands on
+  // the banner cascade alone, no falling debris, no spinning sunburst.
+  const reduced = useRef(prefersReducedMotion()).current;
+  const pieces = useRef(reduced ? [] : makePieces(36));
   return (
     <div
       onClick={onDismiss}
@@ -85,22 +89,26 @@ function Takeover({ level, prevLevel, title, onDismiss }) {
         ))}
       </div>
 
-      {/* Sunburst rays */}
-      <div
-        style={{
-          position: "absolute",
-          width: "180vmin",
-          height: "180vmin",
-          left: "50%",
-          top: "50%",
-          marginLeft: "-90vmin",
-          marginTop: "-90vmin",
-          background:
-            "conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,0.10) 8deg, transparent 16deg, transparent 30deg, rgba(255,255,255,0.10) 38deg, transparent 46deg, transparent 60deg, rgba(255,255,255,0.10) 68deg, transparent 76deg, transparent 90deg, rgba(255,255,255,0.10) 98deg, transparent 106deg, transparent 120deg, rgba(255,255,255,0.10) 128deg, transparent 136deg, transparent 150deg, rgba(255,255,255,0.10) 158deg, transparent 166deg, transparent 180deg, rgba(255,255,255,0.10) 188deg, transparent 196deg, transparent 210deg, rgba(255,255,255,0.10) 218deg, transparent 226deg, transparent 240deg, rgba(255,255,255,0.10) 248deg, transparent 256deg, transparent 270deg, rgba(255,255,255,0.10) 278deg, transparent 286deg, transparent 300deg, rgba(255,255,255,0.10) 308deg, transparent 316deg, transparent 330deg, rgba(255,255,255,0.10) 338deg, transparent 346deg, transparent 360deg)",
-          animation: "lu-spin 18s linear infinite",
-          pointerEvents: "none",
-        }}
-      />
+      {/* Sunburst rays — skipped under reduced motion (the spin would
+          dominate the kid's field of view and there's no calm
+          alternative that still reads as rays). */}
+      {!reduced && (
+        <div
+          style={{
+            position: "absolute",
+            width: "180vmin",
+            height: "180vmin",
+            left: "50%",
+            top: "50%",
+            marginLeft: "-90vmin",
+            marginTop: "-90vmin",
+            background:
+              "conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,0.10) 8deg, transparent 16deg, transparent 30deg, rgba(255,255,255,0.10) 38deg, transparent 46deg, transparent 60deg, rgba(255,255,255,0.10) 68deg, transparent 76deg, transparent 90deg, rgba(255,255,255,0.10) 98deg, transparent 106deg, transparent 120deg, rgba(255,255,255,0.10) 128deg, transparent 136deg, transparent 150deg, rgba(255,255,255,0.10) 158deg, transparent 166deg, transparent 180deg, rgba(255,255,255,0.10) 188deg, transparent 196deg, transparent 210deg, rgba(255,255,255,0.10) 218deg, transparent 226deg, transparent 240deg, rgba(255,255,255,0.10) 248deg, transparent 256deg, transparent 270deg, rgba(255,255,255,0.10) 278deg, transparent 286deg, transparent 300deg, rgba(255,255,255,0.10) 308deg, transparent 316deg, transparent 330deg, rgba(255,255,255,0.10) 338deg, transparent 346deg, transparent 360deg)",
+            animation: "lu-spin 18s linear infinite",
+            pointerEvents: "none",
+          }}
+        />
+      )}
 
       {/* Banner */}
       <div
@@ -246,5 +254,12 @@ const KEYFRAMES = `
 @keyframes lu-pulse {
   0%, 100% { transform: scale(1)   rotate(-6deg); }
   50%      { transform: scale(1.1) rotate(6deg);  }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes lu-pop   { 0% { opacity: 0; } 100% { opacity: 1; transform: none; } }
+  @keyframes lu-rise  { 0% { opacity: 0; } 100% { opacity: 1; transform: none; } }
+  @keyframes lu-fall  { 0%, 100% { opacity: 0; } }
+  @keyframes lu-spin  { 0%, 100% { transform: none; } }
+  @keyframes lu-pulse { 0%, 100% { transform: none; } }
 }
 `;

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Star, Flame, Trophy, Crown, Target, Sparkles, MapPin, Menu, Map } from "lucide-react";
 import { useSignedUrl } from "./lib/storage.js";
 import { starBurst } from "./lib/starBurst.js";
+import { prefersReducedMotion } from "./lib/motion.js";
 
 /* =====================================================================
    KidGameHome — Reznor's "game mode" home.
@@ -64,8 +65,13 @@ function CosmicAura({ intensity = 1 }) {
   // Particles generated once at mount with randomized motion params so
   // every render of the aura feels alive (no two cycles identical). The
   // count scales with `intensity` for future "victory + milestone same
-  // day" double-up.
-  const particles = useRef(makeCosmicParticles(Math.round(22 * intensity)));
+  // day" double-up. Under reduced motion we skip particle generation
+  // entirely — the @media keyframe override would hide them anyway,
+  // but spawning 22+ DOM nodes that never animate is wasted layout.
+  const reduced = useRef(prefersReducedMotion()).current;
+  const particles = useRef(
+    reduced ? [] : makeCosmicParticles(Math.round(22 * intensity))
+  );
   return (
     <div
       aria-hidden
@@ -582,6 +588,28 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                  text-shadow: 0 0 10px rgba(253,224,71,0.5); }
           80%  { transform: scale(1.06); color: inherit;          text-shadow: 0 0 6px rgba(253,224,71,0.3); }
           100% { transform: scale(1);    color: inherit;          text-shadow: none; }
+        }
+
+        /* Reduced-motion: replace each kgh-* keyframe with a motionless
+           version so anything still referencing the animation name gets
+           a calm fallback. Sounds + haptics are unaffected — only
+           visible motion is dialed back. Cosmic particles stay hidden;
+           the flame and aurora stay still; the bank-pop becomes a
+           brief color flash without scale. */
+        @media (prefers-reduced-motion: reduce) {
+          @keyframes kgh-justdone     { 0%, 100% { transform: none; } }
+          @keyframes kgh-sparkle      { 0% { opacity: 0; } 30%, 100% { opacity: 1; transform: translate(-50%, -50%); } }
+          @keyframes kgh-breathe      { 0%, 100% { box-shadow: 0 4px 12px -4px rgba(16,185,129,0.25); } }
+          @keyframes kgh-flame-flicker{ 0%, 100% { transform: none; filter: none; } }
+          @keyframes kgh-flame-sway   { 0%, 100% { transform: none; } }
+          @keyframes kgh-heat         { 0%, 100% { opacity: 0.85; transform: none; } }
+          @keyframes kgh-bank-pop {
+            0%   { color: inherit; }
+            30%  { color: #fde047; text-shadow: 0 0 10px rgba(253,224,71,0.6); }
+            100% { color: inherit; text-shadow: none; }
+          }
+          @keyframes kgh-cosmic-rise  { 0%, 100% { opacity: 0; } }
+          @keyframes kgh-aurora       { 0%, 100% { transform: none; opacity: 0.7; } }
         }
       `}</style>
       {/* HERO: avatar + stars + streak */}

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { starBurst } from "./lib/starBurst.js";
+import { prefersReducedMotion } from "./lib/motion.js";
 
 // StarBurstLayer — full-viewport fixed overlay that listens for
 // starBurst events and renders an animated star arc from (from) to
@@ -60,6 +61,20 @@ function Star({ index, total, from, to }) {
     if (!el || typeof el.animate !== "function") return;
     const dx = to.x - from.x;
     const dy = to.y - from.y;
+    // Under reduced motion the star teleports to the destination and
+    // fades in / out there. No arc, no spin, no launch — only enough
+    // visual cue to read "stars went into the bank".
+    if (prefersReducedMotion()) {
+      const anim = el.animate(
+        [
+          { transform: `translate(${dx}px, ${dy}px) scale(0.4)`, opacity: 0 },
+          { transform: `translate(${dx}px, ${dy}px) scale(1)`,   opacity: 1, offset: 0.3 },
+          { transform: `translate(${dx}px, ${dy}px) scale(0.7)`, opacity: 0 },
+        ],
+        { duration: 500, delay: index * 20, fill: "forwards", easing: "ease-out" }
+      );
+      return () => { try { anim.cancel(); } catch {} };
+    }
     // Per-star jitter so they don't fly as a single sprite — angular
     // spread at launch, slight target jitter at landing.
     const angle = ((index / Math.max(1, total - 1)) - 0.5) * 1.2; // -0.6 .. 0.6 rad
