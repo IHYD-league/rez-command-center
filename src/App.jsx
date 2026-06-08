@@ -15,6 +15,7 @@ import StarBurstLayer from "./StarBurstLayer.jsx";
 import { levelUp } from "./lib/levelUp.js";
 import LevelUpLayer from "./LevelUpLayer.jsx";
 import OnboardingOverlay from "./OnboardingOverlay.jsx";
+import { useBottomSheet } from "./lib/sheet.js";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -485,8 +486,20 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
   const [activities, setActivities] = useState(SEED_ACTIVITIES);
   const [celebrate, setCelebrate] = useState(null);
-  const [detailId, setDetailId] = useState(null);
-  const [statDetailId, setStatDetailId] = useState(null);
+  const [detailId, _setDetailId] = useState(null);
+  const [statDetailId, _setStatDetailId] = useState(null);
+  // Same wrap-on-open juice pattern as setOpenTask. Every site that
+  // pops a stat-detail or task-detail sheet routes through these
+  // wrapped setters, so the swipe-up sound + light haptic fire on
+  // null → value transitions only (not on close, not on replace).
+  const setDetailId = (id) => {
+    if (id && !detailId) { juice.haptic("light"); juice.sfx("swipe"); }
+    _setDetailId(id);
+  };
+  const setStatDetailId = (id) => {
+    if (id && !statDetailId) { juice.haptic("light"); juice.sfx("swipe"); }
+    _setStatDetailId(id);
+  };
   const [progressActId, setProgressActId] = useState(null);
 
   // Persisted setters — each writes through to Supabase.
@@ -1870,21 +1883,33 @@ function StatDetail({
     );
   }
 
+  return <StatDetailSheet onClose={onClose} meta={meta} body={body} tally={tally} />;
+}
+
+// Split out so we can call hooks (useBottomSheet) without violating
+// the rules-of-hooks early-return pattern in the parent function.
+function StatDetailSheet({ onClose, meta, body, tally }) {
+  const { handleClose, dragHandlers, backdropStyle, sheetStyle } = useBottomSheet({ onClose });
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center" style={{ fontFamily: "inherit" }}>
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto">
-        <div className="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mb-4" />
+      <div onClick={handleClose} className="absolute inset-0" style={backdropStyle} />
+      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto shadow-2xl" style={sheetStyle}>
+        <div
+          {...dragHandlers}
+          className="pt-1 pb-2 -mx-5 -mt-5 px-5 mb-2 cursor-grab active:cursor-grabbing touch-none"
+        >
+          <div className="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mt-2" />
+        </div>
         <div className="flex items-start justify-between gap-2 mb-3">
           <div>
             <div className="text-lg font-extrabold tracking-tight">{meta.title}</div>
             <div className="text-[12px] text-slate-400 mt-0.5">{meta.subtitle}</div>
           </div>
-          <button onClick={onClose} className="text-slate-400 p-1" title="Close"><X size={18} /></button>
+          <button onClick={handleClose} className="text-slate-400 p-1" title="Close"><X size={18} /></button>
         </div>
         {body}
         {tally}
-        <button onClick={onClose} className="w-full mt-4 py-3 rounded-2xl bg-slate-100 text-slate-500 font-bold text-sm">Done</button>
+        <button onClick={handleClose} className="w-full mt-4 py-3 rounded-2xl bg-slate-100 text-slate-500 font-bold text-sm">Done</button>
       </div>
     </div>
   );
@@ -2454,20 +2479,24 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
   const [tab, setTab] = useState("stats");
   const notes = taskNotes?.[task.id] || [];
   const proofs = completions.filter((c) => c.taskId === task.id).flatMap((c) => (c.proof || []).filter((p) => p.path || p.url));
+  const { handleClose, dragHandlers, backdropStyle, sheetStyle } = useBottomSheet({ onClose });
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-slate-50 rounded-t-3xl max-h-[92vh] overflow-y-auto">
-        {/* header */}
+      <div onClick={handleClose} className="absolute inset-0" style={backdropStyle} />
+      <div className="relative w-full max-w-md bg-slate-50 rounded-t-3xl max-h-[92vh] overflow-y-auto shadow-2xl" style={sheetStyle}>
+        {/* header — drag-handle pill on top of the colored header bar */}
         <div className="sticky top-0 z-10" style={{ background: d.color }}>
-          <div className="p-4 text-white flex items-center gap-3">
+          <div {...dragHandlers} className="pt-2 pb-1 cursor-grab active:cursor-grabbing touch-none">
+            <div className="w-10 h-1.5 bg-white/40 rounded-full mx-auto" />
+          </div>
+          <div className="p-4 pt-2 text-white flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-white/20 grid place-items-center"><TaskIcon type={task.activityType} color="#ffffff" /></div>
             <div className="flex-1 min-w-0">
               <div className="font-extrabold text-lg leading-tight">{task.title}</div>
               <div className="text-[12px] opacity-90">{d.label} · {task.starValue}⭐{task.required ? " · required" : " · optional"}</div>
             </div>
-            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 grid place-items-center"><X size={18} /></button>
+            <button onClick={handleClose} className="w-8 h-8 rounded-full bg-white/20 grid place-items-center"><X size={18} /></button>
           </div>
           <div className="flex">
             {[["stats", "Stats"], ["media", "Photos"], ["notes", "Notes"], ["edit", "Edit"]].map(([k, l]) => (
