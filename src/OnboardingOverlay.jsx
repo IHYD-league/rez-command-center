@@ -63,6 +63,11 @@ export default function OnboardingOverlay({ user, onDismiss }) {
         opacity: showing ? 1 : 0,
         transition: `opacity ${reduced ? 0 : 320}ms ease-out`,
         overflow: "hidden",
+        // Critical: once the dismiss animation starts, stop catching
+        // taps so the kid's next tap goes through to the app underneath
+        // instead of hitting the invisible overlay. Without this, the
+        // 320ms fade-out window swallowed clicks.
+        pointerEvents: closing ? "none" : "auto",
       }}
     >
       <style>{KEYFRAMES}</style>

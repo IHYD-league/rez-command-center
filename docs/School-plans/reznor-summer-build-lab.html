@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reznor's Summer Build Lab — 7-Week Home-School Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,500&family=Lexend:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FBF6EA;
+    --ink:#221E18;
+    --ink-soft:#5b5347;
+    --line:#221E18;
+    /* Riso-style thread colors */
+    --build:#E8552B;     /* Make & Build */
+    --math:#1F6FB2;      /* Lego Math */
+    --code:#2E8B57;      /* Coding */
+    --read:#B23A86;      /* Reading EN/ES */
+    --move:#E8A317;      /* Move & Play */
+    --build-tint:#fbe2d9;
+    --math-tint:#dcebf6;
+    --code-tint:#dcefe4;
+    --read-tint:#f6dcec;
+    --move-tint:#f9eccf;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Lexend',sans-serif;
+    line-height:1.5;
+    padding:48px 28px 80px;
+    /* faint grain */
+    background-image:radial-gradient(rgba(34,30,24,0.035) 1px, transparent 1px);
+    background-size:4px 4px;
+  }
+  .wrap{max-width:1040px;margin:0 auto;}
+
+  /* ---------- HEADER ---------- */
+  header{
+    border:3px solid var(--line);
+    border-radius:18px;
+    padding:34px 34px 30px;
+    background:var(--paper);
+    position:relative;
+    overflow:hidden;
+    box-shadow:8px 8px 0 var(--ink);
+  }
+  header .kicker{
+    font-family:'Lexend';font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+    font-size:12px;color:var(--build);
+  }
+  header h1{
+    font-family:'Fraunces';font-weight:900;font-size:clamp(38px,7vw,68px);
+    line-height:0.95;margin:6px 0 14px;letter-spacing:-0.01em;
+  }
+  header h1 em{font-style:italic;color:var(--build);}
+  header .sub{font-size:17px;color:var(--ink-soft);max-width:62ch;}
+  header .badges{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px;}
+  .badge{
+    font-size:12.5px;font-weight:600;padding:6px 13px;border-radius:30px;
+    border:2px solid var(--ink);
+  }
+  .stamp{
+    position:absolute;top:26px;right:28px;
+    border:2.5px solid var(--build);color:var(--build);
+    font-family:'Fraunces';font-weight:900;font-size:13px;
+    padding:8px 12px;border-radius:10px;transform:rotate(7deg);
+    text-align:center;line-height:1.1;letter-spacing:.04em;
+  }
+
+  /* ---------- SECTION TITLES ---------- */
+  .sec-title{
+    font-family:'Fraunces';font-weight:900;font-size:27px;
+    margin:46px 0 16px;display:flex;align-items:center;gap:12px;
+  }
+  .sec-title .no{
+    font-family:'Lexend';font-weight:700;font-size:14px;color:var(--paper);
+    background:var(--ink);border-radius:8px;padding:3px 9px;
+  }
+
+  /* ---------- PARENT NOTE ---------- */
+  .note{
+    border:2.5px dashed var(--ink);border-radius:14px;padding:22px 24px;
+    background:#fffdf8;
+  }
+  .note h3{font-family:'Fraunces';font-size:20px;margin-bottom:8px;}
+  .note ul{list-style:none;display:grid;gap:9px;margin-top:6px;}
+  .note li{padding-left:26px;position:relative;font-size:15px;}
+  .note li::before{content:"✦";position:absolute;left:0;color:var(--build);font-size:14px;top:1px;}
+
+  /* ---------- THREAD LEGEND ---------- */
+  .threads{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;}
+  .thread{
+    border:2.5px solid var(--ink);border-radius:14px;padding:16px 16px 14px;
+    box-shadow:4px 4px 0 var(--ink);
+  }
+  .thread .dot{width:20px;height:20px;border-radius:6px;border:2px solid var(--ink);display:inline-block;vertical-align:-4px;margin-right:8px;}
+  .thread h4{font-family:'Fraunces';font-size:18px;display:inline;}
+  .thread .where{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin:9px 0 5px;}
+  .thread p{font-size:13.5px;color:var(--ink-soft);}
+  .t-build{background:var(--build-tint);} .t-build .dot{background:var(--build);}
+  .t-math{background:var(--math-tint);}   .t-math .dot{background:var(--math);}
+  .t-code{background:var(--code-tint);}   .t-code .dot{background:var(--code);}
+  .t-read{background:var(--read-tint);}   .t-read .dot{background:var(--read);}
+  .t-move{background:var(--move-tint);}   .t-move .dot{background:var(--move);}
+
+  /* ---------- WEEKLY RHYTHM ---------- */
+  .rhythm{border:2.5px solid var(--ink);border-radius:14px;overflow:hidden;}
+  .rhythm .row{display:grid;grid-template-columns:160px 1fr;border-bottom:1.5px solid var(--ink);}
+  .rhythm .row:last-child{border-bottom:none;}
+  .rhythm .when{background:var(--ink);color:var(--paper);font-family:'Fraunces';font-weight:600;font-size:15px;padding:14px 16px;display:flex;align-items:center;}
+  .rhythm .what{padding:13px 16px;font-size:14.5px;}
+  .rhythm .what b{font-weight:700;}
+
+  /* ---------- WEEK CARDS ---------- */
+  .weeks{display:grid;gap:18px;}
+  .week{
+    border:2.5px solid var(--ink);border-radius:16px;overflow:hidden;
+    box-shadow:6px 6px 0 var(--ink);background:#fffdf8;
+    break-inside:avoid;
+  }
+  .week .head{
+    display:flex;align-items:baseline;gap:14px;padding:16px 20px;
+    border-bottom:2.5px solid var(--ink);
+  }
+  .week .wno{
+    font-family:'Fraunces';font-weight:900;font-size:14px;color:var(--paper);
+    background:var(--build);border-radius:9px;padding:5px 11px;white-space:nowrap;
+  }
+  .week .wname{font-family:'Fraunces';font-weight:900;font-size:23px;line-height:1;}
+  .week .wtag{margin-left:auto;font-size:12.5px;color:var(--ink-soft);font-style:italic;text-align:right;max-width:30ch;}
+  .week .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));}
+  .cell{padding:15px 18px;border-right:1.5px solid #e3dcca;border-top:1.5px solid #e3dcca;}
+  .cell:first-child{border-top:none;}
+  .lbl{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px;display:flex;align-items:center;gap:6px;}
+  .lbl .d{width:11px;height:11px;border-radius:3px;border:1.5px solid var(--ink);}
+  .cell p{font-size:14px;}
+  .l-build .d{background:var(--build);} .l-build{color:var(--build);}
+  .l-math .d{background:var(--math);}   .l-math{color:var(--math);}
+  .l-code .d{background:var(--code);}   .l-code{color:var(--code);}
+  .l-read .d{background:var(--read);}   .l-read{color:var(--read);}
+
+  /* ---------- TWO-UP ---------- */
+  .twoup{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .panel{border:2.5px solid var(--ink);border-radius:14px;padding:20px 22px;background:#fffdf8;break-inside:avoid;}
+  .panel h3{font-family:'Fraunces';font-size:20px;margin-bottom:12px;}
+  .panel .grp{margin-bottom:14px;}
+  .panel .grp:last-child{margin-bottom:0;}
+  .panel .gh{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:5px;}
+  .panel ul{list-style:none;display:grid;gap:4px;}
+  .panel li{font-size:14px;padding-left:18px;position:relative;}
+  .panel li::before{content:"›";position:absolute;left:2px;font-weight:700;color:var(--build);}
+  .free{display:inline-block;font-size:10.5px;font-weight:700;color:var(--code);border:1.5px solid var(--code);border-radius:20px;padding:1px 7px;margin-left:5px;vertical-align:1px;}
+
+  /* ---------- FOOTER ---------- */
+  .foot{
+    margin-top:48px;border:3px solid var(--ink);border-radius:18px;
+    padding:34px;text-align:center;background:var(--ink);color:var(--paper);
+    box-shadow:8px 8px 0 var(--build);
+  }
+  .foot .big{font-family:'Fraunces';font-weight:900;font-style:italic;font-size:clamp(26px,5vw,40px);line-height:1.05;}
+  .foot p{font-size:14.5px;color:#d8cfbe;max-width:60ch;margin:14px auto 0;}
+
+  /* ---------- load animation (screen only) ---------- */
+  @media screen{
+    .anim{opacity:0;transform:translateY(14px);animation:rise .6s cubic-bezier(.2,.7,.3,1) forwards;}
+    @keyframes rise{to{opacity:1;transform:none;}}
+  }
+
+  @media (max-width:560px){
+    .week .wtag{display:none;}
+    .rhythm .row{grid-template-columns:110px 1fr;}
+    .twoup{grid-template-columns:1fr;}
+  }
+
+  /* ---------- PRINT ---------- */
+  @media print{
+    body{padding:0;background:#fff;background-image:none;}
+    header,.thread,.week,.foot{box-shadow:none;}
+    .foot{background:#fff;color:var(--ink);border-color:var(--ink);}
+    .foot .big{color:var(--ink);}
+    .foot p{color:var(--ink-soft);}
+    .week,.panel,.thread{break-inside:avoid;}
+    .sec-title{break-after:avoid;}
+    .anim{opacity:1!important;transform:none!important;animation:none!important;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="anim" style="animation-delay:.0s">
+    <div class="stamp">SUMMER<br>BUILD LAB</div>
+    <div class="kicker">A 7-Week Home-School Summer</div>
+    <h1>Reznor's<br><em>Build Lab</em></h1>
+    <p class="sub">Seven weeks of learning that doesn't feel like school — built on how the best countries in the world actually teach their youngest kids. Less drilling, more making. He's the inventor; you're the lab partner.</p>
+    <div class="badges">
+      <span class="badge">🇫🇮 Play &amp; movement first</span>
+      <span class="badge">🇸🇬 Math you can hold</span>
+      <span class="badge">🇪🇪 Coding before screens</span>
+      <span class="badge">~3–5 hrs/week of "school"</span>
+      <span class="badge">EN + ES</span>
+    </div>
+  </header>
+
+  <!-- HOW TO USE -->
+  <h2 class="sec-title anim" style="animation-delay:.05s"><span class="no">START HERE</span>How to run this</h2>
+  <div class="note anim" style="animation-delay:.08s">
+    <h3>Five rules for the grown-ups</h3>
+    <ul>
+      <li><b>Follow his energy, not the clock.</b> A great morning sprint is 30–45 minutes. When his interest fades, you're done — stop on a high note.</li>
+      <li><b>No tests, no grades, no worksheets.</b> The whole edge here is that it's the opposite of school. If it starts to feel like a chore, change it.</li>
+      <li><b>Skip and swap freely.</b> Filming days, Reznor commitments, lazy beach days — move things around. Missing a day costs nothing.</li>
+      <li><b>His four activities ARE the curriculum.</b> Drums, hip hop, swim, taekwondo = the movement foundation everything else sits on. Don't cut them for "school."</li>
+      <li><b>Protect boredom and free play.</b> Don't fill every gap. Unstructured time is where the inventing actually happens.</li>
+    </ul>
+  </div>
+
+  <!-- THREADS -->
+  <h2 class="sec-title anim" style="animation-delay:.05s"><span class="no">THE 5 THREADS</span>What you're weaving</h2>
+  <div class="threads">
+    <div class="thread t-build anim" style="animation-delay:.10s">
+      <span class="dot"></span><h4>Make &amp; Build</h4>
+      <div class="where">The spine of the summer</div>
+      <p>One big project he chews on for 7 weeks: invent a board game, then rebuild it on a screen. Hits art, writing, math &amp; coding at once.</p>
+    </div>
+    <div class="thread t-math anim" style="animation-delay:.13s">
+      <span class="dot"></span><h4>Lego Math</h4>
+      <div class="where">Singapore method</div>
+      <p>Math you can hold: real objects first, then pictures, then numbers. "Show me with bricks" before any symbol. No worksheets.</p>
+    </div>
+    <div class="thread t-code anim" style="animation-delay:.16s">
+      <span class="dot"></span><h4>Coding</h4>
+      <div class="where">Estonia method</div>
+      <p>Start screen-free — the Sandwich Robot, Lego-by-instruction, arrow mazes. Then graduate to ScratchJr on the iPad.</p>
+    </div>
+    <div class="thread t-read anim" style="animation-delay:.19s">
+      <span class="dot"></span><h4>Reading EN + ES</h4>
+      <div class="where">Keep both ladders climbing</div>
+      <p>He already flies here — so go <i>deeper &amp; wider</i>, not faster. One stretch book always going, and Spanish kept just as alive as English.</p>
+    </div>
+    <div class="thread t-move anim" style="animation-delay:.22s">
+      <span class="dot"></span><h4>Move &amp; Play</h4>
+      <div class="where">Finland method</div>
+      <p>The base layer. Outdoors daily, movement woven through the day, and a nightly read-aloud together. This is non-negotiable, not optional.</p>
+    </div>
+  </div>
+
+  <!-- WEEKLY RHYTHM -->
+  <h2 class="sec-title anim" style="animation-delay:.05s"><span class="no">THE SKELETON</span>A week that still feels like summer</h2>
+  <div class="rhythm anim" style="animation-delay:.08s">
+    <div class="row"><div class="when">Morning sprint</div><div class="what"><b>30–45 min · ~4 days.</b> Pick ONE thread for the day (rotate). Short, fresh, done before he tires.</div></div>
+    <div class="row"><div class="when">Build time</div><div class="what"><b>2–3 sessions/week.</b> The game project. Counts as art + math + writing + engineering all together.</div></div>
+    <div class="row"><div class="when">Every day</div><div class="what"><b>His activities + free play + outdoors.</b> Drums / hip hop / swim / taekwondo and a big block of unstructured play.</div></div>
+    <div class="row"><div class="when">Bedtime</div><div class="what"><b>Read-aloud together.</b> Keep the <i>Super Sons</i> omnibus going + the week's stretch book. A few nights a week, read in Spanish.</div></div>
+  </div>
+
+  <!-- THE 7 WEEKS -->
+  <h2 class="sec-title anim" style="animation-delay:.05s"><span class="no">THE MISSION</span>7 weeks, one game, from idea to "I made this"</h2>
+  <div class="weeks">
+
+    <!-- WEEK 1 -->
+    <div class="week anim" style="animation-delay:.06s">
+      <div class="head"><span class="wno">WEEK 1</span><span class="wname">Inventors' Workshop</span><span class="wtag">Low pressure. Just dream and make.</span></div>
+      <div class="grid">
+        <div class="cell"><div class="lbl l-build"><span class="d"></span>Make &amp; Build</div><p>Dream up the game. Pick the theme (symbiotes? Super Sons? his own heroes). Sketch &amp; paint the board and a few cards.</p></div>
+        <div class="cell"><div class="lbl l-math"><span class="d"></span>Lego Math</div><p>Part-whole with bricks: "You have 12, give me 5 — <i>show me</i> what's left, then say the number."</p></div>
+        <div class="cell"><div class="lbl l-code"><span class="d"></span>Coding</div><p><b>The Sandwich Robot.</b> He gives you exact steps to make a sandwich; you follow them too literally. That's debugging.</p></div>
+        <div class="cell"><div class="lbl l-read"><span class="d"></span>Reading</div><p>Pick the summer stretch book. After each book, he draws one comic panel of his favorite moment.</p></div>
+      </div>
+    </div>
+
+    <!-- WEEK 2 -->
+    <div class="week anim" style="animation-delay:.06s">
+      <div class="head"><span class="wno">WEEK 2</span><span class="wname">The Rulebook</span><span class="wtag">Turn the idea into a real game.</span></div>
+      <div class="grid">
+        <div class="cell"><div class="lbl l-build"><span class="d"></span>Make &amp; Build</div><p>Write the rules together (you scribe, he decides). Choose the playing pieces — Lego minifigs make great tokens.</p></div>
+        <div class="cell"><div class="lbl l-math"><span class="d"></span>Lego Math</div><p>Dice + counting spaces. Roll 20 times, tally the results: "Which number showed up most?"</p></div>
+        <div class="cell"><div class="lbl l-code"><span class="d"></span>Coding</div><p>Arrow mazes on paper. He "programs" a path (up, up, right, right) for you to walk. Intro to sequences &amp; loops.</p></div>
+        <div class="cell"><div class="lbl l-read"><span class="d"></span>Reading</div><p><b>Spanish anchor.</b> Read in Spanish (keep <i>Tipos Malos</i> going) and draw a panel <i>in Spanish</i>.</p></div>
+      </div>
+    </div>
+
+    <!-- WEEK 3 -->
+    <div class="week anim" style="animation-delay:.06s">
+      <div class="head"><span class="wno">WEEK 3</span><span class="wname">Playtest &amp; Fix</span><span class="wtag">The most important week. Version 1 is never the final version.</span></div>
+      <div class="grid">
+        <div class="cell"><div class="lbl l-build"><span class="d"></span>Make &amp; Build</div><p>Play the game as a family. Find what's broken or boring. Change it together — make <b>Version 2</b>.</p></div>
+        <div class="cell"><div class="lbl l-math"><span class="d"></span>Lego Math</div><p>Scoring with bricks: stack each player's points. "Who has more? By how many?" (That's a bar model.)</p></div>
+        <div class="cell"><div class="lbl l-code"><span class="d"></span>Coding</div><p><b>Find the Bug.</b> Give him a silly broken instruction set ("brush teeth with shoe") — he spots &amp; fixes the error.</p></div>
+        <div class="cell"><div class="lbl l-read"><span class="d"></span>Reading</div><p>Read-aloud + pause to predict: "What do you think happens next, and why?" (Comprehension, not a quiz.)</p></div>
+      </div>
+    </div>
+
+    <!-- WEEK 4 -->
+    <div class="week anim" style="animation-delay:.06s">
+      <div class="head"><span class="wno">WEEK 4</span><span class="wname">Hello, Screen</span><span class="wtag">Take the paper game digital.</span></div>
+      <div class="grid">
+        <div class="cell"><div class="lbl l-build"><span class="d"></span>Make &amp; Build</div><p>Open <b>ScratchJr</b> <span class="free">FREE · iPad/Android</span> and start rebuilding the game. First goal: make a character move.</p></div>
+        <div class="cell"><div class="lbl l-math"><span class="d"></span>Lego Math</div><p>"Groups of" — build 3 piles of 4 bricks, count the total. The quiet beginning of multiplication.</p></div>
+        <div class="cell"><div class="lbl l-code"><span class="d"></span>Coding</div><p>ScratchJr basics: move a sprite, make it react to a tap. The unplugged ideas now run on a screen.</p></div>
+        <div class="cell"><div class="lbl l-read"><span class="d"></span>Reading</div><p>He writes &amp; draws his own one-page comic (<i>Cat Kid Comic Club</i> is the perfect model — it teaches kids to make their own).</p></div>
+      </div>
+    </div>
+
+    <!-- WEEK 5 -->
+    <div class="week anim" style="animation-delay:.06s">
+      <div class="head"><span class="wno">WEEK 5</span><span class="wname">Make It Move</span><span class="wtag">Add interaction. Make it feel like a real game.</span></div>
+      <div class="grid">
+        <div class="cell"><div class="lbl l-build"><span class="d"></span>Make &amp; Build</div><p>In ScratchJr: tap to make something happen, then add a second character that responds. A tiny living world.</p></div>
+        <div class="cell"><div class="lbl l-math"><span class="d"></span>Lego Math</div><p>Measure &amp; build to target: "Make a tower <i>exactly</i> 10 bricks. Now one that's 3 taller."</p></div>
+        <div class="cell"><div class="lbl l-code"><span class="d"></span>Coding</div><p>Events + <b>repeat</b> (loops). If he's flying, peek at full <b>Scratch</b> in a browser together — his reading is ready for it.</p></div>
+        <div class="cell"><div class="lbl l-read"><span class="d"></span>Reading</div><p>Label his game or comic in <b>both languages</b> — every character or button gets an EN and an ES name.</p></div>
+      </div>
+    </div>
+
+    <!-- WEEK 6 -->
+    <div class="week anim" style="animation-delay:.06s">
+      <div class="head"><span class="wno">WEEK 6</span><span class="wname">Director's Chair</span><span class="wtag">His pick. This is the Finland move — let curiosity drive.</span></div>
+      <div class="grid">
+        <div class="cell"><div class="lbl l-build"><span class="d"></span>Make &amp; Build</div><p><b>He chooses</b> where to go deeper: more art, more code, a giant Lego build with a story, or a stop-motion movie.</p></div>
+        <div class="cell"><div class="lbl l-math"><span class="d"></span>Lego Math</div><p>Real-world math he picks: cooking (fractions you can taste) or a pretend store with coins and change.</p></div>
+        <div class="cell"><div class="lbl l-code"><span class="d"></span>Coding</div><p>Finish one small, fully playable thing in ScratchJr or Scratch — start to end, his own idea.</p></div>
+        <div class="cell"><div class="lbl l-read"><span class="d"></span>Reading</div><p>Flip it: <b>he reads to you.</b> Reading aloud builds fluency and confidence. Cheer, don't correct.</p></div>
+      </div>
+    </div>
+
+    <!-- WEEK 7 -->
+    <div class="week anim" style="animation-delay:.06s">
+      <div class="head"><span class="wno">WEEK 7</span><span class="wname">Showcase &amp; Ship</span><span class="wtag">The payoff. He holds the thing he dreamed up.</span></div>
+      <div class="grid">
+        <div class="cell"><div class="lbl l-build"><span class="d"></span>Make &amp; Build</div><p>Finalize both versions. <b>Family game night using HIS game</b> — he teaches everyone the rules (hello, confidence).</p></div>
+        <div class="cell"><div class="lbl l-math"><span class="d"></span>Lego Math</div><p>He's the official scorekeeper for game night — tallying, comparing, adding points for real stakes.</p></div>
+        <div class="cell"><div class="lbl l-code"><span class="d"></span>Coding</div><p>He demos the ScratchJr version. Then ask the magic question: "What would <b>Version 3</b> be?" Keep the loop open.</p></div>
+        <div class="cell"><div class="lbl l-read"><span class="d"></span>Reading</div><p>Finish the stretch book and let him pick the next one — the first rung of the school-year ladder.</p></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TOOLKIT + LADDER -->
+  <h2 class="sec-title anim" style="animation-delay:.05s"><span class="no">SUPPLIES</span>Toolkit &amp; the reading ladder</h2>
+  <div class="twoup">
+    <div class="panel anim" style="animation-delay:.08s">
+      <h3>🧰 What to grab</h3>
+      <div class="grp">
+        <div class="gh">You already own</div>
+        <ul>
+          <li>The Lego sets (your #1 math &amp; coding tool)</li>
+          <li>Paper, dice, markers, paints</li>
+        </ul>
+      </div>
+      <div class="grp">
+        <div class="gh">For the screen weeks (4–7)</div>
+        <ul>
+          <li><b>ScratchJr</b> — free app, iPad or Android tablet, ages 5–7, no reading needed</li>
+          <li><b>Scratch</b> — free, in a browser, for when he's ready to stretch up</li>
+        </ul>
+      </div>
+      <div class="grp">
+        <div class="gh">Costs nothing</div>
+        <ul>
+          <li>The Sandwich Robot, arrow mazes, Lego-by-instruction — all free, all screen-free</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="panel anim" style="animation-delay:.11s">
+      <h3>📚 The reading ladder</h3>
+      <div class="grp">
+        <div class="gh">English — stretch, but aimed at his age</div>
+        <ul>
+          <li><i>Cat Kid Comic Club</i> — teaches kids to make their own comics</li>
+          <li><i>Hilda</i> · <i>The InvestiGators</i> · <i>Dog Man</i></li>
+          <li>Read-alouds: <i>The Wild Robot</i>, <i>Mercy Watson</i></li>
+        </ul>
+      </div>
+      <div class="grp">
+        <div class="gh">Español — keep it just as alive</div>
+        <ul>
+          <li>Keep going with <i>Tipos Malos</i></li>
+          <li><i>Geronimo Stilton</i> &amp; <i>La casa del árbol</i> (in both languages — bounce between them)</li>
+          <li><i>El Capitán Calzoncillos</i></li>
+        </ul>
+      </div>
+      <div class="grp">
+        <div class="gh">The principle</div>
+        <ul>
+          <li>Go <b>deeper &amp; wider</b>, not faster. Enrichment beats acceleration.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="foot anim" style="animation-delay:.05s">
+    <div class="big">"If you can dream it,<br>you can build it."</div>
+    <p>When the summer ends, don't stop the engine — just keep one project and one stretch book always going. Next up could be a stop-motion Lego film, a real comic he writes and draws, or a bigger Scratch game. Same loop, forever: dream it, build it, test it, fix it, ship it.</p>
+  </div>
+
+</div>
+</body>
+</html>
