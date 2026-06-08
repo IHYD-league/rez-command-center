@@ -10,6 +10,8 @@ import SongLogger from "./SongLogger.jsx";
 import BoardGame from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
+import { supabase } from "./lib/supabase.js";
+import { toApp } from "./data/transform.js";
 import { juice } from "./lib/juice.js";
 import { starBurst } from "./lib/starBurst.js";
 import StarBurstLayer from "./StarBurstLayer.jsx";
@@ -700,6 +702,46 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const addUser = (u) => setUsers((prev) => [...prev, { ...u, id: "u_" + Date.now() }]);
   const updateUser = (id, patch) => setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
   const removeUser = (id) => setUsers((prev) => prev.filter((u) => u.id !== id));
+
+  // Pull the latest pending-requests + profiles from Supabase. Called
+  // after approve/deny so the queue and roster stay honest without a
+  // full page reload.
+  const reloadPending = async () => {
+    if (!familyId) return;
+    const [{ data: pr }, { data: ps }] = await Promise.all([
+      supabase
+        .from("pending_registrations")
+        .select("auth_user_id, email, display_name, requested_at")
+        .eq("family_id", familyId),
+      supabase.from("profiles").select("*").eq("family_id", familyId),
+    ]);
+    setPendingRegistrations((pr || []).map((r) => ({
+      authUserId: r.auth_user_id,
+      email: r.email,
+      displayName: r.display_name,
+      requestedAt: r.requested_at,
+    })));
+    if (ps) _setUsers(ps.map(toApp.profile));
+  };
+
+  const approveRegistration = async ({ authUserId, name, role, relationship, accessType, accessExpires }) => {
+    const { error } = await supabase.rpc("approve_registration", {
+      p_auth_user_id: authUserId,
+      p_name: name,
+      p_role: role,
+      p_relationship: relationship || null,
+      p_access_type: accessType || "permanent",
+      p_access_expires: accessExpires || null,
+    });
+    if (error) { alert("Approve failed: " + error.message); return; }
+    await reloadPending();
+  };
+
+  const denyRegistration = async (authUserId) => {
+    const { error } = await supabase.rpc("deny_registration", { p_auth_user_id: authUserId });
+    if (error) { alert("Deny failed: " + error.message); return; }
+    await reloadPending();
+  };
   const setPriority = (taskId, level, scope) => setPriorities((prev) => ({ ...prev, [taskId]: { level, scope, by: currentUserId } }));
   const clearPriority = (taskId) => setPriorities((prev) => { const n = { ...prev }; delete n[taskId]; return n; });
   const giftStars = (label, n) => setGifted((prev) => [{ id: "g_" + Date.now(), label, stars: n, by: currentUserId, date: fmtDate(today) }, ...prev]);
@@ -979,6 +1021,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
     submitTask, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest,
+    pendingRegistrations, approveRegistration, denyRegistration, currentProfileId,
     kidData,
     familyId,
     songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay,
@@ -3831,14 +3874,34 @@ function Skills() {
 }
 
 // ===================== PARENT: PEOPLE / ACCESS =====================
-function People({ users, addUser, updateUser, removeUser, familyId }) {
+function People({ users, addUser, updateUser, removeUser, familyId, pendingRegistrations, approveRegistration, denyRegistration, currentProfileId }) {
   const [adding, setAdding] = useState(false);
   const isExpired = (u) => u.accessType === "temporary" && u.accessExpires && new Date(u.accessExpires + "T23:59:59") < today;
   const order = { parent: 0, kid: 1, grandparent: 2, helper: 3, guest: 4 };
   const sorted = [...users].sort((a, b) => (order[a.role] ?? 9) - (order[b.role] ?? 9));
   const locked = (u) => u.role === "kid" || u.role === "parent";
+  const me = users.find((u) => u.id === currentProfileId);
+  const isParent = me?.role === "parent";
+  const pending = pendingRegistrations || [];
   return (
     <>
+      {isParent && pending.length > 0 && (
+        <Card className="p-3 mb-3 bg-amber-50 border border-amber-200">
+          <div className="font-bold text-sm mb-2 flex items-center gap-2">
+            <AlertCircle size={14} className="text-amber-600" />
+            Pending requests <span className="text-[11px] font-semibold text-amber-700">({pending.length})</span>
+          </div>
+          {pending.map((r) => (
+            <PendingRequestRow
+              key={r.authUserId}
+              req={r}
+              onApprove={(payload) => approveRegistration({ authUserId: r.authUserId, ...payload })}
+              onDeny={() => { if (confirm(`Deny ${r.email}?`)) denyRegistration(r.authUserId); }}
+            />
+          ))}
+        </Card>
+      )}
+
       {sorted.map((u) => {
         const expired = isExpired(u);
         return (
@@ -3881,6 +3944,14 @@ function People({ users, addUser, updateUser, removeUser, familyId }) {
             {u.role !== "kid" && (
               <EmailEditor user={u} onSave={(email) => updateUser(u.id, { email })} />
             )}
+            {!locked(u) && (
+              <AccessEditor
+                user={u}
+                onSave={({ accessType, accessExpires }) =>
+                  updateUser(u.id, { accessType, accessExpires })
+                }
+              />
+            )}
           </Card>
         );
       })}
@@ -3898,6 +3969,121 @@ function Toggle({ on, label, onClick, disabled }) {
     <button disabled={disabled} onClick={onClick} className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-full flex items-center gap-1 ${on ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"} ${disabled ? "opacity-50" : ""}`}>
       {on && <Check size={12} />}{label}
     </button>
+  );
+}
+
+// A row in the parent's "Pending requests" queue. Tap Approve to expand
+// the role + access form, then submit → server creates the profile and
+// the queue shrinks.
+function PendingRequestRow({ req, onApprove, onDeny }) {
+  const [expanded, setExpanded] = useState(false);
+  const [name, setName] = useState(req.displayName || (req.email || "").split("@")[0] || "");
+  const [role, setRole] = useState("helper");
+  const [relationship, setRelationship] = useState("");
+  const [temp, setTemp] = useState(false);
+  const [expires, setExpires] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  });
+  const ready = name.trim().length > 0 && (!temp || !!expires);
+  const submit = () => {
+    onApprove({
+      name: name.trim(),
+      role,
+      relationship: relationship.trim() || null,
+      accessType: temp ? "temporary" : "permanent",
+      accessExpires: temp ? expires : null,
+    });
+  };
+  const requestedAt = req.requestedAt ? new Date(req.requestedAt).toLocaleString() : "";
+  if (!expanded) {
+    return (
+      <div className="flex items-center gap-2 py-2 border-t border-amber-200 first:border-t-0">
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold truncate">{req.displayName || req.email}</div>
+          <div className="text-[11px] text-amber-700 truncate">{req.email}{requestedAt ? ` · ${requestedAt}` : ""}</div>
+        </div>
+        <button onClick={onDeny} className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-600">Deny</button>
+        <button onClick={() => setExpanded(true)} className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-emerald-600 text-white">Approve…</button>
+      </div>
+    );
+  }
+  const Switch = ({ on }) => <span className={`w-10 h-6 rounded-full p-0.5 transition shrink-0 ${on ? "bg-emerald-500" : "bg-slate-300"}`}><span className={`block w-5 h-5 bg-white rounded-full transition ${on ? "translate-x-4" : ""}`} /></span>;
+  return (
+    <div className="py-2 border-t border-amber-200 first:border-t-0">
+      <div className="text-[11px] text-amber-700 mb-2">{req.email}{requestedAt ? ` · ${requestedAt}` : ""}</div>
+      <Field label="Name shown in the app"><input value={name} onChange={(e) => setName(e.target.value)} className="ppl-input" /></Field>
+      <div className="mt-2"><Field label="Relationship (optional)"><input value={relationship} onChange={(e) => setRelationship(e.target.value)} placeholder="Aunt, sitter, friend…" className="ppl-input" /></Field></div>
+      <div className="mt-3 text-xs font-semibold text-slate-500 mb-1">Role</div>
+      <div className="grid grid-cols-2 gap-2">
+        {[["helper", "Helper / Sitter"], ["grandparent", "Grandparent"], ["guest", "Guest (temporary)"], ["parent", "Parent admin"]].map(([k, l]) => (
+          <button key={k} type="button" onClick={() => { setRole(k); if (k === "guest") setTemp(true); }} className={`py-2 rounded-xl text-xs font-semibold ${role === k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>
+        ))}
+      </div>
+      <button type="button" onClick={() => setTemp(!temp)} className="mt-3 w-full flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2.5">
+        <span className="text-sm font-semibold">Temporary access</span><Switch on={temp} />
+      </button>
+      {temp && (
+        <div className="mt-2">
+          <Field label="Access ends after"><input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} className="ppl-input" /></Field>
+          <div className="text-[11px] text-slate-400 mt-1">After this date they can't load the app.</div>
+        </div>
+      )}
+      <div className="flex gap-2 mt-3">
+        <button onClick={() => setExpanded(false)} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs">Cancel</button>
+        <button disabled={!ready} onClick={submit} className={`flex-1 py-2 rounded-xl font-bold text-xs text-white ${ready ? "bg-emerald-600" : "bg-slate-200 text-slate-400"}`}>Approve & create profile</button>
+      </div>
+      <style>{`.ppl-input{width:100%;border:1px solid #e2e8f0;border-radius:0.75rem;padding:0.5rem 0.7rem;font-size:0.9rem;outline:none}.ppl-input:focus{border-color:#6366f1}`}</style>
+    </div>
+  );
+}
+
+// Per-profile access-window editor: permanent or temporary-with-expiry.
+// Existing UI already shows the badge + auto-disables expired users;
+// this is the place to change the window after the fact.
+function AccessEditor({ user, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [temp, setTemp] = useState(user.accessType === "temporary");
+  const [expires, setExpires] = useState(user.accessExpires || (() => {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  })());
+  const save = () => {
+    onSave({
+      accessType: temp ? "temporary" : "permanent",
+      accessExpires: temp ? expires : null,
+    });
+    setEditing(false);
+  };
+  const summary = user.accessType === "temporary"
+    ? (user.accessExpires ? `Timed · ends ${fmtShort(user.accessExpires)}` : "Timed")
+    : "Permanent";
+  if (!editing) {
+    return (
+      <div className="mt-2 flex items-center gap-2">
+        <span className="text-[11px] font-semibold text-slate-400 shrink-0">Access</span>
+        <span className="text-[11px] text-slate-600 flex-1 truncate">{summary}</span>
+        <button onClick={() => setEditing(true)} className="text-[11px] font-semibold text-indigo-600 shrink-0">Edit</button>
+      </div>
+    );
+  }
+  const Switch = ({ on }) => <span className={`w-10 h-6 rounded-full p-0.5 transition shrink-0 ${on ? "bg-emerald-500" : "bg-slate-300"}`}><span className={`block w-5 h-5 bg-white rounded-full transition ${on ? "translate-x-4" : ""}`} /></span>;
+  return (
+    <div className="mt-2">
+      <button type="button" onClick={() => setTemp(!temp)} className="w-full flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2.5">
+        <span className="text-sm font-semibold">Temporary access</span><Switch on={temp} />
+      </button>
+      {temp && (
+        <div className="mt-2">
+          <Field label="Access ends after"><input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} className="ppl-input" /></Field>
+        </div>
+      )}
+      <div className="flex gap-2 mt-2">
+        <button onClick={() => setEditing(false)} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs">Cancel</button>
+        <button onClick={save} className="flex-1 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs">Save</button>
+      </div>
+      <style>{`.ppl-input{width:100%;border:1px solid #e2e8f0;border-radius:0.75rem;padding:0.5rem 0.7rem;font-size:0.9rem;outline:none}.ppl-input:focus{border-color:#6366f1}`}</style>
+    </div>
   );
 }
 

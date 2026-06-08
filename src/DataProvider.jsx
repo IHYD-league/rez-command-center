@@ -87,10 +87,22 @@ async function loadEntities(familyId) {
     .eq("family_id", familyId);
   if (sqErr) throw new Error(`summer_quest_progress: ${sqErr.message}`);
   out.summerQuest = Object.fromEntries((sq || []).map(toApp.summerQuestRow));
+  // pending_registrations — only readable by parents (RLS). Non-parents
+  // get an empty array; that's fine.
+  const { data: pr } = await supabase
+    .from("pending_registrations")
+    .select("auth_user_id, email, display_name, requested_at")
+    .eq("family_id", familyId);
+  out.pendingRegistrations = (pr || []).map((r) => ({
+    authUserId: r.auth_user_id,
+    email: r.email,
+    displayName: r.display_name,
+    requestedAt: r.requested_at,
+  }));
   return out;
 }
 
-export default function DataProvider({ session, children }) {
+export default function DataProvider({ session, children, signOut, sessionEmail }) {
   const [status, setStatus] = useState("loading");
   const [err, setErr] = useState("");
   const [data, setData] = useState(null);
@@ -102,10 +114,38 @@ export default function DataProvider({ session, children }) {
     let cancelled = false;
     (async () => {
       try {
+        // Auto-link: if a parent typed this user's email into a profile
+        // before they signed in, claim_profile_by_email() stamps
+        // auth_user_id now so my_family_id()/RLS resolves below.
+        // Errors here are non-fatal — fall through to the normal lookup.
+        try { await supabase.rpc("claim_profile_by_email"); } catch (_) {}
+
+        // Self-registered users land here with no profile yet. If a
+        // pending_registrations row exists for them, the next call
+        // returns it (RLS lets them see their own row); otherwise this
+        // is a fresh signup we haven't queued yet — try to enqueue.
+        try {
+          const { data: pendingMine } = await supabase
+            .from("pending_registrations")
+            .select("auth_user_id")
+            .maybeSingle();
+          if (!pendingMine) {
+            // Idempotent: no-op if a profile already exists.
+            await supabase.rpc("request_to_join", { p_display_name: null });
+          }
+        } catch (_) {}
+
         const fid = await loadFamilyId();
         if (cancelled) return;
         if (!fid) {
-          setStatus("no_family");
+          // No profile. Distinguish "queued for approval" from
+          // "really nothing seeded yet".
+          const { data: pendingMine } = await supabase
+            .from("pending_registrations")
+            .select("auth_user_id")
+            .maybeSingle();
+          if (cancelled) return;
+          setStatus(pendingMine ? "pending_approval" : "no_family");
           return;
         }
         setFamilyId(fid);
@@ -116,6 +156,24 @@ export default function DataProvider({ session, children }) {
         const myProfile = (loaded.profiles || []).find(
           (p) => (p.email || "").toLowerCase() === myEmail
         );
+
+        // Enforce timed access on the way in. A sitter whose window has
+        // passed gets stuck on the access_expired screen with a Sign
+        // out button; the app never renders for them. Parents and the
+        // kid profile are never gated.
+        if (
+          myProfile &&
+          myProfile.role !== "parent" &&
+          myProfile.role !== "kid" &&
+          (myProfile.active === false ||
+            (myProfile.accessType === "temporary" &&
+              myProfile.accessExpires &&
+              new Date(myProfile.accessExpires + "T23:59:59") < new Date()))
+        ) {
+          setStatus("access_expired");
+          return;
+        }
+
         setCurrentProfileId(myProfile?.id ?? null);
 
         setData(loaded);
@@ -237,15 +295,75 @@ export default function DataProvider({ session, children }) {
       </div>
     );
   }
+  if (status === "access_expired") {
+    return (
+      <div style={{ minHeight: "100vh", padding: 24, fontFamily: "system-ui, sans-serif", color: "#0f172a" }}>
+        <h1 style={{ fontSize: 22, marginBottom: 8 }}>Access ended</h1>
+        <p style={{ marginBottom: 8 }}>
+          Your access window has passed{sessionEmail ? <> for <strong>{sessionEmail}</strong></> : ""}.
+          A parent can extend it from the People page.
+        </p>
+        {signOut && (
+          <button
+            onClick={signOut}
+            style={{
+              marginTop: 12, padding: "8px 14px", borderRadius: 8,
+              background: "#0f172a", color: "white", border: "none",
+              fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Sign out
+          </button>
+        )}
+      </div>
+    );
+  }
+  if (status === "pending_approval") {
+    return (
+      <div style={{ minHeight: "100vh", padding: 24, fontFamily: "system-ui, sans-serif", color: "#0f172a" }}>
+        <h1 style={{ fontSize: 22, marginBottom: 8 }}>Waiting for parent approval</h1>
+        <p style={{ marginBottom: 8 }}>
+          {sessionEmail ? <>You signed up as <strong>{sessionEmail}</strong>. </> : ""}
+          A parent will see your request and approve it from inside the app.
+          Once they do, just refresh this page.
+        </p>
+        {signOut && (
+          <button
+            onClick={signOut}
+            style={{
+              marginTop: 12, padding: "8px 14px", borderRadius: 8,
+              background: "#0f172a", color: "white", border: "none",
+              fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Sign out
+          </button>
+        )}
+      </div>
+    );
+  }
   if (status === "no_family") {
     return (
       <div style={{ minHeight: "100vh", padding: 24, fontFamily: "system-ui, sans-serif", color: "#0f172a" }}>
         <h1 style={{ fontSize: 22, marginBottom: 8 }}>No family yet</h1>
         <p style={{ marginBottom: 8 }}>
-          Your account isn't linked to a family. Run the Phase 2 SQL script
+          {sessionEmail ? <>Signed in as <strong>{sessionEmail}</strong>. This account </> : "Your account "}
+          isn't linked to a family. Run the Phase 2 SQL script
           (<code>supabase/schema.sql</code>) in the Supabase SQL Editor — it
           creates the Lynch family and links you by email.
         </p>
+        {signOut && (
+          <button
+            onClick={signOut}
+            style={{
+              marginTop: 12, padding: "8px 14px", borderRadius: 8,
+              background: "#0f172a", color: "white", border: "none",
+              fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Sign out
+          </button>
+        )}
       </div>
     );
   }
@@ -254,6 +372,18 @@ export default function DataProvider({ session, children }) {
       <div style={{ minHeight: "100vh", padding: 24, fontFamily: "system-ui, sans-serif", color: "#0f172a" }}>
         <h1 style={{ fontSize: 22, marginBottom: 8 }}>Couldn't load data</h1>
         <pre style={{ whiteSpace: "pre-wrap", background: "#fef2f2", color: "#991b1b", padding: 12, borderRadius: 8 }}>{err}</pre>
+        {signOut && (
+          <button
+            onClick={signOut}
+            style={{
+              marginTop: 12, padding: "8px 14px", borderRadius: 8,
+              background: "#0f172a", color: "white", border: "none",
+              fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Sign out
+          </button>
+        )}
       </div>
     );
   }

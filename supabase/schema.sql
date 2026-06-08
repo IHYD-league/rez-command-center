@@ -104,6 +104,180 @@ $$;
 revoke all on function public.is_parent() from public;
 grant execute on function public.is_parent() to authenticated;
 
+-- claim_profile_by_email(): SECURITY DEFINER bridge that lets a parent
+-- add a teammate by typing their email into the People UI. On that
+-- teammate's next sign-in the frontend calls this RPC, which finds the
+-- matching profile by lowered email and stamps auth_user_id =
+-- auth.uid(). Only updates NULL auth_user_id, so it can't hijack an
+-- already-claimed row.
+create or replace function public.claim_profile_by_email()
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_email text;
+  v_pid text;
+begin
+  if v_uid is null then return null; end if;
+  select lower(email) into v_email from auth.users where id = v_uid;
+  if v_email is null then return null; end if;
+  update public.profiles
+     set auth_user_id = v_uid
+   where lower(email) = v_email
+     and auth_user_id is null
+   returning id into v_pid;
+  return v_pid;
+end;
+$$;
+revoke all on function public.claim_profile_by_email() from public;
+grant execute on function public.claim_profile_by_email() to authenticated;
+
+-- =============================================================
+-- 1b. Pending registrations (parent-approval queue)
+-- =============================================================
+-- New self-signups land here until a parent approves them in the app.
+-- Single-family v1: the request is implicitly for the first (Lynch)
+-- family. Multi-family lands later with a family-code input.
+create table if not exists public.pending_registrations (
+  auth_user_id uuid primary key references auth.users(id) on delete cascade,
+  family_id    uuid not null references public.families(id) on delete cascade,
+  email        text not null,
+  display_name text,
+  requested_at timestamptz not null default now()
+);
+create index if not exists pending_registrations_family_idx
+  on public.pending_registrations(family_id);
+
+alter table public.pending_registrations enable row level security;
+alter table public.pending_registrations force  row level security;
+
+drop policy if exists "pending_select_self"    on public.pending_registrations;
+drop policy if exists "pending_select_parents" on public.pending_registrations;
+drop policy if exists "pending_delete_self"    on public.pending_registrations;
+drop policy if exists "pending_delete_parents" on public.pending_registrations;
+
+create policy "pending_select_self"
+  on public.pending_registrations for select to authenticated
+  using (auth_user_id = auth.uid());
+create policy "pending_select_parents"
+  on public.pending_registrations for select to authenticated
+  using (public.is_parent() and family_id = public.my_family_id());
+create policy "pending_delete_self"
+  on public.pending_registrations for delete to authenticated
+  using (auth_user_id = auth.uid());
+create policy "pending_delete_parents"
+  on public.pending_registrations for delete to authenticated
+  using (public.is_parent() and family_id = public.my_family_id());
+
+-- Inserts only via request_to_join() below.
+create or replace function public.request_to_join(p_display_name text default null)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_email text;
+  v_fid uuid;
+begin
+  if v_uid is null then return; end if;
+  if exists (select 1 from public.profiles where auth_user_id = v_uid) then return; end if;
+  select lower(email) into v_email from auth.users where id = v_uid;
+  if v_email is null then return; end if;
+  if exists (
+    select 1 from public.profiles where lower(email) = v_email and auth_user_id is null
+  ) then
+    return;
+  end if;
+  select id into v_fid from public.families order by created_at asc limit 1;
+  if v_fid is null then return; end if;
+  insert into public.pending_registrations (auth_user_id, family_id, email, display_name)
+  values (v_uid, v_fid, v_email, p_display_name)
+  on conflict (auth_user_id) do update set
+    display_name = coalesce(excluded.display_name, public.pending_registrations.display_name),
+    requested_at = now();
+end;
+$$;
+revoke all on function public.request_to_join(text) from public;
+grant execute on function public.request_to_join(text) to authenticated;
+
+create or replace function public.approve_registration(
+  p_auth_user_id  uuid,
+  p_name          text,
+  p_role          text,
+  p_relationship  text,
+  p_access_type   text default 'permanent',
+  p_access_expires date default null
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_fid uuid; v_email text; v_pid text; v_color text;
+begin
+  if not public.is_parent() then raise exception 'only parents can approve registrations'; end if;
+  v_fid := public.my_family_id();
+  if v_fid is null then raise exception 'caller has no family'; end if;
+  if p_role not in ('parent','grandparent','helper','guest') then
+    raise exception 'invalid role: %', p_role;
+  end if;
+  if p_access_type not in ('permanent','temporary') then
+    raise exception 'invalid access_type: %', p_access_type;
+  end if;
+  select email into v_email from public.pending_registrations
+   where auth_user_id = p_auth_user_id and family_id = v_fid;
+  if v_email is null then raise exception 'no pending registration for that user in your family'; end if;
+  v_color := case p_role
+    when 'parent'      then '#2563eb'
+    when 'grandparent' then '#7c3aed'
+    when 'helper'      then '#0d9488'
+    when 'guest'       then '#64748b'
+    else '#64748b' end;
+  v_pid := 'u_' || replace(p_auth_user_id::text, '-', '');
+  insert into public.profiles (
+    id, family_id, auth_user_id, email, name, role, relationship,
+    color, emoji, permissions, access_type, access_expires
+  )
+  values (
+    v_pid, v_fid, p_auth_user_id, v_email, p_name, p_role,
+    coalesce(p_relationship, initcap(p_role)),
+    v_color, '🙂',
+    jsonb_build_object(
+      'approveSimple', false,
+      'approveAll',    p_role = 'parent',
+      'viewReports',   p_role <> 'guest'
+    ),
+    p_access_type, p_access_expires
+  );
+  delete from public.pending_registrations where auth_user_id = p_auth_user_id;
+  return v_pid;
+end;
+$$;
+revoke all on function public.approve_registration(uuid, text, text, text, text, date) from public;
+grant execute on function public.approve_registration(uuid, text, text, text, text, date) to authenticated;
+
+create or replace function public.deny_registration(p_auth_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_parent() then raise exception 'only parents can deny registrations'; end if;
+  delete from public.pending_registrations
+   where auth_user_id = p_auth_user_id
+     and family_id = public.my_family_id();
+end;
+$$;
+revoke all on function public.deny_registration(uuid) from public;
+grant execute on function public.deny_registration(uuid) to authenticated;
+
 -- =============================================================
 -- 2. Data tables (one per entity the user listed)
 -- =============================================================
@@ -412,6 +586,7 @@ create policy "family_photos_delete"
 -- Requirements baked in here:
 --   - Mike (lyncho14@gmail.com) → parent, full admin
 --   - Krissie (krissielynch@gmail.com) → parent, full admin
+--   - Sara (sara.a.lanave@gmail.com) → helper, Aunt
 --   - Reznor → kid profile (no auth login)
 --   - Drums streak: current=310, longest=310, since=2025-08-01, last_date=2026-06-06
 --   - One drum completion today (all 3 sub-parts), status=approved, 10 stars
@@ -423,8 +598,9 @@ create policy "family_photos_delete"
 do $$
 declare
   v_fid uuid;
-  v_mike_auth uuid := (select id from auth.users where lower(email) = 'lyncho14@gmail.com'    limit 1);
-  v_kris_auth uuid := (select id from auth.users where lower(email) = 'krissielynch@gmail.com' limit 1);
+  v_mike_auth uuid := (select id from auth.users where lower(email) = 'lyncho14@gmail.com'      limit 1);
+  v_kris_auth uuid := (select id from auth.users where lower(email) = 'krissielynch@gmail.com'  limit 1);
+  v_sara_auth uuid := (select id from auth.users where lower(email) = 'sara.a.lanave@gmail.com' limit 1);
 begin
   -- 6a. Family row
   select id into v_fid from public.families where name = 'Lynch' limit 1;
@@ -451,6 +627,18 @@ begin
     email = excluded.email,
     name = excluded.name,
     role = excluded.role,
+    permissions = excluded.permissions;
+
+  -- 6b'. Sara — Aunt / helper
+  insert into public.profiles (id, family_id, auth_user_id, email, name, role, relationship, color, emoji, permissions)
+  values ('u_sara', v_fid, v_sara_auth, 'sara.a.lanave@gmail.com', 'Sara', 'helper', 'Aunt', '#0d9488', '🧡',
+          jsonb_build_object('approveSimple', false, 'approveAll', false, 'viewReports', false))
+  on conflict (id) do update set
+    auth_user_id = coalesce(excluded.auth_user_id, public.profiles.auth_user_id),
+    email = excluded.email,
+    name = excluded.name,
+    role = excluded.role,
+    relationship = excluded.relationship,
     permissions = excluded.permissions;
 
   -- 6c. Reznor (kid profile, no auth account)
