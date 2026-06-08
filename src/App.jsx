@@ -12,6 +12,8 @@ import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 import { juice } from "./lib/juice.js";
 import { starBurst } from "./lib/starBurst.js";
 import StarBurstLayer from "./StarBurstLayer.jsx";
+import { levelUp } from "./lib/levelUp.js";
+import LevelUpLayer from "./LevelUpLayer.jsx";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -827,10 +829,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     };
   }, []);
 
-  // Level-up detector — fires the levelUp fanfare + heavy haptic when the
-  // hero level crosses up. Derived purely from starBank → no extra storage.
-  // The first render seeds the ref with the current level so we don't fire
-  // on app load, only on actual transitions during the session.
+  // Level-up detector — fires the levelUp fanfare + heavy haptic + the
+  // cinematic takeover overlay when the hero level crosses up. Derived
+  // purely from starBank → no extra storage. The first render seeds the
+  // ref with the current level so we don't fire on app load, only on
+  // actual transitions during the session.
   const _seenLevelRef = React.useRef(null);
   useEffect(() => {
     const lvl = levelFromXp(starBank * 10);
@@ -840,6 +843,14 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }
     if (lvl > _seenLevelRef.current) {
       juice.burst("success", "levelUp");
+      // Cinematic takeover — a moment, not just a sound. Title comes
+      // from the canonical LEVEL_TITLES list so it always matches the
+      // hero card's level chip.
+      levelUp.show({
+        level: lvl,
+        prevLevel: _seenLevelRef.current,
+        title: levelTitle(lvl),
+      });
     }
     _seenLevelRef.current = lvl;
   }, [starBank]);
@@ -1025,6 +1036,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
         )}
       </div>
       <StarBurstLayer />
+      <LevelUpLayer />
     </div>
   );
 }
