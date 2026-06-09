@@ -4022,13 +4022,26 @@ function searchBooks(list, q) {
 
 function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
   const [adding, setAdding] = useState(false);
+  const [addingBacklog, setAddingBacklog] = useState(false);
   const [q, setQ] = useState("");
-  const reading = searchBooks(books.filter((b) => b.status !== "finished"), q);
-  const finished = searchBooks(books.filter((b) => b.status === "finished"), q);
-  const thisMonth = books.filter((b) => b.status === "finished" && (b.finished || "").startsWith("2026-06")).length;
-  const paces = books.filter((b) => b.status === "finished").map((b) => daysBetween(b.started, b.finished)).filter(Boolean);
+  // Filtered views: pre-tracking books live in their own archive
+  // section so the "Reading now / Finished" lists stay date-honest.
+  const tracked = books.filter((b) => !b.preTracking);
+  const archive = books.filter((b) => b.preTracking);
+  const reading = searchBooks(tracked.filter((b) => b.status !== "finished"), q);
+  const finished = searchBooks(tracked.filter((b) => b.status === "finished"), q);
+  const archiveFiltered = searchBooks(archive, q);
+  // Count-based stats INCLUDE backlog. They're real books, just no dates.
+  const thisMonth = tracked.filter((b) => b.status === "finished" && (b.finished || "").startsWith("2026-06")).length;
+  const paces = tracked.filter((b) => b.status === "finished").map((b) => daysBetween(b.started, b.finished)).filter(Boolean);
   const avgPace = paces.length ? Math.round(paces.reduce((s, n) => s + n, 0) / paces.length) : null;
-  const finishedTotal = books.filter((b) => b.status === "finished").length;
+  const finishedTotal = books.filter((b) => b.status === "finished").length; // tracked + backlog
+  // Group backlog by era_label for the archive header.
+  const eraCounts = (() => {
+    const m = new Map();
+    for (const b of archive) m.set(b.eraLabel || "Era unset", (m.get(b.eraLabel || "Era unset") || 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  })();
   return (
     <>
       <div className="grid grid-cols-3 gap-2 mb-3">
@@ -4043,10 +4056,16 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
         {q && <button onClick={() => setQ("")} className="text-slate-300"><X size={15} /></button>}
       </div>
 
-      {!adding && <button onClick={() => setAdding(true)} className="w-full py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1 mb-3"><Plus size={15} /> Add a book</button>}
+      {!adding && !addingBacklog && (
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <button onClick={() => setAdding(true)} className="py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> Add a book</button>
+          <button onClick={() => setAddingBacklog(true)} className="py-2.5 rounded-2xl bg-amber-100 text-amber-800 font-bold text-sm flex items-center justify-center gap-1 border-2 border-amber-200"><Archive size={15} /> Add backlog</button>
+        </div>
+      )}
       {adding && <AddBookForm onAdd={(b) => { addBook(b); setAdding(false); }} onCancel={() => setAdding(false)} />}
+      {addingBacklog && <AddBacklogBookForm onAdd={(b) => { addBook(b); setAddingBacklog(false); }} onCancel={() => setAddingBacklog(false)} />}
 
-      {q && reading.length === 0 && finished.length === 0 && <p className="text-sm text-slate-400 px-1">No books match "{q}".</p>}
+      {q && reading.length === 0 && finished.length === 0 && archiveFiltered.length === 0 && <p className="text-sm text-slate-400 px-1">No books match "{q}".</p>}
 
       <SectionTitle icon={<BookOpen size={16} className="text-sky-500" />}>Reading now ({reading.length})</SectionTitle>
       {reading.length === 0 && !q && <p className="text-xs text-slate-400 px-1">Nothing in progress.</p>}
@@ -4054,6 +4073,29 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
 
       <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Finished ({finished.length})</SectionTitle>
       {finished.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} />)}
+
+      {archive.length > 0 && (
+        <>
+          <SectionTitle icon={<Archive size={16} className="text-amber-600" />}>
+            Archive · pre-tracking ({archive.length})
+          </SectionTitle>
+          {eraCounts.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2 px-1">
+              {eraCounts.map(([era, n]) => (
+                <span key={era} className="text-[11px] font-bold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                  {era} · {n}
+                </span>
+              ))}
+            </div>
+          )}
+          {archiveFiltered.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} />)}
+          <div className="text-[11px] text-slate-400 px-1 mt-1 mb-3">
+            Backlog books count toward totals + author stats but have no real dates,
+            so they don't appear in date-based views (slideshows, "this month," etc.).
+          </div>
+        </>
+      )}
+
       <div className="text-[11px] text-slate-400 px-1 mt-3">Search is fuzzy — typos and partial titles still find the book. Logging start & finish dates shows his pace; the level tag shows where he's reading.</div>
     </>
   );
@@ -4073,6 +4115,12 @@ function BookRow({ b, updateBook, removeBook }) {
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">{b.lang}</span>
             {b.status === "finished" && pace && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600">read in {pace}d</span>}
             {b.status === "finished" && b.rating > 0 && <span className="text-[10px]">{"⭐".repeat(b.rating)}</span>}
+            {/* Honest pre-tracking badge — no date, just the era. */}
+            {b.preTracking && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                Pre-tracking{b.eraLabel ? ` · ${b.eraLabel}` : ""}
+              </span>
+            )}
           </div>
           {b.notes && <div className="text-[11px] text-slate-400 mt-1">{b.notes}</div>}
         </div>
@@ -4105,6 +4153,84 @@ function AddBookForm({ onAdd, onCancel }) {
       <div className="flex gap-2">
         <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">Cancel</button>
         <button disabled={!title.trim()} onClick={() => onAdd({ id: "b_" + Date.now(), title: title.trim(), lang, status: "reading", started, finished: "", level: level.trim(), rating: 0, notes: "" })} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${title.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Add book</button>
+      </div>
+    </Card>
+  );
+}
+
+// Pre-tracking backlog entry — for books Reznor finished BEFORE granular
+// tracking started in June 2026 (Tipos Malos Vols 1-6, kindergarten
+// reads, etc.). No date fields by design: the era_label carries the
+// rough when. Default status = "finished" because that's what backlog
+// usually is.
+const ERA_PRESETS = ["Kindergarten 2026", "Before May 2026"];
+function AddBacklogBookForm({ onAdd, onCancel }) {
+  const [title, setTitle] = useState("");
+  const [lang, setLang] = useState("English");
+  const [level, setLevel] = useState("");
+  const [eraChoice, setEraChoice] = useState(ERA_PRESETS[0]);
+  const [eraCustom, setEraCustom] = useState("");
+  const [notes, setNotes] = useState("");
+  const eraLabel = (eraChoice === "Custom" ? eraCustom.trim() : eraChoice);
+  const canSave = title.trim() && eraLabel;
+  return (
+    <Card className="p-4 mb-3 border-2 border-amber-200 bg-amber-50/40">
+      <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-amber-700 mb-2">
+        <Archive size={13} /> Backlog entry · no real date needed
+      </div>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Book title" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white" />
+      <div className="flex gap-1.5 mb-2">{["English", "Spanish"].map((l) => <button key={l} onClick={() => setLang(l)} className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === l ? "bg-amber-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>{l}</button>)}</div>
+      <input value={level} onChange={(e) => setLevel(e.target.value)} placeholder="Reading level (optional)" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white" />
+      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Era</label>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {[...ERA_PRESETS, "Custom"].map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => setEraChoice(p)}
+            className={`text-[11px] font-semibold px-3 py-1 rounded-full ${eraChoice === p ? "bg-amber-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+      {eraChoice === "Custom" && (
+        <input
+          value={eraCustom}
+          onChange={(e) => setEraCustom(e.target.value)}
+          placeholder='Custom era (e.g. "Summer 2025")'
+          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
+        />
+      )}
+      <input
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Notes (optional)"
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-3 bg-white"
+      />
+      <div className="flex gap-2">
+        <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-500 font-bold text-sm">Cancel</button>
+        <button
+          disabled={!canSave}
+          onClick={() =>
+            onAdd({
+              id: "b_" + Date.now(),
+              title: title.trim(),
+              lang,
+              status: "finished",
+              started: "",
+              finished: "",
+              level: level.trim(),
+              rating: 0,
+              notes: notes.trim(),
+              preTracking: true,
+              eraLabel,
+            })
+          }
+          className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${canSave ? "bg-amber-600" : "bg-slate-200 text-slate-400"}`}
+        >
+          Add to backlog
+        </button>
       </div>
     </Card>
   );
