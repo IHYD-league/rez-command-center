@@ -5739,7 +5739,7 @@ function BottomNav({ user, tab, setTab }) {
   const sets = {
     kid: [
       { k: "today", icon: Trophy, label: "Missions" },
-      { k: "board", icon: Map, label: "Board" },
+      { k: "board", icon: MapIcon, label: "Board" },
       { k: "streaks", icon: Flame, label: "Streaks" },
       { k: "dream", icon: Target, label: "Dream" },
       { k: "rewards", icon: Gift, label: "Rewards" },
