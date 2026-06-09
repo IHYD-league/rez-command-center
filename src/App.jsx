@@ -659,24 +659,32 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     // in lock-step with the server.
     const authProfile = users.find((u) => u.id === currentProfileId);
     const activeIsKid = activeProfile?.role === "kid";
+    const activeIsParent = activeProfile?.role === "parent";
     const authIsParentOrAdmin = authProfile?.role === "parent" || !!authProfile?.isAdmin;
     const kid = users.find((u) => u.role === "kid");
     const kidId = kid?.id || currentUserId;
     const submittedBy = activeIsKid ? currentUserId : (currentProfileId || currentUserId);
-    // Belt-and-suspenders gate. Drops the t.approvalRequired short-
-    // circuit entirely AND honors the AUTH user's role (not the acted-
-    // as profile's). Combined effect:
-    //   - The kid can NEVER self-approve regardless of any task flag.
-    //   - A stale-bundle Sara acting as Mike can't auto-approve either,
-    //     because authIsParentOrAdmin reads Sara's real role.
-    //   - Mike acting on behalf of Reznor still auto-approves (he is
-    //     the auth user and is admin).
-    //   - Krissie acting on behalf of Reznor still auto-approves (auth
-    //     role = parent).
+    // Auto-approve ONLY when BOTH:
+    //   (1) the acted-as profile IS a parent — so tapping while "on"
+    //       Reznor's profile (kid view) always goes pending, even when
+    //       Mike is signed in. Reznor doesn't have his own auth_user_id;
+    //       he uses an adult's session, so a previous gate based purely
+    //       on the auth role incorrectly auto-approved his chores.
+    //   (2) the auth user IS a parent or admin — so Sara couldn't
+    //       bypass via a stale-bundle pick of Mike's profile.
+    // Both ANDed. Failing either condition → row goes pending.
+    // Effect:
+    //   - Reznor (auth = adult, acted-as = kid) → pending. Always.
+    //   - Sara as Sara (helper) → pending.
+    //   - Sara forging Mike (auth = helper) → pending.
+    //   - Mike on Mike's profile / Mike acting as Krissie → quick-mark
+    //     auto-approves as before (the legitimate parent-on-behalf
+    //     shortcut from their OWN dashboard).
+    //   - Krissie on Krissie's profile → same.
     // Late approval still awards the row's full pendingStars + bonus
-    // via decide(); the protect_completion_stars_trg trigger guards
-    // approved → approved transitions, never blocks pending → approved.
-    const needsApproval = !authIsParentOrAdmin;
+    // via decide(); protect_completion_stars_trg guards approved →
+    // approved transitions, never blocks pending → approved.
+    const needsApproval = !(activeIsParent && authIsParentOrAdmin);
     setCompletions((prev) => {
       // Replace only TODAY's prior submission for this task — yesterday's row
       // (and earlier history) stays in the array so it persists and remains
