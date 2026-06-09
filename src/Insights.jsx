@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { Drum, Music, BookOpen, Image as ImageIcon, Heart, TrendingUp, Sparkles, Check, X, RotateCcw } from "lucide-react";
-import { searchOpenLibrary, pickFirstMatch } from "./lib/enrichBook.js";
+import { searchOpenLibrary, pickFirstMatch as pickBookMatch } from "./lib/enrichBook.js";
+import { searchMusicBrainz, pickFirstMatch as pickSongMatch } from "./lib/enrichSong.js";
 
 /* =====================================================================
    Insights — Phase 3.
@@ -154,7 +155,7 @@ function EnrichedBookRow({ b, updateBook }) {
     if (!b.title) return;
     let cancelled = false;
     (async () => {
-      const match = await pickFirstMatch(b.title, b.canonicalAuthor || "");
+      const match = await pickBookMatch(b.title, b.canonicalAuthor || "");
       if (cancelled || !match) return;
       updateBook(b.id, {
         coverUrl:        match.coverUrl,
@@ -333,6 +334,205 @@ function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
   );
 }
 
+// Single song row that renders its album cover (when enriched),
+// auto-enriches on first render if match_status === "unmatched", and
+// shows Confirm / Pick another / Skip CTAs when status === "auto".
+// Mirrors EnrichedBookRow line-for-line so the two domains stay
+// readable side-by-side. MusicBrainz fetches are queued at 1 req/sec
+// by the enrichSong helper — a list of 12 unmatched rows that mount
+// at once will drain over ~13 seconds, not burst.
+function EnrichedSongRow({ s, rank, maxCount, updateSong }) {
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!updateSong) return;
+    if (s.matchStatus && s.matchStatus !== "unmatched") return;
+    if (!s.title) return;
+    let cancelled = false;
+    (async () => {
+      const match = await pickSongMatch(s.title, s.canonicalArtist || s.artist || "");
+      if (cancelled || !match) return;
+      updateSong(s.id, {
+        coverUrl:        match.coverUrl,
+        canonicalTitle:  match.title,
+        canonicalArtist: match.artist,
+        externalSource:  match.externalSource,
+        externalId:      match.externalId,
+        enrichedAt:      new Date().toISOString(),
+        matchStatus:     "auto",
+      });
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.id, s.matchStatus, s.title]);
+
+  const onConfirm = () => updateSong && updateSong(s.id, { matchStatus: "confirmed" });
+  const onSkip    = () => updateSong && updateSong(s.id, { matchStatus: "rejected", coverUrl: "" });
+
+  const displayTitle  = s.canonicalTitle  || s.title  || "(unknown)";
+  const displayArtist = s.canonicalArtist || s.artist || "";
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-2">
+      <div className="flex items-center gap-2">
+        <span className="w-5 text-right text-[11px] font-bold text-slate-400 shrink-0">#{rank}</span>
+        {s.coverUrl ? (
+          <img
+            src={s.coverUrl}
+            alt=""
+            draggable={false}
+            className="w-9 h-9 object-cover rounded-md border border-slate-200 shrink-0 bg-slate-100"
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : (
+          <div className="w-9 h-9 rounded-md bg-slate-100 border border-slate-200 grid place-items-center shrink-0 text-slate-300">
+            <Music size={14} />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-slate-800 truncate">{displayTitle}</div>
+          <div className="text-[11px] text-slate-500 truncate">
+            {displayArtist}
+            {displayArtist && s.last ? " · " : ""}
+            {s.last ? `last ${fmtShort(s.last)}` : ""}
+          </div>
+        </div>
+        <span className="relative w-16 h-2 bg-slate-100 rounded-full overflow-hidden shrink-0">
+          <span
+            className="absolute inset-y-0 left-0 rounded-full"
+            style={{ width: `${(s.count / maxCount) * 100}%`, background: "#0891b2" }}
+          />
+        </span>
+        <span className="text-sm font-bold text-cyan-700 w-6 text-right tabular-nums shrink-0">{s.count}</span>
+      </div>
+      {s.matchStatus === "auto" && updateSong && !picking && (
+        <div className="flex gap-1 mt-2">
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-emerald-500 text-white active:scale-95 flex items-center justify-center gap-1"
+          >
+            <Check size={12} /> Looks right
+          </button>
+          <button
+            type="button"
+            onClick={() => setPicking(true)}
+            className="flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-slate-100 text-slate-700 active:scale-95 flex items-center justify-center gap-1"
+          >
+            <RotateCcw size={12} /> Pick another
+          </button>
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={busy}
+            className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
+            aria-label="Skip enrichment"
+          >
+            Skip
+          </button>
+        </div>
+      )}
+      {picking && (
+        <SongMatchPicker
+          s={s}
+          updateSong={updateSong}
+          busy={busy}
+          setBusy={setBusy}
+          onClose={() => setPicking(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Inline picker — fetches up to 5 MusicBrainz candidates for the
+// free-typed title + artist and renders them as tap-to-select rows.
+// Goes through the same 1-req/sec queue as auto-enrich.
+function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
+  const [candidates, setCandidates] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    setBusy(true);
+    (async () => {
+      try {
+        const out = await searchMusicBrainz(s.title, s.canonicalArtist || s.artist || "", 5);
+        if (!cancelled) setCandidates(out);
+      } catch (e) {
+        if (!cancelled) setError(e?.message || "search failed");
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [s.title]);
+
+  const pick = (c) => {
+    if (!updateSong) return;
+    updateSong(s.id, {
+      coverUrl:        c.coverUrl,
+      canonicalTitle:  c.title,
+      canonicalArtist: c.artist,
+      externalSource:  c.externalSource,
+      externalId:      c.externalId,
+      enrichedAt:      new Date().toISOString(),
+      matchStatus:     "confirmed",
+    });
+    onClose();
+  };
+
+  return (
+    <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-2">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+          Pick the right match
+        </div>
+        <button onClick={onClose} className="text-slate-400" aria-label="Cancel">
+          <X size={14} />
+        </button>
+      </div>
+      {busy && <div className="text-[12px] text-slate-400">Searching MusicBrainz…</div>}
+      {error && <div className="text-[12px] text-rose-500">Search failed: {error}</div>}
+      {candidates && candidates.length === 0 && (
+        <div className="text-[12px] text-slate-400">No matches found.</div>
+      )}
+      {candidates && candidates.length > 0 && (
+        <div className="space-y-1">
+          {candidates.map((c, i) => (
+            <button
+              key={c.externalId || i}
+              type="button"
+              onClick={() => pick(c)}
+              className="w-full flex items-center gap-2 p-1.5 rounded-lg bg-white border border-slate-200 hover:border-indigo-300 active:scale-[0.99] text-left"
+            >
+              {c.coverThumbUrl ? (
+                <img
+                  src={c.coverThumbUrl}
+                  alt=""
+                  className="w-8 h-8 object-cover rounded shrink-0 bg-slate-100"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+              ) : (
+                <div className="w-8 h-8 rounded bg-slate-100 grid place-items-center shrink-0 text-slate-300">
+                  <Music size={12} />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] font-bold text-slate-800 truncate">{c.title}</div>
+                <div className="text-[10px] text-slate-500 truncate">
+                  {c.artist}{c.year ? ` · ${c.year}` : ""}{c.releaseTitle ? ` · ${c.releaseTitle}` : ""}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Insights({
   completions = [],
   tasks = [],
@@ -342,6 +542,7 @@ export default function Insights({
   books = [],
   albumPhotos = [],
   updateBook,
+  updateSong,
 }) {
   /* ----- PRACTICE TIME ---------------------------------------------- */
   const practiceStats = useMemo(() => {
@@ -391,6 +592,12 @@ export default function Insights({
           id: sid,
           title: song?.title || "(unknown)",
           artist: song?.artist || "",
+          // Phase 6b: carry enrichment fields so EnrichedSongRow can
+          // render covers and fire auto-enrich without re-reading songs.
+          coverUrl:        song?.coverUrl || "",
+          canonicalTitle:  song?.canonicalTitle || "",
+          canonicalArtist: song?.canonicalArtist || "",
+          matchStatus:     song?.matchStatus || "unmatched",
           count: v.count,
           last: v.last,
         };
@@ -540,26 +747,23 @@ export default function Insights({
         {topSongs.list.length === 0 ? (
           <EmptyLine>No song plays logged yet.</EmptyLine>
         ) : (
-          <ol className="space-y-1.5">
+          <div className="space-y-2">
             {topSongs.list.map((s, i) => (
-              <li key={s.id} className="flex items-center gap-2 text-sm">
-                <span className="w-5 text-right text-[11px] font-bold text-slate-400">#{i + 1}</span>
-                <span className="flex-1 min-w-0">
-                  <span className="font-bold text-slate-800 truncate">{s.title}</span>
-                  {s.artist && <span className="text-[11px] text-slate-500"> · {s.artist}</span>}
-                  {s.last && <span className="text-[10px] text-slate-400"> · last {fmtShort(s.last)}</span>}
-                </span>
-                {/* mini count bar */}
-                <span className="relative w-16 h-2 bg-slate-100 rounded-full overflow-hidden shrink-0">
-                  <span
-                    className="absolute inset-y-0 left-0 rounded-full"
-                    style={{ width: `${(s.count / maxSongPlays) * 100}%`, background: "#0891b2" }}
-                  />
-                </span>
-                <span className="text-sm font-bold text-cyan-700 w-6 text-right tabular-nums">{s.count}</span>
-              </li>
+              <EnrichedSongRow
+                key={s.id}
+                s={s}
+                rank={i + 1}
+                maxCount={maxSongPlays}
+                updateSong={updateSong}
+              />
             ))}
-          </ol>
+            {topSongs.list.some((s) => s.matchStatus === "auto") && (
+              <div className="text-[10px] text-slate-400 mt-2 leading-snug">
+                Auto-matched songs need a parent thumbs-up. Tap ✓ to lock,
+                "Pick another" to fix it, or "Skip" to leave the row as free text.
+              </div>
+            )}
+          </div>
         )}
       </Card>
 
