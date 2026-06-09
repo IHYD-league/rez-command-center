@@ -81,16 +81,22 @@ function normalize(rec) {
 // Search MusicBrainz recordings and return the top N normalized
 // candidates. Throws on network / non-2xx so callers can decide.
 // Queued via enqueueMB so we never burst.
+//
+// Query construction notes:
+// - Title is field-qualified but NOT phrase-quoted — strict phrase
+//   matches scored too low for famous songs vs random covers with
+//   shorter metadata. Plain `recording:Aerials` matches looser and
+//   ranks better.
+// - Artist is the decisive disambiguator. When provided we wrap it in
+//   quotes so multi-word artists ("System of a Down", "Pink Floyd")
+//   match as a single phrase, not as 4 OR'd words.
 export async function searchMusicBrainz(title, artist = "", limit = 5) {
   const trimTitle = (title || "").trim();
   if (!trimTitle) return [];
-  // Lucene-style query: recording (the field MB indexes for the title
-  // of the recording itself) + optional artist filter. Quoting protects
-  // titles with spaces / apostrophes.
   const escTitle = trimTitle.replace(/(["\\])/g, "\\$1");
-  const parts = [`recording:"${escTitle}"`];
-  if (artist) {
-    const escArtist = artist.replace(/(["\\])/g, "\\$1");
+  const parts = [`recording:${escTitle}`];
+  if (artist && artist.trim()) {
+    const escArtist = artist.trim().replace(/(["\\])/g, "\\$1");
     parts.push(`artist:"${escArtist}"`);
   }
   const query = parts.join(" AND ");

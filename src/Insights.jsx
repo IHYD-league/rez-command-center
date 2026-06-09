@@ -453,12 +453,22 @@ function EnrichedSongRow({ s, rank, maxCount, updateSong }) {
 function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
   const [candidates, setCandidates] = useState(null);
   const [error, setError] = useState("");
-  useEffect(() => {
-    let cancelled = false;
+  // Editable refinement inputs — pre-filled with what we have, so the
+  // first search uses the user-typed title + the auto-matched (or
+  // user-typed) artist as a starting point. User can fix typos
+  // ("Ariels" → "Aerials") and type the band ("System of a Down") so
+  // famous songs disambiguate from random covers.
+  const [titleQuery, setTitleQuery] = useState(s.title || "");
+  const [artistQuery, setArtistQuery] = useState(s.canonicalArtist || s.artist || "");
+
+  const runSearch = (t, a) => {
     setBusy(true);
+    setError("");
+    setCandidates(null);
+    let cancelled = false;
     (async () => {
       try {
-        const out = await searchMusicBrainz(s.title, s.canonicalArtist || s.artist || "", 5);
+        const out = await searchMusicBrainz(t, a, 5);
         if (!cancelled) setCandidates(out);
       } catch (e) {
         if (!cancelled) setError(e?.message || "search failed");
@@ -467,7 +477,21 @@ function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [s.title]);
+  };
+
+  // Auto-fire one search on open with the pre-filled values.
+  useEffect(() => {
+    const cancel = runSearch(s.title || "", s.canonicalArtist || s.artist || "");
+    return cancel;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.id]);
+
+  const onSubmit = (e) => {
+    e.preventDefault();
+    if (busy) return;
+    if (!titleQuery.trim()) return;
+    runSearch(titleQuery, artistQuery);
+  };
 
   const pick = (c) => {
     if (!updateSong) return;
@@ -493,10 +517,40 @@ function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
           <X size={14} />
         </button>
       </div>
-      {busy && <div className="text-[12px] text-slate-400">Searching MusicBrainz…</div>}
-      {error && <div className="text-[12px] text-rose-500">Search failed: {error}</div>}
-      {candidates && candidates.length === 0 && (
-        <div className="text-[12px] text-slate-400">No matches found.</div>
+      <form onSubmit={onSubmit} className="flex flex-col gap-1.5 mb-2">
+        <div className="grid grid-cols-2 gap-1.5">
+          <input
+            type="text"
+            value={titleQuery}
+            onChange={(e) => setTitleQuery(e.target.value)}
+            placeholder="Song title"
+            className="text-[12px] px-2 py-1.5 rounded-md border border-slate-200 bg-white"
+            aria-label="Song title"
+          />
+          <input
+            type="text"
+            value={artistQuery}
+            onChange={(e) => setArtistQuery(e.target.value)}
+            placeholder="Artist / band (helps disambiguate)"
+            className="text-[12px] px-2 py-1.5 rounded-md border border-slate-200 bg-white"
+            aria-label="Artist or band"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={busy || !titleQuery.trim()}
+          className={`text-[11px] font-bold px-2 py-1.5 rounded-md flex items-center justify-center gap-1 ${
+            busy || !titleQuery.trim()
+              ? "bg-slate-200 text-slate-400"
+              : "bg-cyan-600 text-white active:scale-95"
+          }`}
+        >
+          {busy ? "Searching…" : "Search MusicBrainz"}
+        </button>
+      </form>
+      {error && <div className="text-[12px] text-rose-500 mb-1">Search failed: {error}</div>}
+      {candidates && candidates.length === 0 && !busy && (
+        <div className="text-[12px] text-slate-400 mb-1">No matches — try the band name above.</div>
       )}
       {candidates && candidates.length > 0 && (
         <div className="space-y-1">
