@@ -93,7 +93,7 @@ const VOLCANO_PEAKS = {
   name: "Volcano Peaks",
   background: "radial-gradient(ellipse at top, #7c2d12 0%, #431407 65%, #1c0a05 100%)",
   bgImg: "/board/themes/volcano-peaks/bg.png",
-  bgAspect: 1.502,  // 1537 / 1023 — drives the board's viewBox height
+  bgAspect: 1.900,  // 1729 / 910 — drives the board's viewBox height
   pathStroke: "rgba(255,180,90,0.50)",
   pathGlow: "rgba(239,68,68,0.40)",
   tokenEmoji: "🐉",
@@ -280,6 +280,77 @@ const DINO_WORLD = {
   ],
 };
 
+// Dino Desert — same character family as Dino World but a dusty
+// canyon biome instead of lush jungle. Has token-roar alt sprite.
+const DINO_DESERT = {
+  id: "dino_desert",
+  name: "Dino Desert",
+  background: "radial-gradient(ellipse at top, #fbbf24 0%, #b45309 60%, #422006 100%)",
+  bgImg: "/board/themes/dino-desert/bg.png",
+  bgAspect: 1.903,  // 1730 / 909
+  pathStroke: "rgba(254,215,170,0.55)",
+  pathGlow: "rgba(249,115,22,0.40)",
+  tokenEmoji: "🦖",
+  tokenRestImg: "/board/themes/dino-desert/token.png",
+  tokenFlyImg: "/board/themes/dino-desert/token-roar.png",
+  treasureEmoji: "🏆",
+  treasureLockedImg: "/board/themes/dino-desert/treasure-locked.png",
+  treasureOpenImg: "/board/themes/dino-desert/treasure-open.png",
+  treasureLabel: "Desert Hoard",
+  startEmoji: "🌵",
+  startImg: null,
+  startLabel: "Start",
+  spaceTileImg: null,
+  fallbackColor: "#f97316",
+  treasureAnchor: { x: 50, y: 14 },
+  startAnchor:    { x: 50, y: 92 },
+  pathWaypoints: [
+    { x: 50, y: 92 },
+    { x: 22, y: 80 },
+    { x: 78, y: 68 },
+    { x: 25, y: 54 },
+    { x: 75, y: 40 },
+    { x: 35, y: 25 },
+    { x: 50, y: 14 },
+  ],
+};
+
+// Sky City — floating clouds + spire city. Token-wink alt sprite
+// (matches the Enchanted Forest pattern: alt slot is "alt during
+// motion", here it's a wink/wave variant). Has space-tile art.
+const SKY_CITY = {
+  id: "sky_city",
+  name: "Sky City",
+  background: "radial-gradient(ellipse at top, #bae6fd 0%, #0284c7 55%, #0c4a6e 100%)",
+  bgImg: "/board/themes/sky-city/bg.png",
+  bgAspect: 1.900,  // 1729 / 910
+  pathStroke: "rgba(186,230,253,0.55)",
+  pathGlow: "rgba(56,189,248,0.45)",
+  tokenEmoji: "🦅",
+  tokenRestImg: "/board/themes/sky-city/token.png",
+  tokenFlyImg: "/board/themes/sky-city/token-wink.png",
+  treasureEmoji: "🏰",
+  treasureLockedImg: "/board/themes/sky-city/treasure-locked.png",
+  treasureOpenImg: "/board/themes/sky-city/treasure-open.png",
+  treasureLabel: "Cloud Citadel",
+  startEmoji: "☁️",
+  startImg: null,
+  startLabel: "Start",
+  spaceTileImg: "/board/themes/sky-city/space-tile.png",
+  fallbackColor: "#38bdf8",
+  treasureAnchor: { x: 50, y: 14 },
+  startAnchor:    { x: 50, y: 92 },
+  pathWaypoints: [
+    { x: 50, y: 92 },
+    { x: 22, y: 80 },
+    { x: 78, y: 68 },
+    { x: 25, y: 54 },
+    { x: 75, y: 40 },
+    { x: 35, y: 25 },
+    { x: 50, y: 14 },
+  ],
+};
+
 export const BOARD_THEMES = {
   space_quest: SPACE_QUEST,
   volcano_peaks: VOLCANO_PEAKS,
@@ -287,6 +358,8 @@ export const BOARD_THEMES = {
   candy_concert: CANDY_CONCERT,
   water_world: WATER_WORLD,
   dino_world: DINO_WORLD,
+  dino_desert: DINO_DESERT,
+  sky_city: SKY_CITY,
 };
 
 export const DEFAULT_BOARD_THEME = "space_quest";
