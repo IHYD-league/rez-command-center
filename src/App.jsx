@@ -2,13 +2,14 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft,
-  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map, Settings, TrendingUp, Download
+  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map, Settings, TrendingUp, Download, Play
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import SummerQuest from "./SummerQuest.jsx";
 import PhotoGallery from "./PhotoGallery.jsx";
 import Insights from "./Insights.jsx";
 import DataExport from "./DataExport.jsx";
+import MilestoneSlideshow from "./MilestoneSlideshow.jsx";
 import ParentCompanion from "./summerQuest/ParentCompanion.jsx";
 import { useSummerQuestProgress } from "./summerQuest/useSummerQuestProgress.js";
 import SongLogger from "./SongLogger.jsx";
@@ -4334,6 +4335,7 @@ function MoreParent(props) {
   if (sub === "gallery") return <BackWrap title="Photo Gallery" onBack={() => setSub("menu")}><PhotoGallery {...props} /></BackWrap>;
   if (sub === "insights") return <BackWrap title="Insights" onBack={() => setSub("menu")}><Insights {...props} /></BackWrap>;
   if (sub === "export") return <BackWrap title="Export Data" onBack={() => setSub("menu")}><DataExport {...props} /></BackWrap>;
+  if (sub === "slideshow") return <BackWrap title="Milestone Slideshows" onBack={() => setSub("menu")}><MilestoneSlideshow {...props} /></BackWrap>;
   const items = [
     { k: "portfolio", icon: <ImageIcon size={18} />, label: "Progress Portfolio", sub: "Photos, art & writing over time" },
     { k: "weekly", icon: <ClipboardList size={18} />, label: "Weekly Summary", sub: "Minutes, wins, needs attention" },
@@ -4350,6 +4352,7 @@ function MoreParent(props) {
     { k: "gallery", icon: <Camera size={18} />, label: "Photo Gallery", sub: "Every photo · sort by date · filter by activity" },
     { k: "insights", icon: <TrendingUp size={18} />, label: "Insights", sub: "Practice time · songs · books · counts" },
     { k: "export", icon: <Download size={18} />, label: "Export Data", sub: "CSV downloads — own your data" },
+    { k: "slideshow", icon: <Play size={18} />, label: "Milestone Slideshows", sub: "Monthly · 6-month · 1-year recaps" },
   ];
   return (
     <div className="px-4 pt-4">
