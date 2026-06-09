@@ -84,6 +84,7 @@ const VOLCANO_PEAKS = {
   name: "Volcano Peaks",
   background: "radial-gradient(ellipse at top, #7c2d12 0%, #431407 65%, #1c0a05 100%)",
   bgImg: "/board/themes/volcano-peaks/bg.png",
+  bgAspect: 1.502,  // 1537 / 1023 — drives the board's viewBox height
   pathStroke: "rgba(255,180,90,0.50)",
   pathGlow: "rgba(239,68,68,0.40)",
   tokenEmoji: "🐉",
@@ -98,25 +99,26 @@ const VOLCANO_PEAKS = {
   startLabel: "Start",
   spaceTileImg: null,
   fallbackColor: "#f97316",
-  treasureAnchor: { x: 50, y: 14 },
-  startAnchor:    { x: 50, y: 93 },
+  treasureAnchor: { x: 50, y: 10 },
+  startAnchor:    { x: 50, y: 92 },
   // Painted-position SNAP — 11 coords matching the 11 baked pedestals
-  // in bg.png (START + 3x3 grid of fire-circle pedestals + TREASURE).
-  // Calc switches to snap-mode when count === waypoints.length, so
-  // each space lands EXACTLY on its painted stone ring.
+  // in bg.png at the actual painted positions (verified by overlaying
+  // these % coords onto the 1023×1537 image). With the new viewBox
+  // height matching the bg's aspect ratio (1.502), these waypoints
+  // land EXACTLY on each fire-circle ring.
   // Snake order from bottom: BL → BC → BR → MR → MC → ML → TL → TC → TR.
   pathWaypoints: [
-    { x: 50, y: 93 },  // START — bottom fire-emblem pedestal
-    { x: 22, y: 80 },  // bottom-left
-    { x: 50, y: 80 },  // bottom-center
-    { x: 78, y: 80 },  // bottom-right
-    { x: 78, y: 62 },  // middle-right
-    { x: 50, y: 62 },  // middle-center
-    { x: 22, y: 62 },  // middle-left
-    { x: 28, y: 45 },  // top-left
-    { x: 50, y: 45 },  // top-center
-    { x: 72, y: 45 },  // top-right
-    { x: 50, y: 14 },  // TREASURE — smiling volcano face
+    { x: 50, y: 92 },  // START — bottom fire-emblem pedestal
+    { x: 21, y: 70 },  // bottom-left
+    { x: 50, y: 70 },  // bottom-center
+    { x: 79, y: 70 },  // bottom-right
+    { x: 82, y: 47 },  // middle-right
+    { x: 50, y: 47 },  // middle-center
+    { x: 18, y: 47 },  // middle-left
+    { x: 21, y: 25 },  // top-left
+    { x: 50, y: 25 },  // top-center
+    { x: 79, y: 25 },  // top-right
+    { x: 50, y: 10 },  // TREASURE — smiling volcano face
   ],
 };
 
@@ -129,6 +131,7 @@ const ENCHANTED_FOREST = {
   name: "Enchanted Forest",
   background: "radial-gradient(ellipse at center, #14532d 0%, #052e16 65%, #020617 100%)",
   bgImg: "/board/themes/enchanted-forest/bg.png",
+  bgAspect: 1.5,    // 1536 / 1024
   pathStroke: "rgba(196,181,253,0.45)",
   pathGlow: "rgba(168,85,247,0.40)",
   tokenEmoji: "🦋",
@@ -165,6 +168,7 @@ const CANDY_CONCERT = {
   name: "Candy Concert",
   background: "radial-gradient(ellipse at top, #fbcfe8 0%, #f9a8d4 55%, #be185d 100%)",
   bgImg: "/board/themes/candy-concert/bg.png",
+  bgAspect: 1.9,    // 1729 / 910
   pathStroke: "rgba(244,114,182,0.55)",
   pathGlow: "rgba(236,72,153,0.45)",
   tokenEmoji: "🍭",
@@ -776,7 +780,11 @@ export default function BoardGame({
   // stays proportional. Procedural themes still scale viewBoxH with space
   // count so the snake doesn't squash.
   const rowCount = Math.max(1, Math.ceil(spaces.length / 3));
-  const VIEWBOX_H = theme?.bgImg ? 180 : rowCount * 38;
+  // For themed boards, the viewBox height matches the bg image's aspect
+  // so waypoint coordinates align with painted pedestals 1:1. Each theme
+  // declares bgAspect = (image height / image width). When missing we
+  // default to 1.5 (a reasonable mobile-portrait ratio).
+  const VIEWBOX_H = theme?.bgImg ? (theme.bgAspect || 1.5) * 100 : rowCount * 38;
   const positions = useMemo(
     () => calcPositions(spaces.length, VIEWBOX_H, theme),
     [spaces.length, VIEWBOX_H, theme]
@@ -1047,12 +1055,12 @@ export default function BoardGame({
       ref={outerRef}
       className="min-h-screen px-3 pt-4 pb-24 relative overflow-hidden"
       style={{
-        // bgImg layers ON TOP of the gradient — the gradient stays as a
-        // fallback if the PNG fails to load and as the bottom layer
-        // through any transparent edges of the painted background.
-        background: theme.bgImg
-          ? `url(${theme.bgImg}) center top / cover no-repeat, ${theme.background}`
-          : theme.background,
+        // Outer container shows only the gradient/dark fallback. The
+        // bgImg now lives on the INNER board container so space
+        // positions and painted pedestals share the same coordinate
+        // space (otherwise the spaces float in a centered narrow box
+        // while the bg fills the full viewport — they never align).
+        background: theme.background,
         fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
       }}
     >
@@ -1086,8 +1094,18 @@ export default function BoardGame({
       </div>
 
       <div
-        className="relative z-10 mx-auto"
-        style={{ maxWidth: 420, aspectRatio: `100 / ${VIEWBOX_H}` }}
+        className="relative z-10 mx-auto overflow-hidden"
+        style={{
+          maxWidth: 420,
+          aspectRatio: `100 / ${VIEWBOX_H}`,
+          // bgImg fills the board container exactly. Now waypoints in
+          // 0-100 viewBox % land precisely on painted pedestals in the
+          // image because the container == the image's coordinate space.
+          background: theme.bgImg
+            ? `url(${theme.bgImg}) center / 100% 100% no-repeat, ${theme.background}`
+            : undefined,
+          borderRadius: 16,
+        }}
         onClick={launchNow}
       >
         <svg
