@@ -220,7 +220,7 @@ const WATER_WORLD = {
   pathGlow: "rgba(56,189,248,0.40)",
   tokenEmoji: "🦈",
   tokenRestImg: "/board/themes/water-world/token.png",
-  tokenFlyImg: "/board/themes/water-world/token.png",
+  tokenFlyImg: "/board/themes/water-world/token-swim.png",
   treasureEmoji: "🏆",
   treasureLockedImg: "/board/themes/water-world/treasure-locked.png",
   treasureOpenImg: "/board/themes/water-world/treasure-open.png",
@@ -790,7 +790,14 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
             else onTap?.(task);
           }}
           title={label}
-          className="active:scale-95"
+          className="active:scale-95 focus:outline-none"
+          style={{
+            border: 0,
+            padding: 0,
+            background: "transparent",
+            outline: "none",
+            WebkitTapHighlightColor: "transparent",
+          }}
         >
           {inner}
         </button>
@@ -1255,18 +1262,20 @@ export default function BoardGame({
   return (
     <div
       ref={outerRef}
-      className="min-h-screen px-3 pt-4 pb-24 relative overflow-hidden"
+      className="min-h-screen px-3 pt-3 pb-24 relative overflow-hidden"
       style={{
-        // Outer container shows the bg image as an immersive backdrop
-        // (cover, so it fills the screen — slightly cropped vs the
-        // inner board's 100% 100% fit, but eliminates the dark-gradient
-        // bars around the header and below the board). Chips still
-        // align with the INNER container's pristine bg copy because
-        // that one is at 100% 100% in its own aspect-ratio frame.
-        background: theme.bgImg
-          ? `url(${theme.bgImg}) center top / cover no-repeat, ${theme.background}`
-          : theme.background,
+        // Outer = solid theme gradient only. The map (bg image) lives
+        // ONLY in the inner board container. Rendering bgImg in both
+        // creates the "doubled image" eyesore — never do that again.
+        background: theme.background,
         fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
+        // Suppress browser tap-highlight rectangles + accidental text
+        // selection across the whole board screen. This IS a game; we
+        // don't want cyan focus boxes around chips or selection drag
+        // rectangles around labels.
+        WebkitTapHighlightColor: "transparent",
+        WebkitUserSelect: "none",
+        userSelect: "none",
       }}
     >
       {/* Procedural starfield — only renders when there's no painted
@@ -1288,35 +1297,47 @@ export default function BoardGame({
         ))}
       </div>
 
-      <div className="relative z-10 text-center mb-3">
-        <div className="text-[10px] uppercase tracking-[0.18em] text-white/60 font-bold">
-          {theme.name}
-        </div>
-        <div className="text-2xl font-extrabold text-white tracking-tight mt-0.5">
-          Daily Adventure
-        </div>
-        <div className="text-[11px] text-white/70 mt-1">
-          {doneCount} of {safeTasks.length} cleared
-          {pendingCount > 0 ? ` · ${pendingCount} pending ⏳` : ""}
-        </div>
-      </div>
-
       <div
         ref={boardRef}
         className="relative z-10 mx-auto overflow-hidden"
         style={{
-          maxWidth: 420,
+          // Bumped wider — the map should DOMINATE the screen, not
+          // float as a small tile centered between dark margins on
+          // bigger viewports. 520 is still phone-ish on tablets but
+          // reads as a serious game surface, not a thumbnail.
+          maxWidth: 520,
           aspectRatio: `100 / ${VIEWBOX_H}`,
-          // bgImg fills the board container exactly. Now waypoints in
-          // 0-100 viewBox % land precisely on painted pedestals in the
-          // image because the container == the image's coordinate space.
+          // ONE bg image lives here. Outer is just gradient. No more
+          // duplicated cover-bg leaking around the sides.
           background: theme.bgImg
             ? `url(${theme.bgImg}) center / 100% 100% no-repeat, ${theme.background}`
             : undefined,
           borderRadius: 16,
+          // Cancel browser focus rings + selection rectangles on the
+          // whole playable surface.
+          outline: "none",
+          WebkitTapHighlightColor: "transparent",
         }}
         onClick={launchNow}
       >
+        {/* Title overlays INSIDE the map at the top — the map IS the
+            screen now, so the header has to live within it. Strong
+            drop-shadow keeps text legible against any painted bg. */}
+        <div
+          className="absolute top-2 left-0 right-0 text-center z-20 pointer-events-none px-3"
+          style={{ textShadow: "0 2px 10px rgba(0,0,0,0.7)" }}
+        >
+          <div className="text-[10px] uppercase tracking-[0.18em] text-white/85 font-bold drop-shadow">
+            {theme.name}
+          </div>
+          <div className="text-2xl font-extrabold text-white tracking-tight mt-0.5">
+            Daily Adventure
+          </div>
+          <div className="text-[11px] text-white/90 mt-1 font-semibold">
+            {doneCount} of {safeTasks.length} cleared
+            {pendingCount > 0 ? ` · ${pendingCount} pending ⏳` : ""}
+          </div>
+        </div>
         <svg
           viewBox={`0 0 100 ${VIEWBOX_H}`}
           preserveAspectRatio="none"
@@ -1422,9 +1443,18 @@ export default function BoardGame({
             onPointerUp={onTokenPointerUp}
             onPointerCancel={onTokenPointerUp}
             onClick={(e) => {
-              // Pointer-up already handled tap vs drag — swallow so the
-              // outer container's launch handler doesn't double-fire.
               e.stopPropagation();
+              // PRE-LAUNCH: tapping the character launches the catch-up
+              // replay. This is the FUN cue — kid sees the pulsing,
+              // glowing dragon/fairy/shark and naturally taps it.
+              if (!launched) {
+                launchNow();
+                return;
+              }
+              // POST-LAUNCH: pointer-up handler already decides tap vs
+              // drag (drag triggers cheer; tap fires onTokenTap). Just
+              // swallow the click so the outer container's launchNow
+              // doesn't re-fire on every tap.
             }}
             className="text-5xl sm:text-6xl drop-shadow-[0_4px_8px_rgba(0,0,0,0.6)] relative active:scale-95 transition-transform"
             aria-label="Tap or drag your character"
@@ -1443,6 +1473,8 @@ export default function BoardGame({
               background: "transparent",
               touchAction: "none", // pointer drag instead of browser scroll
               pointerEvents: "auto", // re-enable: parent wrapper is none
+              outline: "none",
+              WebkitTapHighlightColor: "transparent",
             }}
           >
             {theme.tokenRestImg ? (
@@ -1484,11 +1516,6 @@ export default function BoardGame({
             </div>
           </div>
         )}
-      </div>
-
-      <div className="relative z-10 text-center text-[10px] text-white/40 mt-6 max-w-xs mx-auto leading-snug">
-        Mission Control + Checklist still live — this is just a fun way to see today's
-        missions. Same stars, same streaks.
       </div>
 
       {pop && <BoardPop id={pop.id} kind={pop.kind} label={pop.label} sub={pop.sub} />}
