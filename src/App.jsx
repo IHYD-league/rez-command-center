@@ -3357,7 +3357,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
@@ -3392,7 +3392,27 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
 
       <SectionTitle icon={<Clock size={16} className="text-amber-500" />}>Needs approval ({pending.length})</SectionTitle>
       {pending.length === 0 && <p className="text-xs text-slate-400 px-1">Nothing waiting. 🎉</p>}
-      {pending.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="amber" mode={mode} priorities={priorities} users={users} activities={activities} onOpenDetail={setDetailId} undoTask={undoTask} />)}
+      {pending.map((t) => {
+        const c = compByTask[t.id];
+        return (
+          <div key={t.id} className="mb-2.5">
+            <MiniRow task={t} comp={c} tone="amber" mode={mode} priorities={priorities} users={users} activities={activities} onOpenDetail={setDetailId} undoTask={undoTask} />
+            {/* Inline approve buttons — the home banner used to be
+                a dead-end stat. Now every pending row is one tap from
+                Approve / +5⭐ bonus / Needs fix / Reject. Same decide()
+                action the Approvals tab uses, so star-burst + streak
+                bump fire identically. */}
+            {c?.id && decide && (
+              <div className="flex gap-2 mt-1.5 px-1">
+                <button onClick={() => decide(t.id, "approve")} className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={15} />Approve</button>
+                <button onClick={() => decide(t.id, "approve", 5)} className="px-3 py-2 rounded-2xl bg-violet-500 text-white font-bold text-sm active:scale-95">+5⭐</button>
+                <button onClick={() => decide(t.id, "needs_fix")} className="px-3 py-2 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm active:scale-95" aria-label="Needs fix"><RotateCcw size={15} /></button>
+                <button onClick={() => decide(t.id, "reject")} className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95" aria-label="Reject"><X size={15} /></button>
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       <SectionTitle icon={<ClipboardList size={16} className="text-slate-400" />} right={<span className="text-[11px] text-slate-400 flex items-center gap-1"><Flag size={11} /> tap to set priority</span>}>Still to do ({todo.length})</SectionTitle>
       {todo.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="slate" mode={mode} priorities={priorities} users={users} setPriority={setPriority} clearPriority={clearPriority} activities={activities} onOpenDetail={setDetailId} onMarkDone={setOpenTask} />)}
