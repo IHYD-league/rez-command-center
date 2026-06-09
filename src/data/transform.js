@@ -166,6 +166,10 @@ export const toApp = {
     externalId:      r.external_id || "",
     enrichedAt:      r.enriched_at || null,
     matchStatus:     r.match_status || "unmatched",
+    // Phase 6b polish: parent-uploaded album cover. Storage path, not
+    // URL — resolved to a signed URL at display time. Takes precedence
+    // over cover_url (MB/CAA cache) when present.
+    customCoverPath: r.custom_cover_path || "",
   }),
 
   songPlay: (r) => ({
@@ -382,6 +386,7 @@ export const toDb = {
     external_id:      o.externalId || null,
     enriched_at:      o.enrichedAt || null,
     match_status:     o.matchStatus || "unmatched",
+    custom_cover_path: o.customCoverPath || null,
   }),
 
   songPlay: (familyId) => (o) => ({

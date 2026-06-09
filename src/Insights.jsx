@@ -1,7 +1,8 @@
-import React, { useMemo, useState, useEffect } from "react";
-import { Drum, Music, BookOpen, Image as ImageIcon, Heart, TrendingUp, Sparkles, Check, X, RotateCcw } from "lucide-react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
+import { Drum, Music, BookOpen, Image as ImageIcon, Heart, TrendingUp, Sparkles, Check, X, RotateCcw, Camera, Save } from "lucide-react";
 import { searchOpenLibrary, pickFirstMatch as pickBookMatch } from "./lib/enrichBook.js";
 import { searchMusicBrainz, pickFirstMatch as pickSongMatch } from "./lib/enrichSong.js";
+import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
    Insights — Phase 3.
@@ -341,9 +342,17 @@ function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
 // readable side-by-side. MusicBrainz fetches are queued at 1 req/sec
 // by the enrichSong helper — a list of 12 unmatched rows that mount
 // at once will drain over ~13 seconds, not burst.
-function EnrichedSongRow({ s, rank, maxCount, updateSong }) {
+function EnrichedSongRow({ s, rank, maxCount, updateSong, familyId }) {
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+  // Custom cover takes precedence over MB. Hook is called
+  // unconditionally with whatever path we have — when empty, it's a
+  // no-op and returns "".
+  const customCoverSigned = useSignedUrl(s.customCoverPath || "");
+  const displayCover = customCoverSigned || s.coverUrl || "";
+
   useEffect(() => {
     if (!updateSong) return;
     if (s.matchStatus && s.matchStatus !== "unmatched") return;
@@ -369,6 +378,25 @@ function EnrichedSongRow({ s, rank, maxCount, updateSong }) {
   const onConfirm = () => updateSong && updateSong(s.id, { matchStatus: "confirmed" });
   const onSkip    = () => updateSong && updateSong(s.id, { matchStatus: "rejected", coverUrl: "" });
 
+  // Parent uploads their own album cover — overrides whatever MB found.
+  // Library OR camera (no capture attr) — these are always retroactive.
+  const onUpload = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f || uploading || !updateSong || !familyId) return;
+    setUploading(true);
+    try {
+      const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
+      updateSong(s.id, { customCoverPath: path });
+    } catch (err) {
+      alert("Cover upload failed: " + (err.message || err));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const onClearCustom = () => updateSong && updateSong(s.id, { customCoverPath: "" });
+
   const displayTitle  = s.canonicalTitle  || s.title  || "(unknown)";
   const displayArtist = s.canonicalArtist || s.artist || "";
 
@@ -376,9 +404,9 @@ function EnrichedSongRow({ s, rank, maxCount, updateSong }) {
     <div className="rounded-xl border border-slate-200 bg-white p-2">
       <div className="flex items-center gap-2">
         <span className="w-5 text-right text-[11px] font-bold text-slate-400 shrink-0">#{rank}</span>
-        {s.coverUrl ? (
+        {displayCover ? (
           <img
-            src={s.coverUrl}
+            src={displayCover}
             alt=""
             draggable={false}
             className="w-9 h-9 object-cover rounded-md border border-slate-200 shrink-0 bg-slate-100"
@@ -432,6 +460,43 @@ function EnrichedSongRow({ s, rank, maxCount, updateSong }) {
           >
             Skip
           </button>
+        </div>
+      )}
+      {/* Cover-override controls — always available when we can write.
+          Tap "Replace cover" to upload a custom image; if a custom cover
+          is in place, "Use MB cover" reverts to the auto-matched one. */}
+      {updateSong && familyId && !picking && (
+        <div className="flex gap-1 mt-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            onChange={onUpload}
+            className="hidden"
+            aria-label="Upload album cover"
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className={`flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg flex items-center justify-center gap-1 ${
+              uploading
+                ? "bg-slate-200 text-slate-400"
+                : "bg-white border border-slate-200 text-slate-600 active:scale-95"
+            }`}
+          >
+            <Camera size={12} /> {uploading ? "Uploading…" : s.customCoverPath ? "Replace cover" : "Use my cover"}
+          </button>
+          {s.customCoverPath && (
+            <button
+              type="button"
+              onClick={onClearCustom}
+              className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
+              aria-label="Use the auto-matched cover instead"
+            >
+              Use MB cover
+            </button>
+          )}
         </div>
       )}
       {picking && (
@@ -550,7 +615,27 @@ function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
       </form>
       {error && <div className="text-[12px] text-rose-500 mb-1">Search failed: {error}</div>}
       {candidates && candidates.length === 0 && !busy && (
-        <div className="text-[12px] text-slate-400 mb-1">No matches — try the band name above.</div>
+        <div className="text-[12px] text-slate-400 mb-1">No matches — try the band name above, or save the values as-is below.</div>
+      )}
+      {/* Manual override — save the typed title + artist as canonical
+          without any MB result. For songs MB just doesn't have, or
+          when the user already knows the right values. */}
+      {updateSong && titleQuery.trim() && (
+        <button
+          type="button"
+          onClick={() => {
+            updateSong(s.id, {
+              canonicalTitle:  titleQuery.trim(),
+              canonicalArtist: artistQuery.trim(),
+              matchStatus:     "confirmed",
+              enrichedAt:      new Date().toISOString(),
+            });
+            onClose();
+          }}
+          className="w-full text-[11px] font-bold px-2 py-1.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 active:scale-95 flex items-center justify-center gap-1 mb-2"
+        >
+          <Save size={12} /> Save "{titleQuery.trim()}"{artistQuery.trim() ? ` by ${artistQuery.trim()}` : ""}
+        </button>
       )}
       {candidates && candidates.length > 0 && (
         <div className="space-y-1">
@@ -597,6 +682,7 @@ export default function Insights({
   albumPhotos = [],
   updateBook,
   updateSong,
+  familyId,
 }) {
   /* ----- PRACTICE TIME ---------------------------------------------- */
   const practiceStats = useMemo(() => {
@@ -652,6 +738,7 @@ export default function Insights({
           canonicalTitle:  song?.canonicalTitle || "",
           canonicalArtist: song?.canonicalArtist || "",
           matchStatus:     song?.matchStatus || "unmatched",
+          customCoverPath: song?.customCoverPath || "",
           count: v.count,
           last: v.last,
         };
@@ -809,6 +896,7 @@ export default function Insights({
                 rank={i + 1}
                 maxCount={maxSongPlays}
                 updateSong={updateSong}
+                familyId={familyId}
               />
             ))}
             {topSongs.list.some((s) => s.matchStatus === "auto") && (
