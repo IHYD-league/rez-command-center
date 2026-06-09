@@ -51,27 +51,36 @@ import { juice } from "./lib/juice.js";
 //                     instead of the procedural snake. (NEW in v3.)
 // See docs/BOARD-THEMES.md for the full spec.
 
+// Space Quest — keeps the rocket emoji token, but now sits on a painted
+// starfield bg.png with painted-chest treasure. No waypoints; falls
+// through to the procedural snake so the chip positions feel familiar
+// to v3 users while gaining the immersive backdrop.
 const SPACE_QUEST = {
   id: "space_quest",
   name: "Space Quest",
   background: "radial-gradient(ellipse at top, #1e3a8a 0%, #0f172a 65%, #020617 100%)",
-  bgImg: null,
+  bgImg: "/board/themes/space-world/bg.png",
+  bgAspect: 1.9,    // 1729 / 910
   pathStroke: "rgba(255,255,255,0.22)",
   pathGlow: "rgba(99,102,241,0.35)",
   tokenEmoji: "🚀",
   tokenRestImg: null,
   tokenFlyImg: null,
   treasureEmoji: "🏆",
-  treasureLockedImg: null,
-  treasureOpenImg: null,
+  treasureLockedImg: "/board/themes/space-world/treasure-locked.png",
+  treasureOpenImg: "/board/themes/space-world/treasure-open.png",
   treasureLabel: "Mission Treasure",
   startEmoji: "🛸",
   startImg: null,
   startLabel: "Start",
   spaceTileImg: null,
   fallbackColor: "#6366f1",
-  treasureAnchor: null,
-  startAnchor: null,
+  // Pin treasure to the painted spot near the top of the starfield;
+  // start at the bottom. No waypoints → procedural snake handles the
+  // task spaces, which is fine: bg is mostly empty starfield, no
+  // painted pedestals to align to.
+  treasureAnchor: { x: 50, y: 12 },
+  startAnchor:    { x: 50, y: 92 },
   pathWaypoints: null,
 };
 
@@ -198,11 +207,86 @@ const CANDY_CONCERT = {
   ],
 };
 
+// Water World — friendly shark cruising a sunken-treasure reef. No
+// alt-state art yet, so the rest token doubles as the fly/cheer state
+// (transition still works; the crossfade just stays on the same sprite).
+const WATER_WORLD = {
+  id: "water_world",
+  name: "Water World",
+  background: "radial-gradient(ellipse at top, #0c4a6e 0%, #082f49 60%, #020617 100%)",
+  bgImg: "/board/themes/water-world/bg.png",
+  bgAspect: 2.162,  // 1844 / 853 — tall portrait coral reef
+  pathStroke: "rgba(125,211,252,0.50)",
+  pathGlow: "rgba(56,189,248,0.40)",
+  tokenEmoji: "🦈",
+  tokenRestImg: "/board/themes/water-world/token.png",
+  tokenFlyImg: "/board/themes/water-world/token.png",
+  treasureEmoji: "🏆",
+  treasureLockedImg: "/board/themes/water-world/treasure-locked.png",
+  treasureOpenImg: "/board/themes/water-world/treasure-open.png",
+  treasureLabel: "Sunken Treasure",
+  startEmoji: "🌊",
+  startImg: null,
+  startLabel: "Start",
+  spaceTileImg: null,
+  fallbackColor: "#0ea5e9",
+  treasureAnchor: { x: 50, y: 12 },
+  startAnchor:    { x: 50, y: 93 },
+  // Zigzag through the reef. Y values tuned for the 1:2.16 portrait
+  // — bg is tall, so positions span wider Y range.
+  pathWaypoints: [
+    { x: 50, y: 93 },
+    { x: 22, y: 80 },
+    { x: 78, y: 68 },
+    { x: 25, y: 54 },
+    { x: 75, y: 40 },
+    { x: 32, y: 26 },
+    { x: 50, y: 12 },
+  ],
+};
+
+// Dino World — friendly cartoon dino in a prehistoric jungle. Has a
+// proper roar alt sprite for the motion crossfade.
+const DINO_WORLD = {
+  id: "dino_world",
+  name: "Dino World",
+  background: "radial-gradient(ellipse at top, #14532d 0%, #052e16 65%, #020617 100%)",
+  bgImg: "/board/themes/dino-world/bg.png",
+  bgAspect: 1.903,  // 1730 / 909
+  pathStroke: "rgba(190,242,100,0.50)",
+  pathGlow: "rgba(132,204,22,0.40)",
+  tokenEmoji: "🦖",
+  tokenRestImg: "/board/themes/dino-world/token.png",
+  tokenFlyImg: "/board/themes/dino-world/token-roar.png",
+  treasureEmoji: "🏆",
+  treasureLockedImg: "/board/themes/dino-world/treasure-locked.png",
+  treasureOpenImg: "/board/themes/dino-world/treasure-open.png",
+  treasureLabel: "Fossil Hoard",
+  startEmoji: "🌴",
+  startImg: null,
+  startLabel: "Start",
+  spaceTileImg: null,
+  fallbackColor: "#84cc16",
+  treasureAnchor: { x: 50, y: 14 },
+  startAnchor:    { x: 50, y: 92 },
+  pathWaypoints: [
+    { x: 50, y: 92 },
+    { x: 22, y: 80 },
+    { x: 78, y: 68 },
+    { x: 25, y: 54 },
+    { x: 75, y: 40 },
+    { x: 35, y: 25 },
+    { x: 50, y: 14 },
+  ],
+};
+
 export const BOARD_THEMES = {
   space_quest: SPACE_QUEST,
   volcano_peaks: VOLCANO_PEAKS,
   enchanted_forest: ENCHANTED_FOREST,
   candy_concert: CANDY_CONCERT,
+  water_world: WATER_WORLD,
+  dino_world: DINO_WORLD,
 };
 
 export const DEFAULT_BOARD_THEME = "space_quest";
@@ -1173,16 +1257,22 @@ export default function BoardGame({
       ref={outerRef}
       className="min-h-screen px-3 pt-4 pb-24 relative overflow-hidden"
       style={{
-        // Outer container shows only the gradient/dark fallback. The
-        // bgImg now lives on the INNER board container so space
-        // positions and painted pedestals share the same coordinate
-        // space (otherwise the spaces float in a centered narrow box
-        // while the bg fills the full viewport — they never align).
-        background: theme.background,
+        // Outer container shows the bg image as an immersive backdrop
+        // (cover, so it fills the screen — slightly cropped vs the
+        // inner board's 100% 100% fit, but eliminates the dark-gradient
+        // bars around the header and below the board). Chips still
+        // align with the INNER container's pristine bg copy because
+        // that one is at 100% 100% in its own aspect-ratio frame.
+        background: theme.bgImg
+          ? `url(${theme.bgImg}) center top / cover no-repeat, ${theme.background}`
+          : theme.background,
         fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
       }}
     >
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+      {/* Procedural starfield — only renders when there's no painted
+          bg. With Space Quest now using a painted starfield bg, the
+          random white dots would just be noise on top of art. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ display: theme.bgImg ? "none" : undefined }}>
         {stars.map((s) => (
           <div
             key={s.key}
