@@ -80,9 +80,13 @@ const SEED_TASKS = [
   { id: "t_swim", title: "Swim Class", category: "Activity", activityType: "Swim", required: false, starValue: 10, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 45, days: ["Tuesday", "Thursday"] },
   { id: "t_tkd", title: "Taekwondo", category: "Activity", activityType: "Taekwondo", required: false, starValue: 10, proofRequired: false, proofType: null, approvalRequired: true, mode: "school", minutes: 60 },
   { id: "t_hip", title: "Hip Hop Dance", category: "Activity", activityType: "Hip Hop Dance", required: false, starValue: 10, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 60 },
-  { id: "t_bed", title: "Make Bed", category: "Chores", activityType: "Chores", required: true, starValue: 3, proofRequired: false, proofType: null, approvalRequired: false, mode: "both", minutes: 5 },
-  { id: "t_toys", title: "Pick Up Toys", category: "Chores", activityType: "Chores", required: true, starValue: 3, proofRequired: false, proofType: null, approvalRequired: false, mode: "both", minutes: 10 },
-  { id: "t_dishes", title: "Help With Dishes", category: "Chores", activityType: "Chores", required: false, starValue: 3, proofRequired: false, proofType: null, approvalRequired: false, mode: "both", minutes: 10 },
+  // Chores require parent/helper approval — same as every other activity.
+  // The kid never self-approves (also enforced structurally by the
+  // !activeIsParent gate in submitTask, but kept consistent on the seed
+  // so a fresh family install gets the right policy).
+  { id: "t_bed", title: "Make Bed", category: "Chores", activityType: "Chores", required: true, starValue: 3, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 5 },
+  { id: "t_toys", title: "Pick Up Toys", category: "Chores", activityType: "Chores", required: true, starValue: 3, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 10 },
+  { id: "t_dishes", title: "Help With Dishes", category: "Chores", activityType: "Chores", required: false, starValue: 3, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 10 },
   { id: "t_field", title: "Field Trip Journal", category: "Learning", activityType: "Field trips", required: false, starValue: 10, proofRequired: true, proofType: "photo", approvalRequired: true, mode: "summer", minutes: 30, active: false },
   { id: "t_church", title: "Church", category: "Soul", activityType: "Church", activityId: "a_church", required: false, starValue: 10, bonusStarValue: 10, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 90, days: ["Sunday"] },
 ];
@@ -658,7 +662,20 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     const kid = users.find((u) => u.role === "kid");
     const kidId = kid?.id || currentUserId;
     const submittedBy = activeIsKid ? currentUserId : (currentProfileId || currentUserId);
-    const needsApproval = t.approvalRequired && !authIsParentOrAdmin;
+    // Belt-and-suspenders gate. Drops the t.approvalRequired short-
+    // circuit entirely AND honors the AUTH user's role (not the acted-
+    // as profile's). Combined effect:
+    //   - The kid can NEVER self-approve regardless of any task flag.
+    //   - A stale-bundle Sara acting as Mike can't auto-approve either,
+    //     because authIsParentOrAdmin reads Sara's real role.
+    //   - Mike acting on behalf of Reznor still auto-approves (he is
+    //     the auth user and is admin).
+    //   - Krissie acting on behalf of Reznor still auto-approves (auth
+    //     role = parent).
+    // Late approval still awards the row's full pendingStars + bonus
+    // via decide(); the protect_completion_stars_trg trigger guards
+    // approved → approved transitions, never blocks pending → approved.
+    const needsApproval = !authIsParentOrAdmin;
     setCompletions((prev) => {
       // Replace only TODAY's prior submission for this task — yesterday's row
       // (and earlier history) stays in the array so it persists and remains
@@ -1329,6 +1346,10 @@ function Router(props) {
   // Sara support Reznor in the curriculum) but hidden from grandparent
   // — Evie's view stays focused on the today checklist + care notes.
   if (user.role === "helper" && tab === "school") return <CoachModeRoute {...props} />;
+  // Helpers (Krissie / Sara) can approve too — same decide(c.id, …) path
+  // the parents use. Grandparent (Evie) intentionally stays out of the
+  // approval flow; her view is checklist + care notes only.
+  if (user.role === "helper" && tab === "approvals") return <Approvals {...props} />;
   if (tab === "notes") return <HelperNotes {...props} />;
   if (tab === "care") return <CareInfo {...props} />;
   return <HelperToday {...props} />;
@@ -5377,6 +5398,9 @@ function BottomNav({ user, tab, setTab }) {
     ],
     helper: [
       { k: "today", icon: ClipboardList, label: "Checklist" },
+      // Helpers can approve pending submissions same as parents — same
+      // decide() path under the hood.
+      { k: "approvals", icon: Check, label: "Approve" },
       // Helpers (Krissie / Sara) coach Reznor in the curriculum too —
       // same Coach Mode the parents get, same shared row.
       { k: "school", icon: GraduationCap, label: "Coach" },
