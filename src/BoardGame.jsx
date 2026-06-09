@@ -1233,6 +1233,39 @@ export default function BoardGame({
     }
   }, []);
 
+  // Camera follow — keep the destination centered while the token
+  // animates so the kid never scrolls and misses the treasure opening
+  // (or any landing on a tall portrait bg). The board is taller than
+  // the viewport on most phones; without this, a 700ms animation
+  // could end with the chest entirely off-screen above.
+  const scrollToBoardY = (boardYPct) => {
+    const board = boardRef.current;
+    if (!board) return;
+    let scrollEl = board.parentElement;
+    while (scrollEl && scrollEl !== document.body) {
+      const cs = window.getComputedStyle(scrollEl);
+      if (cs.overflowY === "auto" || cs.overflowY === "scroll") break;
+      scrollEl = scrollEl.parentElement;
+    }
+    if (!scrollEl) return;
+    const boardRect = board.getBoundingClientRect();
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const boardY = boardRect.height * boardYPct;
+    const targetInScroll = (boardRect.top - scrollRect.top) + boardY;
+    // Put the focal point ~45% from the top of the visible area so
+    // there's still some "look-ahead" room above. Pure center reads
+    // too tight when the token is approaching the top of the board.
+    const visibleH = scrollRect.height;
+    const desiredScrollTop = scrollEl.scrollTop + targetInScroll - visibleH * 0.45;
+    const maxScroll = scrollEl.scrollHeight - visibleH;
+    const clamped = Math.max(0, Math.min(maxScroll, desiredScrollTop));
+    try {
+      scrollEl.scrollTo({ top: clamped, behavior: "smooth" });
+    } catch {
+      scrollEl.scrollTop = clamped;
+    }
+  };
+
   // Animate the token along the SVG path from one logical index to another.
   // Pure visual — never touches canonical data.
   const animateAlong = (fromIdx, toIdx, { duration, onLand } = {}) => {
@@ -1244,6 +1277,14 @@ export default function BoardGame({
       onLand?.();
       return;
     }
+    // Camera follow: kick off a smooth scroll toward the destination at
+    // the START of the animation. The browser's native smooth-scroll
+    // runs concurrent with our token rAF — the page pans up while the
+    // token climbs the path, both arriving together. Critical for the
+    // treasure reveal on tall portrait bgs (volcano/dino/water/sky etc.):
+    // without this the chest opens off-screen above the viewport.
+    const dest = positions[toIdx];
+    if (dest) scrollToBoardY(dest.y / VIEWBOX_H);
     setFlying(true);
     const pathEl = pathRef.current;
     const total = pathEl.getTotalLength();
