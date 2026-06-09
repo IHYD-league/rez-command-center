@@ -1167,6 +1167,28 @@ export default function BoardGame({
     const id = setInterval(() => setWalkFrame((w) => (w === 0 ? 1 : 0)), 170);
     return () => clearInterval(id);
   }, [isAnimating, theme?.tokenWalkImgs]);
+  // Token facing direction. Sprites are painted facing RIGHT by
+  // convention; when motion turns left we mirror via scaleX(-1)
+  // so the character always faces forward. Ref + state mirror —
+  // ref for instant frame-to-frame compares (no render lag),
+  // state for the actual transform.
+  const [facing, setFacing] = useState("right");
+  const facingRef = useRef("right");
+  const lastTokenXRef = useRef(null);
+  const updateFacingFromX = (newX) => {
+    const prev = lastTokenXRef.current;
+    lastTokenXRef.current = newX;
+    if (prev == null) return;
+    const dx = newX - prev;
+    // Threshold avoids jitter on tiny path bobs (Q/C curves wiggle
+    // ~0.5%) — only flip when motion is meaningfully directional.
+    if (Math.abs(dx) < 0.4) return;
+    const next = dx > 0 ? "right" : "left";
+    if (next !== facingRef.current) {
+      facingRef.current = next;
+      setFacing(next);
+    }
+  };
   // Holds the post-land "cheer" timer so a quick re-launch cancels it
   // cleanly instead of double-flipping the flying state.
   const cheerTimerRef = useRef(null);
@@ -1266,6 +1288,7 @@ export default function BoardGame({
     if (idx !== tokenIdxRef.current) {
       tokenIdxRef.current = idx;
       const p = positions[idx];
+      updateFacingFromX(p.x);
       setTokenXY({ x: p.x, y: p.y });
       // Soft tick haptic on each chip cross so the drag feels physical.
       juice.haptic("light");
@@ -1421,6 +1444,7 @@ export default function BoardGame({
       const eased = 1 - Math.pow(1 - t, 3);
       const len = startLen + (endLen - startLen) * eased;
       const pt = pathEl.getPointAtLength(len);
+      updateFacingFromX(pt.x);
       setTokenXY({ x: pt.x, y: pt.y });
       if (t < 1) {
         animRef.current = requestAnimationFrame(tick);
@@ -1815,7 +1839,13 @@ export default function BoardGame({
           style={{
             left: `${tokenLeftPct}%`,
             top: `${tokenTopPct}%`,
-            transform: "translate(-50%, -50%)",
+            // scaleX(-1) mirrors the sprite when walking leftward so
+            // the character always faces the direction of travel. The
+            // existing 80ms transition does a quick "squish-and-flip"
+            // through scaleX 1 → 0 → -1 that reads naturally as a
+            // turn-around. Sprites are painted facing RIGHT by
+            // convention; flip only on left motion.
+            transform: `translate(-50%, -50%) scaleX(${facing === "left" ? -1 : 1})`,
             zIndex: 20,
             transition: "transform 80ms linear",
             // Wrapper itself doesn't capture pointer — only the inner

@@ -75,7 +75,7 @@ const SEED_TASKS = [
   { id: "t_move", title: "Movement", category: "Activity", activityType: "Movement", required: true, starValue: 5, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 30 },
   { id: "t_swim", title: "Swim Class", category: "Activity", activityType: "Swim", required: false, starValue: 10, proofRequired: false, proofType: null, approvalRequired: true, mode: "school", minutes: 45 },
   { id: "t_tkd", title: "Taekwondo", category: "Activity", activityType: "Taekwondo", required: false, starValue: 10, proofRequired: false, proofType: null, approvalRequired: true, mode: "school", minutes: 60 },
-  { id: "t_hip", title: "Hip Hop Dance", category: "Activity", activityType: "Hip Hop Dance", required: false, starValue: 10, proofRequired: false, proofType: null, approvalRequired: true, mode: "school", minutes: 60 },
+  { id: "t_hip", title: "Hip Hop Dance", category: "Activity", activityType: "Hip Hop Dance", required: false, starValue: 10, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 60, days: ["Monday"] },
   { id: "t_bed", title: "Make Bed", category: "Chores", activityType: "Chores", required: true, starValue: 3, proofRequired: false, proofType: null, approvalRequired: false, mode: "both", minutes: 5 },
   { id: "t_toys", title: "Pick Up Toys", category: "Chores", activityType: "Chores", required: true, starValue: 3, proofRequired: false, proofType: null, approvalRequired: false, mode: "both", minutes: 10 },
   { id: "t_dishes", title: "Help With Dishes", category: "Chores", activityType: "Chores", required: false, starValue: 3, proofRequired: false, proofType: null, approvalRequired: false, mode: "both", minutes: 10 },
