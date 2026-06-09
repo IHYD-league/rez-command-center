@@ -20,85 +20,9 @@
 
 import { useState, useEffect } from "react";
 
-/* ============ CURRICULUM DATA ============ */
-const THREADS = [
-  { k: "build", cls: "b", emoji: "🎨", home: "Make & Build", car: "Dream & Design" },
-  { k: "math",  cls: "m", emoji: "🔢", home: "Lego Math",    car: "Travel Math" },
-  { k: "code",  cls: "c", emoji: "🤖", home: "Coding",        car: "Coding on the Go" },
-  { k: "read",  cls: "r", emoji: "📚", home: "Reading",       car: "Reading & Listening" },
-];
-
-const WEEKS = [
-  { n: 1, name: "Inventors' Workshop", tag: "Just dream and make.",
-    build: { home: "Dream up your game! Pick the theme and paint the board and cards.",
-             car: "Dream Designer \u2014 invent your game out loud. Name it, describe the heroes and the board." },
-    math:  { home: "Lego part-whole: \u201cYou have 12 bricks, give me 5 \u2014 show me what\u2019s left.\u201d",
-             car: "Snack Math \u2014 \u201cYou have 10 goldfish, eat 3. How many left?\u201d" },
-    code:  { home: "The Sandwich Robot \u2014 give exact steps; the grown-up follows them TOO literally!",
-             car: "Robot Driver \u2014 give turn-by-turn directions to a make-believe place; the driver follows EXACTLY. Fix the bugs!" },
-    read:  { home: "Pick your summer book. Draw one comic panel of your favorite moment.",
-             car: "Audiobook Adventure \u2014 start your summer book as an audiobook (or read the road signs!)." } },
-
-  { n: 2, name: "The Rulebook", tag: "Turn the idea into a real game.",
-    build: { home: "Write the rules together and choose your Lego playing pieces.",
-             car: "Rule Maker \u2014 say your game\u2019s rules out loud, one by one. Mom writes them down." },
-    math:  { home: "Roll dice 20 times and tally \u2014 which number wins?",
-             car: "Car Counter \u2014 tally red cars vs blue cars for 5 minutes. Which won, and by how many?" },
-    code:  { home: "Arrow mazes \u2014 program a path (up, up, right) for a grown-up to walk.",
-             car: "Finger Maze \u2014 \u201cleft, left, right, straight\u201d \u2014 guide a grown-up\u2019s finger through a pretend maze." },
-    read:  { home: "Spanish day \u2014 read in Spanish and draw a panel in Spanish.",
-             car: "Spanish Spotting \u2014 name 5 things out the window in Spanish (or play Spanish songs / audiobook)." } },
-
-  { n: 3, name: "Playtest & Fix", tag: "Version 1 is never the final version.",
-    build: { home: "Play your game with the family. Find what\u2019s boring and make Version 2!",
-             car: "Fix-It Talk \u2014 what\u2019s the most boring part of your game? How would you make it more fun?" },
-    math:  { home: "Stack each player\u2019s points in bricks \u2014 who has more, by how many?",
-             car: "Who\u2019s Winning? \u2014 keep score in a road-trip game. Who has more points, and by how many?" },
-    code:  { home: "Find the Bug \u2014 spot the silly mistake in the grown-up\u2019s instructions.",
-             car: "Find the Bug \u2014 a grown-up gives silly directions (\u201cput on shoes to get a snack\u201d). What\u2019s wrong?" },
-    read:  { home: "Read together and guess: what happens next, and why?",
-             car: "Story Predict \u2014 pause the audiobook: what happens next, and why?" } },
-
-  { n: 4, name: "Hello, Screen", tag: "Take the paper game digital.",
-    build: { home: "Open ScratchJr and make a character move!",
-             car: "Screen Sketch \u2014 ScratchJr at a rest stop, or draw your hero in the travel notebook." },
-    math:  { home: "Groups of \u2014 build 3 piles of 4 bricks. How many total?",
-             car: "Groups Game \u2014 \u201c4 wheels on each car, 3 cars \u2014 how many wheels?\u201d" },
-    code:  { home: "ScratchJr basics \u2014 make a sprite move and react to a tap.",
-             car: "Tap Story \u2014 plan out loud: when you tap your hero, what happens? Say the steps." },
-    read:  { home: "Make your own one-page comic, Cat Kid style.",
-             car: "Comic in Your Head \u2014 invent a one-page comic and tell it panel by panel." } },
-
-  { n: 5, name: "Make It Move", tag: "Add interaction. Make it feel real.",
-    build: { home: "Add a second character in ScratchJr \u2014 make them talk!",
-             car: "Two-Hero Tale \u2014 invent a second character. What do they say to each other?" },
-    math:  { home: "Build a tower EXACTLY 10 bricks. Now one 3 taller.",
-             car: "Guess the Distance \u2014 \u201chow many minutes to the next sign?\u201d Then check. Were you close?" },
-    code:  { home: "Loops! Make something repeat. Peek at big-kid Scratch if you\u2019re flying.",
-             car: "Repeat Game \u2014 clap a pattern (clap-clap-stomp) and LOOP it 3 times. That\u2019s a loop!" },
-    read:  { home: "Label your game in English AND Spanish.",
-             car: "Both Languages \u2014 name 5 road things in English AND Spanish." } },
-
-  { n: 6, name: "Director's Chair", tag: "Your pick. Curiosity leads.",
-    build: { home: "YOUR pick \u2014 go big on art, code, Lego, or a stop-motion movie.",
-             car: "You Pick \u2014 what do you most want to dream up right now? You lead!" },
-    math:  { home: "Cooking fractions or a pretend store with coins \u2014 you choose!",
-             car: "Money Math \u2014 you\u2019ve got $5 at the snack shop. What can you buy?" },
-    code:  { home: "Finish one small game, start to end \u2014 your own idea.",
-             car: "Teach Back \u2014 explain to Mom how a robot would do something, step by step." },
-    read:  { home: "Flip it \u2014 YOU read to the grown-ups today.",
-             car: "Read Aloud \u2014 read a sign, a menu, or a page to the whole car." } },
-
-  { n: 7, name: "Showcase & Ship", tag: "You hold the thing you dreamed up.",
-    build: { home: "Family game night with YOUR game \u2014 you teach the rules!",
-             car: "Big Pitch \u2014 give the 30-second pitch for your game like a real inventor!" },
-    math:  { home: "You\u2019re the official scorekeeper tonight.",
-             car: "Scorekeeper \u2014 you run the points for the whole car-game tournament." },
-    code:  { home: "Show off what you built. What would Version 3 be?",
-             car: "Version 3 \u2014 what\u2019s the NEXT awesome thing you\u2019d add? Dream big." },
-    read:  { home: "Finish your book and pick the next adventure.",
-             car: "Next Adventure \u2014 pick the book or audiobook for the drive home." } },
-];
+// Shared curriculum (kid + parent arms read the same source of truth).
+// Per the v2 brief; the inline copies that lived here are gone.
+import { WEEKS, THREADS } from "./summerQuest/data.js";
 
 const STORAGE_KEY = "lltSummerQuest_v1";
 const CONFETTI = ["💎", "⭐", "🎉", "🟡", "🔷", "🟢", "🔶"];
