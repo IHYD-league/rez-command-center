@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft,
-  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map, Settings, TrendingUp, Download, Play
+  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map as MapIcon, Settings, TrendingUp, Download, Play
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import SummerQuest from "./SummerQuest.jsx";
@@ -4036,11 +4036,19 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
   const paces = tracked.filter((b) => b.status === "finished").map((b) => daysBetween(b.started, b.finished)).filter(Boolean);
   const avgPace = paces.length ? Math.round(paces.reduce((s, n) => s + n, 0) / paces.length) : null;
   const finishedTotal = books.filter((b) => b.status === "finished").length; // tracked + backlog
-  // Group backlog by era_label for the archive header.
+  // Group backlog by era_label for the archive header. Uses a plain
+  // object instead of `new Map()` because this file imports `Map`
+  // from lucide-react as an icon — `new Map()` would resolve to the
+  // icon and throw "fi is not a constructor" at runtime after
+  // minification. The icon import is now aliased to MapIcon, but
+  // the object form is also collision-proof regardless.
   const eraCounts = (() => {
-    const m = new Map();
-    for (const b of archive) m.set(b.eraLabel || "Era unset", (m.get(b.eraLabel || "Era unset") || 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+    const m = {};
+    for (const b of archive) {
+      const k = b.eraLabel || "Era unset";
+      m[k] = (m[k] || 0) + 1;
+    }
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
   })();
   return (
     <>
@@ -4474,7 +4482,7 @@ function MoreParent(props) {
     { k: "grades", icon: <Trophy size={18} />, label: "Grade Goals", sub: "Grades 1–6 · world's best standards" },
     { k: "recap", icon: <Share2 size={18} />, label: "Recap & Memories", sub: "Weekly/monthly export · anniversaries" },
     { k: "awards", icon: <Medal size={18} />, label: "Accomplishments", sub: "Report cards · belts · certificates" },
-    { k: "board_theme", icon: <Map size={18} />, label: "Adventure Board", sub: "Daily target · theme · controls" },
+    { k: "board_theme", icon: <MapIcon size={18} />, label: "Adventure Board", sub: "Daily target · theme · controls" },
     { k: "gallery", icon: <Camera size={18} />, label: "Photo Gallery", sub: "Every photo · sort by date · filter by activity" },
     { k: "insights", icon: <TrendingUp size={18} />, label: "Insights", sub: "Practice time · songs · books · counts" },
     { k: "export", icon: <Download size={18} />, label: "Export Data", sub: "CSV downloads — own your data" },
@@ -4521,7 +4529,7 @@ function AdventureBoardSettings(props) {
       >
         <Sparkles className="absolute -right-3 -top-3 opacity-20" size={64} />
         <div className="text-[10px] uppercase tracking-widest text-white/80 font-bold flex items-center gap-1.5">
-          <Map size={11} /> Today's Quest Cap
+          <MapIcon size={11} /> Today's Quest Cap
         </div>
         <div className="flex items-center justify-between mt-2 gap-3">
           <button
