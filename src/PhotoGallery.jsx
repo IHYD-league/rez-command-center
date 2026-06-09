@@ -1,22 +1,24 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { X, ChevronLeft, ChevronRight, Calendar as CalIcon, Image as ImageIcon } from "lucide-react";
-import { useSignedUrl } from "./lib/storage.js";
+import { X, ChevronLeft, ChevronRight, Calendar as CalIcon, Image as ImageIcon, Heart, Plus, Camera } from "lucide-react";
+import { useSignedUrl, uploadFamilyPhoto } from "./lib/storage.js";
 
 /* =====================================================================
-   PhotoGallery — Phase 1.
+   PhotoGallery — Phase 1 + Phase 2 (Memories).
 
-   READ-ONLY display layer over existing data:
-     - Derives a flat photos[] from completions.proof[] (every entry with
-       type === "photo" and a path). No new tables, no writes.
-     - Sorts by completion_date (the canonical "when the work was done"
-       date, not upload time).
-     - Filters by activity using the existing task → activity chain.
-     - Renders thumbnails with the persistent signed-URL cache so a
-       reload doesn't re-fetch every URL.
-     - Lightbox: full-screen overlay, swipe / arrow keys / × to close.
-
-   Scope per the v1 brief: proof photos only. Awards, avatars, parent-
-   added album photos are later phases — explicitly NOT here.
+   READ-ONLY display layer over existing data PLUS parent-added album
+   photos:
+     - Schoolwork source: completions.proof[] (type === "photo", path set).
+       Date = completion_date. Activity from task → activityId/Type.
+     - Memories source: album_photos rows (Phase 2). Date = taken_at.
+       Activity = optional activity_id the parent tagged on upload.
+     - Filter pill: All / Schoolwork / Memories (source filter).
+     - Activity chips: still work on the combined set (a tagged memory
+       shows up under its activity too).
+     - Inline "+ Add a memory" form at the top, PARENT-ONLY. Server-
+       side gate is hard — the album_photos RLS policy requires
+       is_parent(). UI gate is the soft secondary.
+     - Lightbox: caption (memories) + uploader + date + activity, plus
+       swipe / arrow keys / Escape to close.
    ===================================================================== */
 
 const TYPE_TO_ACT = {
@@ -52,6 +54,7 @@ function fmtDate(iso) {
 // tiles don't fetch until the user scrolls toward them.
 function PhotoTile({ photo, activity, onOpen }) {
   const url = useSignedUrl(photo.path);
+  const isMemory = photo.source === "memories";
   return (
     <button
       type="button"
@@ -69,6 +72,17 @@ function PhotoTile({ photo, activity, onOpen }) {
         />
       ) : (
         <div className="w-full h-full grid place-items-center text-slate-300 text-xs">…</div>
+      )}
+      {/* Memory badge — small pink heart in the top corner so the kind
+          reads at a glance without colliding with the date label below. */}
+      {isMemory && (
+        <div
+          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-pink-500/95 grid place-items-center text-white shadow"
+          aria-label="Memory"
+          title="Memory"
+        >
+          <Heart size={12} fill="currentColor" />
+        </div>
       )}
       {/* Bottom gradient overlay with date + activity color dot */}
       <div className="absolute left-0 right-0 bottom-0 px-2 py-1.5 flex items-center gap-1.5 text-white text-[10px] font-bold"
@@ -166,6 +180,9 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }) {
       {/* Footer + side arrows */}
       <div className="px-4 pb-6 pt-3 text-white shrink-0" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 text-sm font-bold">
+          {photo.source === "memories" && (
+            <Heart size={14} className="text-pink-400 shrink-0" fill="currentColor" />
+          )}
           {photo.activity && (
             <span
               className="inline-block w-3 h-3 rounded-full shrink-0"
@@ -173,13 +190,18 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }) {
               aria-hidden="true"
             />
           )}
-          <span className="truncate">{photo.activity?.name || "Photo"}</span>
+          <span className="truncate">
+            {photo.caption || photo.activity?.name || (photo.source === "memories" ? "Memory" : "Photo")}
+          </span>
         </div>
         <div className="text-[12px] text-white/75 mt-1 flex items-center gap-2 flex-wrap">
           <CalIcon size={12} />
           {fmtDate(photo.date)}
           {photo.time && <span className="text-white/55">· {photo.time}</span>}
           {photo.uploader && <span className="text-white/55">· by {photo.uploader}</span>}
+          {photo.activity && photo.caption && (
+            <span className="text-white/55">· {photo.activity.name}</span>
+          )}
         </div>
         {photo.taskTitle && (
           <div className="text-[12px] text-white/55 mt-1 truncate">
@@ -209,12 +231,141 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }) {
   );
 }
 
-export default function PhotoGallery({ completions = [], tasks = [], activities = [], users = [] }) {
-  // Derive the canonical flat photo list ONCE per render. Each entry
-  // carries everything the tile/lightbox needs — no upstream lookups
-  // during render.
+// AddMemoryForm — collapsible inline upload at the top of the gallery.
+// Parent-only (PhotoGallery gates rendering). Uploads to
+// <familyId>/album/... via uploadFamilyPhoto({ kind: "album" }) and
+// pushes a new row into albumPhotos through onSave; the synced setter
+// upserts to album_photos. The hard server gate is the table's RLS:
+// is_parent() guards every insert.
+function AddMemoryForm({ activities, user, familyId, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [caption, setCaption] = useState("");
+  const [takenAt, setTakenAt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [activityId, setActivityId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+  const activeActivities = (activities || []).filter((a) => a.status === "active");
+  const reset = () => {
+    setCaption("");
+    setTakenAt(new Date().toISOString().slice(0, 10));
+    setActivityId("");
+    setBusy(false);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+  const pickFile = () => fileRef.current?.click();
+  const onPick = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f || busy) return;
+    setBusy(true);
+    try {
+      const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "album" });
+      const row = {
+        id: "ap_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+        uploadedBy: user?.id || null,
+        path,
+        caption: caption.trim(),
+        takenAt,
+        activityId: activityId || null,
+      };
+      onSave(row);
+      reset();
+      setOpen(false);
+    } catch (err) {
+      alert("Upload failed: " + (err.message || err));
+      setBusy(false);
+    }
+  };
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-full mb-3 rounded-2xl border-2 border-dashed border-pink-300 bg-pink-50 text-pink-700 py-3 font-extrabold text-sm flex items-center justify-center gap-2 active:scale-[0.99]"
+      >
+        <Plus size={16} /> Add a memory
+        <Heart size={14} className="text-pink-500" />
+      </button>
+    );
+  }
+  return (
+    <div className="mb-3 rounded-2xl bg-white border-2 border-pink-200 p-3 shadow-sm">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs font-extrabold uppercase tracking-wider text-pink-600 flex items-center gap-1.5">
+          <Heart size={12} /> New Memory
+        </div>
+        <button
+          type="button"
+          onClick={() => { reset(); setOpen(false); }}
+          className="text-slate-400 p-1"
+          aria-label="Cancel"
+        >
+          <X size={16} />
+        </button>
+      </div>
+      <input
+        type="text"
+        value={caption}
+        onChange={(e) => setCaption(e.target.value)}
+        placeholder="Caption — what's this from? (optional)"
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2"
+      />
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Date</label>
+          <input
+            type="date"
+            value={takenAt}
+            onChange={(e) => setTakenAt(e.target.value)}
+            className="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Activity (optional)</label>
+          <select
+            value={activityId}
+            onChange={(e) => setActivityId(e.target.value)}
+            className="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm bg-white"
+          >
+            <option value="">— none —</option>
+            {activeActivities.map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={onPick}
+        className="hidden"
+      />
+      <button
+        type="button"
+        onClick={pickFile}
+        disabled={busy}
+        className={`w-full py-3 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 ${
+          busy ? "bg-slate-200 text-slate-400" : "bg-pink-600 text-white active:scale-95"
+        }`}
+      >
+        <Camera size={16} /> {busy ? "Uploading…" : "Pick a photo"}
+      </button>
+      <div className="text-[11px] text-slate-400 mt-2 text-center">
+        Photos are private to your family. The album lives in the same gallery as Schoolwork.
+      </div>
+    </div>
+  );
+}
+
+export default function PhotoGallery({ completions = [], tasks = [], activities = [], users = [], user, familyId, albumPhotos = [], setAlbumPhotos }) {
+  // Derive the canonical flat photo list from BOTH sources:
+  //   - completions.proof[]  → source: "schoolwork"
+  //   - album_photos[]       → source: "memories"
+  // Each entry carries everything the tile/lightbox needs.
   const photos = useMemo(() => {
     const out = [];
+    // Schoolwork (proof photos).
     for (const c of completions || []) {
       const t = (tasks || []).find((x) => x.id === c.taskId);
       const aid = t?.activityId || TYPE_TO_ACT[t?.activityType];
@@ -225,7 +376,8 @@ export default function PhotoGallery({ completions = [], tasks = [], activities 
         if (!p || p.type !== "photo" || !p.path) continue;
         const uploader = (users || []).find((u) => u.id === p.by)?.name || null;
         out.push({
-          key: `${c.id}|${p.path}`,
+          key: `c:${c.id}|${p.path}`,
+          source: "schoolwork",
           path: p.path,
           date: c.completionDate || c.completion_date || null,
           time: p.time || null,
@@ -233,11 +385,30 @@ export default function PhotoGallery({ completions = [], tasks = [], activities 
           activity,
           activityId: activity?.id || null,
           taskTitle,
+          caption: "",
         });
       }
     }
+    // Memories (parent-added album photos).
+    for (const a of albumPhotos || []) {
+      if (!a?.path) continue;
+      const activity = (activities || []).find((x) => x.id === a.activityId) || null;
+      const uploader = (users || []).find((u) => u.id === a.uploadedBy)?.name || null;
+      out.push({
+        key: `a:${a.id}`,
+        source: "memories",
+        path: a.path,
+        date: a.takenAt || null,
+        time: null,
+        uploader,
+        activity,
+        activityId: activity?.id || null,
+        taskTitle: "",
+        caption: a.caption || "",
+      });
+    }
     return out;
-  }, [completions, tasks, activities, users]);
+  }, [completions, tasks, activities, users, albumPhotos]);
 
   // Activity facets — only show chips for activities that actually
   // have photos. Sorted by photo count desc so the deepest visual
@@ -259,20 +430,63 @@ export default function PhotoGallery({ completions = [], tasks = [], activities 
 
   const [activeActivity, setActiveActivity] = useState(null); // null = All
   const [sortDir, setSortDir] = useState("desc"); // "desc" newest first, "asc" oldest first
+  const [sourceFilter, setSourceFilter] = useState("all"); // "all" | "schoolwork" | "memories"
   const [openIdx, setOpenIdx] = useState(null);
 
+  const isParent = user?.role === "parent";
+  const schoolworkCount = photos.filter((p) => p.source === "schoolwork").length;
+  const memoriesCount = photos.filter((p) => p.source === "memories").length;
+
   const filtered = useMemo(() => {
-    const subset = activeActivity
-      ? photos.filter((p) => p.activityId === activeActivity)
-      : photos;
+    let subset = photos;
+    if (sourceFilter !== "all") subset = subset.filter((p) => p.source === sourceFilter);
+    if (activeActivity) subset = subset.filter((p) => p.activityId === activeActivity);
     const cmp = sortDir === "desc"
       ? (a, b) => (b.date || "").localeCompare(a.date || "")
       : (a, b) => (a.date || "").localeCompare(b.date || "");
     return [...subset].sort(cmp);
-  }, [photos, activeActivity, sortDir]);
+  }, [photos, activeActivity, sortDir, sourceFilter]);
 
   return (
     <div className="px-4 pt-4 pb-12">
+      {/* Parent-only "+ Add a memory" upload form. Server-side gate is
+          the album_photos RLS policy (with check (is_parent())); this
+          UI gate is the secondary courtesy. Helper/kid never see the
+          control, which means they never see "Permission denied"
+          errors from the server. */}
+      {isParent && setAlbumPhotos && (
+        <AddMemoryForm
+          activities={activities}
+          user={user}
+          familyId={familyId}
+          onSave={(row) => setAlbumPhotos((prev) => [...(prev || []), row])}
+        />
+      )}
+
+      {/* Source filter pill — All / Schoolwork / Memories. Only renders
+          when there are any memories to switch to (otherwise the only
+          thing it could do is show 0). */}
+      {memoriesCount > 0 && (
+        <div className="flex items-center gap-1 bg-slate-100 rounded-2xl p-1 mb-3 text-[11px] font-bold">
+          {[
+            { k: "all",        label: "All",        count: photos.length },
+            { k: "schoolwork", label: "Schoolwork", count: schoolworkCount },
+            { k: "memories",   label: "Memories",   count: memoriesCount },
+          ].map((s) => (
+            <button
+              key={s.k}
+              type="button"
+              onClick={() => setSourceFilter(s.k)}
+              className={`flex-1 py-1.5 rounded-xl transition ${
+                sourceFilter === s.k ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"
+              }`}
+            >
+              {s.label} · {s.count}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Header / count + sort */}
       <div className="flex items-center justify-between gap-2 mb-3">
         <div className="text-sm text-slate-500">

@@ -475,8 +475,14 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // Persisted via the dedicated `events` + `handoff_notes` tables.
   const [events, _setEvents] = useState(() => initial?.events ?? SEED_EVENTS);
   const [handoff, _setHandoff] = useState(() => initial?.handoffNotes ?? SEED_HANDOFF);
+  // Memory album — parent-added (non-proof) photos. Stored in the
+  // dedicated `album_photos` table (see migration
+  // 20260609084150_add_album_photos.sql). Read open to family,
+  // writes server-side-gated to is_parent() at the policy level.
+  const [albumPhotos, _setAlbumPhotos] = useState(() => initial?.albumPhotos ?? []);
   const setEvents = makeSyncedSetter(_setEvents, "events", sync);
   const setHandoff = makeSyncedSetter(_setHandoff, "handoffNotes", sync);
+  const setAlbumPhotos = makeSyncedSetter(_setAlbumPhotos, "albumPhotos", sync);
   // family_settings — catch-all jsonb for family-level prefs. Every
   // sub-key below is read with `familySetting(key, fallback)` so a brand-
   // new install gets sensible defaults until the user actually changes
@@ -1142,6 +1148,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     summerQuest, setSummerQuest,
     boardTheme, setBoardTheme,
     boardDailyCap, setBoardDailyCap,
+    albumPhotos, setAlbumPhotos,
   };
 
   return (

@@ -102,6 +102,16 @@ export const toApp = {
     by: r.requested_by,
   }),
 
+  albumPhoto: (r) => ({
+    id: r.id,
+    uploadedBy: r.uploaded_by,
+    path: r.path,
+    caption: r.caption ?? "",
+    takenAt: r.taken_at,
+    activityId: r.activity_id,
+    createdAt: r.created_at,
+  }),
+
   redemption: (r) => ({
     id: r.id,
     rewardId: r.reward_id,
@@ -283,6 +293,19 @@ export const toDb = {
     status: o.status ?? "requested",
     star_cost: o.starCost ?? null,
     requested_by: o.by ?? null,
+  }),
+
+  albumPhoto: (familyId) => (o) => ({
+    id: o.id,
+    family_id: familyId,
+    uploaded_by: o.uploadedBy ?? null,
+    path: o.path,
+    caption: o.caption ?? null,
+    taken_at: o.takenAt || null,
+    activity_id: o.activityId ?? null,
+    // created_at is server-defaulted; only set when echoing a known
+    // value back so a sync round-trip doesn't shift it.
+    ...(o.createdAt ? { created_at: o.createdAt } : {}),
   }),
 
   redemption: (familyId) => (o) => ({
