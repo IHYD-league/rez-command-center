@@ -4132,18 +4132,230 @@ function BookRow({ b, updateBook, removeBook }) {
           </div>
           {b.notes && <div className="text-[11px] text-slate-400 mt-1">{b.notes}</div>}
         </div>
-        <button onClick={() => setEdit((v) => !v)} className="p-1 text-slate-400"><Pencil size={15} /></button>
+        <button onClick={() => setEdit((v) => !v)} className="p-1 text-slate-400" aria-label="Edit"><Pencil size={15} /></button>
       </div>
-      {edit && (
-        <div className="mt-2 pt-2 border-t border-slate-100">
-          {b.status !== "finished"
-            ? <button onClick={() => updateBook(b.id, { status: "finished", finished: TODAY_ISO })} className="w-full py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold mb-2">✓ Mark finished today</button>
-            : <button onClick={() => updateBook(b.id, { status: "reading", finished: "" })} className="w-full py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold mb-2">Move back to reading</button>}
-          {b.status === "finished" && <div className="flex items-center gap-1 mb-2"><span className="text-[11px] text-slate-500">Rating</span>{[1, 2, 3, 4, 5].map((n) => <button key={n} onClick={() => updateBook(b.id, { rating: n })} className="text-sm">{n <= b.rating ? "⭐" : "☆"}</button>)}</div>}
-          <button onClick={() => removeBook(b.id)} className="w-full py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center gap-1"><X size={13} /> Remove</button>
+      {edit && <BookEditPanel b={b} updateBook={updateBook} removeBook={removeBook} onClose={() => setEdit(false)} />}
+    </Card>
+  );
+}
+
+// Full inline editor for a book row. Mirrors the field set of
+// AddBookForm + AddBacklogBookForm so a parent can correct ANYTHING
+// they typed wrong after saving — title, lang, level, status, dates
+// (tracked), era (backlog), rating, notes. Single updateBook patch
+// on Save so the persistence is one round-trip.
+//
+// Per the recon: no tracked ↔ backlog toggle in this panel. If the
+// parent realizes a book is in the wrong bucket, they remove and
+// re-add via the right button. Keeps the data honest.
+function BookEditPanel({ b, updateBook, removeBook, onClose }) {
+  const isBacklog = !!b.preTracking;
+  const [title, setTitle]   = useState(b.title || "");
+  const [lang, setLang]     = useState(b.lang || "English");
+  const [level, setLevel]   = useState(b.level || "");
+  const [status, setStatus] = useState(b.status || "reading");
+  const [started, setStarted]   = useState(b.started || "");
+  const [finished, setFinished] = useState(b.finished || "");
+  const [rating, setRating] = useState(b.rating || 0);
+  const [notes, setNotes]   = useState(b.notes || "");
+  // Backlog-only: era_label with preset pills + custom freeform.
+  const presetMatch = isBacklog && (ERA_PRESETS.includes(b.eraLabel) ? b.eraLabel : (b.eraLabel ? "Custom" : ERA_PRESETS[0]));
+  const [eraChoice, setEraChoice] = useState(presetMatch || ERA_PRESETS[0]);
+  const [eraCustom, setEraCustom] = useState(isBacklog && !ERA_PRESETS.includes(b.eraLabel) ? (b.eraLabel || "") : "");
+  const eraLabel = eraChoice === "Custom" ? eraCustom.trim() : eraChoice;
+
+  const canSave = !!title.trim() && (!isBacklog || !!eraLabel);
+
+  const onSave = () => {
+    const patch = {
+      title: title.trim(),
+      lang,
+      level: level.trim(),
+      status,
+      rating,
+      notes: notes.trim(),
+    };
+    if (isBacklog) {
+      // Backlog rows: era_label drives the "when," dates stay null.
+      patch.eraLabel = eraLabel;
+      patch.started = "";
+      patch.finished = "";
+    } else {
+      // Tracked rows: keep date semantics. Finished is only meaningful
+      // when status === finished; clear it otherwise so the row stays
+      // honest if a parent moves a finished book back to reading.
+      patch.started = started || "";
+      patch.finished = status === "finished" ? (finished || TODAY_ISO) : "";
+    }
+    updateBook(b.id, patch);
+    onClose();
+  };
+
+  return (
+    <div className={`mt-2 pt-2 border-t ${isBacklog ? "border-amber-200" : "border-slate-100"}`}>
+      <div className={`text-[10px] uppercase tracking-wider font-bold mb-2 ${isBacklog ? "text-amber-700" : "text-slate-500"}`}>
+        Editing {isBacklog ? "backlog entry" : "book"}
+      </div>
+
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Book title"
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
+      />
+
+      <div className="flex gap-1.5 mb-2">
+        {["English", "Spanish"].map((l) => (
+          <button
+            key={l}
+            type="button"
+            onClick={() => setLang(l)}
+            className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === l ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+
+      <input
+        value={level}
+        onChange={(e) => setLevel(e.target.value)}
+        placeholder="Reading level (e.g. ~2nd grade)"
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
+      />
+
+      {/* Status pill row */}
+      <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Status</label>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {["reading", "finished", "wishlist", "dropped"].map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setStatus(s)}
+            className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${
+              status === s
+                ? (s === "finished" ? "bg-emerald-500 text-white"
+                  : s === "wishlist" ? "bg-violet-500 text-white"
+                  : s === "dropped" ? "bg-slate-400 text-white"
+                  : "bg-amber-500 text-white")
+                : "bg-slate-100 text-slate-500"
+            }`}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {/* Tracked rows: date inputs */}
+      {!isBacklog && (
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block mb-1">Started</span>
+            <input
+              type="date"
+              value={started}
+              onChange={(e) => setStarted(e.target.value)}
+              max={finished || undefined}
+              className="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm bg-white"
+            />
+          </label>
+          <label className={`block ${status === "finished" ? "" : "opacity-50"}`}>
+            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block mb-1">Finished</span>
+            <input
+              type="date"
+              value={finished}
+              onChange={(e) => setFinished(e.target.value)}
+              min={started || undefined}
+              disabled={status !== "finished"}
+              className="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm bg-white disabled:bg-slate-50"
+            />
+          </label>
         </div>
       )}
-    </Card>
+
+      {/* Backlog rows: era pill picker + custom */}
+      {isBacklog && (
+        <>
+          <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Era</label>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {[...ERA_PRESETS, "Custom"].map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setEraChoice(p)}
+                className={`text-[11px] font-semibold px-3 py-1 rounded-full ${eraChoice === p ? "bg-amber-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+          {eraChoice === "Custom" && (
+            <input
+              value={eraCustom}
+              onChange={(e) => setEraCustom(e.target.value)}
+              placeholder='Custom era (e.g. "Summer 2025")'
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
+            />
+          )}
+        </>
+      )}
+
+      {/* Rating only meaningful when finished, but editable anytime */}
+      <div className="flex items-center gap-1 mb-2">
+        <span className="text-[11px] text-slate-500 mr-1">Rating</span>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => setRating(rating === n ? 0 : n)}
+            className="text-sm"
+            aria-label={`Rate ${n} stars`}
+          >
+            {n <= rating ? "⭐" : "☆"}
+          </button>
+        ))}
+      </div>
+
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Notes (optional)"
+        rows={2}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-3 bg-white resize-y"
+      />
+
+      <div className="flex gap-2 mb-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-500 font-bold text-sm"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={onSave}
+          className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${canSave ? (isBacklog ? "bg-amber-600" : "bg-indigo-600") : "bg-slate-200 text-slate-400"}`}
+        >
+          Save changes
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => removeBook(b.id)}
+        className="w-full py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center gap-1"
+      >
+        <X size={13} /> Remove this book
+      </button>
+
+      {/* Honest note about re-classifying */}
+      <div className="text-[10px] text-slate-400 mt-2 leading-snug">
+        To convert this book between tracked ↔ backlog, remove and re-add via
+        the matching button on the Reading Library header.
+      </div>
+    </div>
   );
 }
 
