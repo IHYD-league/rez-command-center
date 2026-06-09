@@ -330,43 +330,40 @@ function calcPositions(count, viewBoxH, theme) {
   // and pin treasure/start to the artwork's anchor points. Falls back to
   // the procedural snake for themes that don't supply waypoints.
   if (theme?.pathWaypoints && theme.pathWaypoints.length >= 2 && count >= 2) {
+    const waypoints = theme.pathWaypoints;
+    const toView = (p) => ({ x: p.x, y: (p.y / 100) * viewBoxH });
     let positions;
-    if (theme.pathWaypoints.length === count) {
-      // SNAP MODE — waypoint count matches space count exactly. Use them
-      // as exact positions, one per space. This is how a theme can bake
-      // task positions into its artwork (e.g., Volcano Peaks has 11
-      // painted fire pedestals matching START + 9 tasks + TREASURE at
-      // the default daily cap).
-      positions = theme.pathWaypoints.map((p) => ({
-        x: p.x,
-        y: (p.y / 100) * viewBoxH,
-      }));
+
+    if (waypoints.length === count) {
+      // SNAP MODE — waypoint count matches space count exactly. Each
+      // space lands on its painted pedestal 1:1.
+      positions = waypoints.map(toView);
+    } else if (waypoints.length > count && count >= 3) {
+      // PARTIAL-SNAP MODE — fewer spaces than painted pedestals (typical
+      // when daily cap < painted count, e.g., 8 tasks today vs 9
+      // painted task pedestals). Use START + TREASURE waypoints
+      // verbatim and sample the middle task pedestals so the kid still
+      // lands on real painted rings instead of floating between them.
+      const taskWPs = waypoints.slice(1, -1);
+      const need = count - 2;
+      const stride = taskWPs.length / need;
+      positions = [toView(waypoints[0])];
+      for (let i = 0; i < need; i++) {
+        const idx = Math.min(Math.floor(i * stride), taskWPs.length - 1);
+        positions.push(toView(taskWPs[idx]));
+      }
+      positions.push(toView(waypoints[waypoints.length - 1]));
     } else {
-      // INTERPOLATE MODE — different count (e.g., parent dialed the cap
-      // from 9 to 5). Distribute count points along the waypoint
-      // polyline by arc length so spaces still trace the painted
-      // geography, just at a different density.
-      const pct = positionsAlongPolyline(count, theme.pathWaypoints);
-      positions = pct.map((p) => ({
-        x: p.x,
-        y: (p.y / 100) * viewBoxH,
-      }));
+      // INTERPOLATE MODE — more spaces than painted pedestals (parent
+      // dialed cap above the painted count). Arc-length distribution
+      // along the polyline so spaces still trace the painted geography.
+      const pct = positionsAlongPolyline(count, waypoints);
+      positions = pct.map(toView);
     }
-    // Anchor overrides — keep treasure exactly on its painted pedestal,
-    // start at its mark. Idempotent in snap mode (waypoint already
-    // matches), insurance in interpolate mode.
-    if (theme.startAnchor) {
-      positions[0] = {
-        x: theme.startAnchor.x,
-        y: (theme.startAnchor.y / 100) * viewBoxH,
-      };
-    }
-    if (theme.treasureAnchor) {
-      positions[count - 1] = {
-        x: theme.treasureAnchor.x,
-        y: (theme.treasureAnchor.y / 100) * viewBoxH,
-      };
-    }
+    // Anchor overrides — idempotent in snap mode, insurance in the
+    // other two. Keeps treasure exactly on its painted pedestal.
+    if (theme.startAnchor) positions[0] = toView(theme.startAnchor);
+    if (theme.treasureAnchor) positions[count - 1] = toView(theme.treasureAnchor);
     return positions;
   }
 
@@ -820,9 +817,27 @@ export default function BoardGame({
   const outerRef = useRef(null); // for scroll reset on mount
 
   const [tokenXY, setTokenXY] = useState(() => {
-    const p = positions[0] || { x: 50, y: 0 };
+    // Always start at the theme's START anchor so the token is
+    // visually at START even if positions[0] is stale on first render.
+    if (theme?.startAnchor) {
+      return {
+        x: theme.startAnchor.x,
+        y: (theme.startAnchor.y / 100) * VIEWBOX_H,
+      };
+    }
+    const p = positions[0] || { x: 50, y: VIEWBOX_H * 0.92 };
     return { x: p.x, y: p.y };
   });
+  // Sync token to the canonical position whenever theme or viewBox
+  // changes (e.g., parent switches themes, daily cap changes). Skipped
+  // mid-animation so we don't snap-cut a moving token.
+  useEffect(() => {
+    if (animRef.current) return;
+    const safeIdx = Math.min(Math.max(0, tokenIdxRef.current), positions.length - 1);
+    const p = positions[safeIdx];
+    if (p) setTokenXY({ x: p.x, y: p.y });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme?.id, VIEWBOX_H, positions.length]);
   // `launched` = the kid has tapped to launch the catch-up replay.
   // Until it flips to true, the rocket sits at START and pulses.
   // We auto-launch when there's nothing to replay (targetIdx === 0).
@@ -1151,7 +1166,7 @@ export default function BoardGame({
           style={{
             left: `${tokenLeftPct}%`,
             top: `${tokenTopPct}%`,
-            transform: "translate(-50%, -130%)",
+            transform: "translate(-50%, -50%)",
             zIndex: 20,
             transition: "transform 80ms linear",
           }}
