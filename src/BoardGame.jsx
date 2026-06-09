@@ -1463,20 +1463,19 @@ export default function BoardGame({
   return (
     <div
       ref={outerRef}
-      className="min-h-screen relative overflow-hidden"
+      className="relative overflow-hidden"
       style={{
-        // Outer = solid theme gradient as the absolute fallback if
-        // the bg image is loading or fails. Once the inner board is
-        // mounted edge-to-edge with `cover`, this gradient should
-        // never be visible to the user — that's intentional.
+        // Outer hugs the inner board EXACTLY — no min-h-screen, no
+        // padding-bottom. Previously those two together forced the
+        // outer to be taller than the inner, exposing a slab of
+        // solid theme-gradient color BELOW the painted scene
+        // ("off the board" in the user's words). The fixed
+        // BottomNav at viewport z-50 already supplies its own
+        // clearance via the scroll container's pb-24; we don't
+        // need extra room here. Inner board ends → painted scene
+        // ends → BottomNav overlays the last sliver.
         background: theme.background,
         fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
-        // No horizontal padding — the map MUST go edge-to-edge of
-        // the viewport. The earlier letterboxed version (px-3 + maxWidth
-        // 520) left dark gradient bars on wider viewports; that's
-        // what the user means by "I can see off the board." Full
-        // bleed solves it permanently for every theme.
-        paddingBottom: "calc(5.5rem + env(safe-area-inset-bottom))",
         WebkitTapHighlightColor: "transparent",
         WebkitUserSelect: "none",
         userSelect: "none",
@@ -1728,7 +1727,7 @@ export default function BoardGame({
               className="inline-block bg-amber-300 text-slate-900 text-[11px] font-extrabold px-3 py-1.5 rounded-full shadow-lg"
               style={{ animation: "hintBob 900ms ease-in-out infinite" }}
             >
-              👆 Tap to launch the rocket!
+              👆 Tap your character to launch!
             </div>
           </div>
         )}
