@@ -119,6 +119,9 @@ export default function DataExport({
   const [to, setTo]     = useState(todayIso());
   const [activeActs, setActiveActs] = useState(new Set()); // empty = all
   const [bookStatuses, setBookStatuses] = useState(new Set()); // empty = all
+  // When a date range is set, backlog (pre-tracking) books are excluded
+  // by default — they have no real date. Parents can opt them back in.
+  const [includeBacklog, setIncludeBacklog] = useState(false);
 
   // Activity facets for the completions dataset — only show activities
   // actually present in the data (so the chip row stays short).
@@ -178,18 +181,22 @@ export default function DataExport({
 
   const booksFiltered = useMemo(() => {
     return (books || []).filter((b) => {
-      // Use `started` if present, else `created_at`, else skip if both empty
-      // AND a date range is set. With no date range, keep all.
-      const date = b.started || b.createdAt || b.created_at || "";
+      const isBacklog = !!b.preTracking;
       const hasFilter = from || to;
-      if (hasFilter) {
+      // Backlog rule: when ANY date filter is active, backlog books are
+      // excluded by default (they have no real date — we don't fake one).
+      // The `includeBacklog` checkbox flips them back in honestly.
+      if (hasFilter && isBacklog && !includeBacklog) return false;
+      // Tracked rows: clamp by date as before.
+      if (hasFilter && !isBacklog) {
+        const date = b.started || b.createdAt || b.created_at || "";
         if (!date) return false;
         if (!clampDate(date.slice(0, 10), from, to)) return false;
       }
       if (bookStatuses.size > 0 && !bookStatuses.has(b.status || "reading")) return false;
       return true;
     });
-  }, [books, from, to, bookStatuses]);
+  }, [books, from, to, bookStatuses, includeBacklog]);
 
   function buildCsv() {
     if (datasetId === "completions") {
@@ -235,15 +242,17 @@ export default function DataExport({
     }
     if (datasetId === "books") {
       const headers = [
-        { label: "book_id",   value: (b) => b.id },
-        { label: "title",     value: (b) => b.title || "" },
-        { label: "lang",      value: (b) => b.lang || "" },
-        { label: "level",     value: (b) => b.level || "" },
-        { label: "status",    value: (b) => b.status || "" },
-        { label: "started",   value: (b) => b.started || "" },
-        { label: "finished",  value: (b) => b.finished || "" },
-        { label: "rating",    value: (b) => b.rating ?? "" },
-        { label: "notes",     value: (b) => b.notes || "" },
+        { label: "book_id",      value: (b) => b.id },
+        { label: "title",        value: (b) => b.title || "" },
+        { label: "lang",         value: (b) => b.lang || "" },
+        { label: "level",        value: (b) => b.level || "" },
+        { label: "status",       value: (b) => b.status || "" },
+        { label: "started",      value: (b) => b.started || "" },
+        { label: "finished",     value: (b) => b.finished || "" },
+        { label: "rating",       value: (b) => b.rating ?? "" },
+        { label: "pre_tracking", value: (b) => (b.preTracking ? "true" : "false") },
+        { label: "era_label",    value: (b) => b.eraLabel || "" },
+        { label: "notes",        value: (b) => b.notes || "" },
       ];
       return toCsv(booksFiltered, headers);
     }
@@ -430,6 +439,19 @@ export default function DataExport({
               </button>
             )}
           </div>
+          {(from || to) && (
+            <label className="flex items-center gap-2 mb-4 px-1 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeBacklog}
+                onChange={(e) => setIncludeBacklog(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-[11px] text-slate-600">
+                Include backlog (pre-tracking, no real date)
+              </span>
+            </label>
+          )}
         </>
       )}
 

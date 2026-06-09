@@ -201,26 +201,41 @@ export default function Insights({
 
   /* ----- BOOKS ------------------------------------------------------ */
   const booksStats = useMemo(() => {
+    // Count-based stats INCLUDE pre-tracking backlog (those are real books).
+    // Date-based fields (earliest, recent-by-date) EXCLUDE backlog because
+    // backlog has no real date — we don't fake one.
     const buckets = { reading: 0, finished: 0, wishlist: 0, dropped: 0 };
     let earliest = null;
     const byLang = new Map();
     const byLevel = new Map();
+    const eraCounts = new Map();
+    let backlogCount = 0;
     for (const b of books || []) {
       const status = b.status || "reading";
       buckets[status] = (buckets[status] || 0) + 1;
-      if (b.started && (!earliest || b.started < earliest)) earliest = b.started;
       if (b.lang) byLang.set(b.lang, (byLang.get(b.lang) || 0) + 1);
       if (b.level) byLevel.set(b.level, (byLevel.get(b.level) || 0) + 1);
+      if (b.preTracking) {
+        backlogCount += 1;
+        const era = b.eraLabel || "Era unset";
+        eraCounts.set(era, (eraCounts.get(era) || 0) + 1);
+        continue; // skip date logic
+      }
+      if (b.started && (!earliest || b.started < earliest)) earliest = b.started;
     }
+    // Recent list: only tracked books (real dates).
+    const tracked = (books || []).filter((b) => !b.preTracking);
     return {
       total: books?.length || 0,
       buckets,
       earliest,
       byLang: [...byLang.entries()].sort((a, b) => b[1] - a[1]),
       byLevel: [...byLevel.entries()].sort((a, b) => b[1] - a[1]),
-      recent: [...(books || [])].sort((a, b) =>
+      recent: [...tracked].sort((a, b) =>
         (b.started || b.created_at || "").localeCompare(a.started || a.created_at || "")
       ).slice(0, 6),
+      backlogCount,
+      eras: [...eraCounts.entries()].sort((a, b) => b[1] - a[1]),
     };
   }, [books]);
 
@@ -380,26 +395,49 @@ export default function Insights({
                 ))}
               </div>
             )}
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Recent</div>
-            <ul className="space-y-1">
-              {booksStats.recent.map((b) => (
-                <li key={b.id} className="flex items-center gap-2 text-sm">
-                  <span className="flex-1 truncate">
-                    <span className="font-bold text-slate-800">{b.title || "(untitled)"}</span>
-                    {b.lang && <span className="text-[11px] text-slate-500"> · {b.lang}</span>}
-                    {b.level && <span className="text-[11px] text-slate-500"> · {b.level}</span>}
-                  </span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    b.status === "finished" ? "bg-emerald-100 text-emerald-700"
-                      : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
-                      : b.status === "dropped" ? "bg-slate-200 text-slate-500"
-                      : "bg-amber-100 text-amber-700"
-                  }`}>
-                    {b.status || "reading"}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            {booksStats.recent.length > 0 && (
+              <>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Recent (tracked)</div>
+                <ul className="space-y-1 mb-3">
+                  {booksStats.recent.map((b) => (
+                    <li key={b.id} className="flex items-center gap-2 text-sm">
+                      <span className="flex-1 truncate">
+                        <span className="font-bold text-slate-800">{b.title || "(untitled)"}</span>
+                        {b.lang && <span className="text-[11px] text-slate-500"> · {b.lang}</span>}
+                        {b.level && <span className="text-[11px] text-slate-500"> · {b.level}</span>}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        b.status === "finished" ? "bg-emerald-100 text-emerald-700"
+                          : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
+                          : b.status === "dropped" ? "bg-slate-200 text-slate-500"
+                          : "bg-amber-100 text-amber-700"
+                      }`}>
+                        {b.status || "reading"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {/* Pre-tracking archive — grouped by era, no dates. Counts toward
+                totals but kept visually distinct so the "tracked" view stays honest. */}
+            {booksStats.backlogCount > 0 && (
+              <>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-amber-700 mb-1.5">
+                  Archive · pre-tracking ({booksStats.backlogCount})
+                </div>
+                <div className="flex flex-wrap gap-1.5 mb-1">
+                  {booksStats.eras.map(([era, n]) => (
+                    <span key={era} className="text-[11px] font-bold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                      {era} · {n}
+                    </span>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  No real dates — counted in totals + per-author stats, excluded from date-based views.
+                </div>
+              </>
+            )}
           </>
         )}
       </Card>

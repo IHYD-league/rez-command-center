@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft,
-  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map, Settings, TrendingUp, Download, Play
+  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map as MapIcon, Settings, TrendingUp, Download, Play
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import SummerQuest from "./SummerQuest.jsx";
@@ -4022,13 +4022,34 @@ function searchBooks(list, q) {
 
 function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
   const [adding, setAdding] = useState(false);
+  const [addingBacklog, setAddingBacklog] = useState(false);
   const [q, setQ] = useState("");
-  const reading = searchBooks(books.filter((b) => b.status !== "finished"), q);
-  const finished = searchBooks(books.filter((b) => b.status === "finished"), q);
-  const thisMonth = books.filter((b) => b.status === "finished" && (b.finished || "").startsWith("2026-06")).length;
-  const paces = books.filter((b) => b.status === "finished").map((b) => daysBetween(b.started, b.finished)).filter(Boolean);
+  // Filtered views: pre-tracking books live in their own archive
+  // section so the "Reading now / Finished" lists stay date-honest.
+  const tracked = books.filter((b) => !b.preTracking);
+  const archive = books.filter((b) => b.preTracking);
+  const reading = searchBooks(tracked.filter((b) => b.status !== "finished"), q);
+  const finished = searchBooks(tracked.filter((b) => b.status === "finished"), q);
+  const archiveFiltered = searchBooks(archive, q);
+  // Count-based stats INCLUDE backlog. They're real books, just no dates.
+  const thisMonth = tracked.filter((b) => b.status === "finished" && (b.finished || "").startsWith("2026-06")).length;
+  const paces = tracked.filter((b) => b.status === "finished").map((b) => daysBetween(b.started, b.finished)).filter(Boolean);
   const avgPace = paces.length ? Math.round(paces.reduce((s, n) => s + n, 0) / paces.length) : null;
-  const finishedTotal = books.filter((b) => b.status === "finished").length;
+  const finishedTotal = books.filter((b) => b.status === "finished").length; // tracked + backlog
+  // Group backlog by era_label for the archive header. Uses a plain
+  // object instead of `new Map()` because this file imports `Map`
+  // from lucide-react as an icon — `new Map()` would resolve to the
+  // icon and throw "fi is not a constructor" at runtime after
+  // minification. The icon import is now aliased to MapIcon, but
+  // the object form is also collision-proof regardless.
+  const eraCounts = (() => {
+    const m = {};
+    for (const b of archive) {
+      const k = b.eraLabel || "Era unset";
+      m[k] = (m[k] || 0) + 1;
+    }
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+  })();
   return (
     <>
       <div className="grid grid-cols-3 gap-2 mb-3">
@@ -4043,10 +4064,16 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
         {q && <button onClick={() => setQ("")} className="text-slate-300"><X size={15} /></button>}
       </div>
 
-      {!adding && <button onClick={() => setAdding(true)} className="w-full py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1 mb-3"><Plus size={15} /> Add a book</button>}
+      {!adding && !addingBacklog && (
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <button onClick={() => setAdding(true)} className="py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> Add a book</button>
+          <button onClick={() => setAddingBacklog(true)} className="py-2.5 rounded-2xl bg-amber-100 text-amber-800 font-bold text-sm flex items-center justify-center gap-1 border-2 border-amber-200"><Archive size={15} /> Add backlog</button>
+        </div>
+      )}
       {adding && <AddBookForm onAdd={(b) => { addBook(b); setAdding(false); }} onCancel={() => setAdding(false)} />}
+      {addingBacklog && <AddBacklogBookForm onAdd={(b) => { addBook(b); setAddingBacklog(false); }} onCancel={() => setAddingBacklog(false)} />}
 
-      {q && reading.length === 0 && finished.length === 0 && <p className="text-sm text-slate-400 px-1">No books match "{q}".</p>}
+      {q && reading.length === 0 && finished.length === 0 && archiveFiltered.length === 0 && <p className="text-sm text-slate-400 px-1">No books match "{q}".</p>}
 
       <SectionTitle icon={<BookOpen size={16} className="text-sky-500" />}>Reading now ({reading.length})</SectionTitle>
       {reading.length === 0 && !q && <p className="text-xs text-slate-400 px-1">Nothing in progress.</p>}
@@ -4054,6 +4081,29 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
 
       <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Finished ({finished.length})</SectionTitle>
       {finished.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} />)}
+
+      {archive.length > 0 && (
+        <>
+          <SectionTitle icon={<Archive size={16} className="text-amber-600" />}>
+            Archive · pre-tracking ({archive.length})
+          </SectionTitle>
+          {eraCounts.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2 px-1">
+              {eraCounts.map(([era, n]) => (
+                <span key={era} className="text-[11px] font-bold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                  {era} · {n}
+                </span>
+              ))}
+            </div>
+          )}
+          {archiveFiltered.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} />)}
+          <div className="text-[11px] text-slate-400 px-1 mt-1 mb-3">
+            Backlog books count toward totals + author stats but have no real dates,
+            so they don't appear in date-based views (slideshows, "this month," etc.).
+          </div>
+        </>
+      )}
+
       <div className="text-[11px] text-slate-400 px-1 mt-3">Search is fuzzy — typos and partial titles still find the book. Logging start & finish dates shows his pace; the level tag shows where he's reading.</div>
     </>
   );
@@ -4073,21 +4123,239 @@ function BookRow({ b, updateBook, removeBook }) {
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">{b.lang}</span>
             {b.status === "finished" && pace && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600">read in {pace}d</span>}
             {b.status === "finished" && b.rating > 0 && <span className="text-[10px]">{"⭐".repeat(b.rating)}</span>}
+            {/* Honest pre-tracking badge — no date, just the era. */}
+            {b.preTracking && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                Pre-tracking{b.eraLabel ? ` · ${b.eraLabel}` : ""}
+              </span>
+            )}
           </div>
           {b.notes && <div className="text-[11px] text-slate-400 mt-1">{b.notes}</div>}
         </div>
-        <button onClick={() => setEdit((v) => !v)} className="p-1 text-slate-400"><Pencil size={15} /></button>
+        <button onClick={() => setEdit((v) => !v)} className="p-1 text-slate-400" aria-label="Edit"><Pencil size={15} /></button>
       </div>
-      {edit && (
-        <div className="mt-2 pt-2 border-t border-slate-100">
-          {b.status !== "finished"
-            ? <button onClick={() => updateBook(b.id, { status: "finished", finished: TODAY_ISO })} className="w-full py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold mb-2">✓ Mark finished today</button>
-            : <button onClick={() => updateBook(b.id, { status: "reading", finished: "" })} className="w-full py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold mb-2">Move back to reading</button>}
-          {b.status === "finished" && <div className="flex items-center gap-1 mb-2"><span className="text-[11px] text-slate-500">Rating</span>{[1, 2, 3, 4, 5].map((n) => <button key={n} onClick={() => updateBook(b.id, { rating: n })} className="text-sm">{n <= b.rating ? "⭐" : "☆"}</button>)}</div>}
-          <button onClick={() => removeBook(b.id)} className="w-full py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center gap-1"><X size={13} /> Remove</button>
+      {edit && <BookEditPanel b={b} updateBook={updateBook} removeBook={removeBook} onClose={() => setEdit(false)} />}
+    </Card>
+  );
+}
+
+// Full inline editor for a book row. Mirrors the field set of
+// AddBookForm + AddBacklogBookForm so a parent can correct ANYTHING
+// they typed wrong after saving — title, lang, level, status, dates
+// (tracked), era (backlog), rating, notes. Single updateBook patch
+// on Save so the persistence is one round-trip.
+//
+// Per the recon: no tracked ↔ backlog toggle in this panel. If the
+// parent realizes a book is in the wrong bucket, they remove and
+// re-add via the right button. Keeps the data honest.
+function BookEditPanel({ b, updateBook, removeBook, onClose }) {
+  const isBacklog = !!b.preTracking;
+  const [title, setTitle]   = useState(b.title || "");
+  const [lang, setLang]     = useState(b.lang || "English");
+  const [level, setLevel]   = useState(b.level || "");
+  const [status, setStatus] = useState(b.status || "reading");
+  const [started, setStarted]   = useState(b.started || "");
+  const [finished, setFinished] = useState(b.finished || "");
+  const [rating, setRating] = useState(b.rating || 0);
+  const [notes, setNotes]   = useState(b.notes || "");
+  // Backlog-only: era_label with preset pills + custom freeform.
+  const presetMatch = isBacklog && (ERA_PRESETS.includes(b.eraLabel) ? b.eraLabel : (b.eraLabel ? "Custom" : ERA_PRESETS[0]));
+  const [eraChoice, setEraChoice] = useState(presetMatch || ERA_PRESETS[0]);
+  const [eraCustom, setEraCustom] = useState(isBacklog && !ERA_PRESETS.includes(b.eraLabel) ? (b.eraLabel || "") : "");
+  const eraLabel = eraChoice === "Custom" ? eraCustom.trim() : eraChoice;
+
+  const canSave = !!title.trim() && (!isBacklog || !!eraLabel);
+
+  const onSave = () => {
+    const patch = {
+      title: title.trim(),
+      lang,
+      level: level.trim(),
+      status,
+      rating,
+      notes: notes.trim(),
+    };
+    if (isBacklog) {
+      // Backlog rows: era_label drives the "when," dates stay null.
+      patch.eraLabel = eraLabel;
+      patch.started = "";
+      patch.finished = "";
+    } else {
+      // Tracked rows: keep date semantics. Finished is only meaningful
+      // when status === finished; clear it otherwise so the row stays
+      // honest if a parent moves a finished book back to reading.
+      patch.started = started || "";
+      patch.finished = status === "finished" ? (finished || TODAY_ISO) : "";
+    }
+    updateBook(b.id, patch);
+    onClose();
+  };
+
+  return (
+    <div className={`mt-2 pt-2 border-t ${isBacklog ? "border-amber-200" : "border-slate-100"}`}>
+      <div className={`text-[10px] uppercase tracking-wider font-bold mb-2 ${isBacklog ? "text-amber-700" : "text-slate-500"}`}>
+        Editing {isBacklog ? "backlog entry" : "book"}
+      </div>
+
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Book title"
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
+      />
+
+      <div className="flex gap-1.5 mb-2">
+        {["English", "Spanish"].map((l) => (
+          <button
+            key={l}
+            type="button"
+            onClick={() => setLang(l)}
+            className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === l ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+
+      <input
+        value={level}
+        onChange={(e) => setLevel(e.target.value)}
+        placeholder="Reading level (e.g. ~2nd grade)"
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
+      />
+
+      {/* Status pill row */}
+      <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Status</label>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {["reading", "finished", "wishlist", "dropped"].map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setStatus(s)}
+            className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${
+              status === s
+                ? (s === "finished" ? "bg-emerald-500 text-white"
+                  : s === "wishlist" ? "bg-violet-500 text-white"
+                  : s === "dropped" ? "bg-slate-400 text-white"
+                  : "bg-amber-500 text-white")
+                : "bg-slate-100 text-slate-500"
+            }`}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {/* Tracked rows: date inputs */}
+      {!isBacklog && (
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block mb-1">Started</span>
+            <input
+              type="date"
+              value={started}
+              onChange={(e) => setStarted(e.target.value)}
+              max={finished || undefined}
+              className="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm bg-white"
+            />
+          </label>
+          <label className={`block ${status === "finished" ? "" : "opacity-50"}`}>
+            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block mb-1">Finished</span>
+            <input
+              type="date"
+              value={finished}
+              onChange={(e) => setFinished(e.target.value)}
+              min={started || undefined}
+              disabled={status !== "finished"}
+              className="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm bg-white disabled:bg-slate-50"
+            />
+          </label>
         </div>
       )}
-    </Card>
+
+      {/* Backlog rows: era pill picker + custom */}
+      {isBacklog && (
+        <>
+          <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Era</label>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {[...ERA_PRESETS, "Custom"].map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setEraChoice(p)}
+                className={`text-[11px] font-semibold px-3 py-1 rounded-full ${eraChoice === p ? "bg-amber-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+          {eraChoice === "Custom" && (
+            <input
+              value={eraCustom}
+              onChange={(e) => setEraCustom(e.target.value)}
+              placeholder='Custom era (e.g. "Summer 2025")'
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
+            />
+          )}
+        </>
+      )}
+
+      {/* Rating only meaningful when finished, but editable anytime */}
+      <div className="flex items-center gap-1 mb-2">
+        <span className="text-[11px] text-slate-500 mr-1">Rating</span>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => setRating(rating === n ? 0 : n)}
+            className="text-sm"
+            aria-label={`Rate ${n} stars`}
+          >
+            {n <= rating ? "⭐" : "☆"}
+          </button>
+        ))}
+      </div>
+
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Notes (optional)"
+        rows={2}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-3 bg-white resize-y"
+      />
+
+      <div className="flex gap-2 mb-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-500 font-bold text-sm"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={onSave}
+          className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${canSave ? (isBacklog ? "bg-amber-600" : "bg-indigo-600") : "bg-slate-200 text-slate-400"}`}
+        >
+          Save changes
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => removeBook(b.id)}
+        className="w-full py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center gap-1"
+      >
+        <X size={13} /> Remove this book
+      </button>
+
+      {/* Honest note about re-classifying */}
+      <div className="text-[10px] text-slate-400 mt-2 leading-snug">
+        To convert this book between tracked ↔ backlog, remove and re-add via
+        the matching button on the Reading Library header.
+      </div>
+    </div>
   );
 }
 
@@ -4105,6 +4373,84 @@ function AddBookForm({ onAdd, onCancel }) {
       <div className="flex gap-2">
         <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">Cancel</button>
         <button disabled={!title.trim()} onClick={() => onAdd({ id: "b_" + Date.now(), title: title.trim(), lang, status: "reading", started, finished: "", level: level.trim(), rating: 0, notes: "" })} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${title.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Add book</button>
+      </div>
+    </Card>
+  );
+}
+
+// Pre-tracking backlog entry — for books Reznor finished BEFORE granular
+// tracking started in June 2026 (Tipos Malos Vols 1-6, kindergarten
+// reads, etc.). No date fields by design: the era_label carries the
+// rough when. Default status = "finished" because that's what backlog
+// usually is.
+const ERA_PRESETS = ["Kindergarten 2026", "Before May 2026"];
+function AddBacklogBookForm({ onAdd, onCancel }) {
+  const [title, setTitle] = useState("");
+  const [lang, setLang] = useState("English");
+  const [level, setLevel] = useState("");
+  const [eraChoice, setEraChoice] = useState(ERA_PRESETS[0]);
+  const [eraCustom, setEraCustom] = useState("");
+  const [notes, setNotes] = useState("");
+  const eraLabel = (eraChoice === "Custom" ? eraCustom.trim() : eraChoice);
+  const canSave = title.trim() && eraLabel;
+  return (
+    <Card className="p-4 mb-3 border-2 border-amber-200 bg-amber-50/40">
+      <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-amber-700 mb-2">
+        <Archive size={13} /> Backlog entry · no real date needed
+      </div>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Book title" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white" />
+      <div className="flex gap-1.5 mb-2">{["English", "Spanish"].map((l) => <button key={l} onClick={() => setLang(l)} className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === l ? "bg-amber-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>{l}</button>)}</div>
+      <input value={level} onChange={(e) => setLevel(e.target.value)} placeholder="Reading level (optional)" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white" />
+      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Era</label>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {[...ERA_PRESETS, "Custom"].map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => setEraChoice(p)}
+            className={`text-[11px] font-semibold px-3 py-1 rounded-full ${eraChoice === p ? "bg-amber-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+      {eraChoice === "Custom" && (
+        <input
+          value={eraCustom}
+          onChange={(e) => setEraCustom(e.target.value)}
+          placeholder='Custom era (e.g. "Summer 2025")'
+          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
+        />
+      )}
+      <input
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Notes (optional)"
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-3 bg-white"
+      />
+      <div className="flex gap-2">
+        <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-500 font-bold text-sm">Cancel</button>
+        <button
+          disabled={!canSave}
+          onClick={() =>
+            onAdd({
+              id: "b_" + Date.now(),
+              title: title.trim(),
+              lang,
+              status: "finished",
+              started: "",
+              finished: "",
+              level: level.trim(),
+              rating: 0,
+              notes: notes.trim(),
+              preTracking: true,
+              eraLabel,
+            })
+          }
+          className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${canSave ? "bg-amber-600" : "bg-slate-200 text-slate-400"}`}
+        >
+          Add to backlog
+        </button>
       </div>
     </Card>
   );
@@ -4348,7 +4694,7 @@ function MoreParent(props) {
     { k: "grades", icon: <Trophy size={18} />, label: "Grade Goals", sub: "Grades 1–6 · world's best standards" },
     { k: "recap", icon: <Share2 size={18} />, label: "Recap & Memories", sub: "Weekly/monthly export · anniversaries" },
     { k: "awards", icon: <Medal size={18} />, label: "Accomplishments", sub: "Report cards · belts · certificates" },
-    { k: "board_theme", icon: <Map size={18} />, label: "Adventure Board", sub: "Daily target · theme · controls" },
+    { k: "board_theme", icon: <MapIcon size={18} />, label: "Adventure Board", sub: "Daily target · theme · controls" },
     { k: "gallery", icon: <Camera size={18} />, label: "Photo Gallery", sub: "Every photo · sort by date · filter by activity" },
     { k: "insights", icon: <TrendingUp size={18} />, label: "Insights", sub: "Practice time · songs · books · counts" },
     { k: "export", icon: <Download size={18} />, label: "Export Data", sub: "CSV downloads — own your data" },
@@ -4395,7 +4741,7 @@ function AdventureBoardSettings(props) {
       >
         <Sparkles className="absolute -right-3 -top-3 opacity-20" size={64} />
         <div className="text-[10px] uppercase tracking-widest text-white/80 font-bold flex items-center gap-1.5">
-          <Map size={11} /> Today's Quest Cap
+          <MapIcon size={11} /> Today's Quest Cap
         </div>
         <div className="flex items-center justify-between mt-2 gap-3">
           <button

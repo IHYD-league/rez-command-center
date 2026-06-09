@@ -84,6 +84,11 @@ export const toApp = {
     level: r.level,
     rating: r.rating,
     notes: r.notes,
+    // Pre-tracking backlog provenance (orthogonal to status).
+    // When true, started/finished are NULL by convention — the era
+    // label carries the rough when.
+    preTracking: r.pre_tracking ?? false,
+    eraLabel: r.era_label || "",
   }),
 
   award: (r) => ({
@@ -275,6 +280,8 @@ export const toDb = {
     level: o.level,
     rating: o.rating ?? null,
     notes: o.notes,
+    pre_tracking: !!o.preTracking,
+    era_label: o.eraLabel || null,
   }),
 
   award: (familyId) => (o) => ({
