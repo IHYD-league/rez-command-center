@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import SummerQuest from "./SummerQuest.jsx";
+import PhotoGallery from "./PhotoGallery.jsx";
 import ParentCompanion from "./summerQuest/ParentCompanion.jsx";
 import { useSummerQuestProgress } from "./summerQuest/useSummerQuestProgress.js";
 import SongLogger from "./SongLogger.jsx";
@@ -4270,6 +4271,7 @@ function MoreParent(props) {
   if (sub === "recap") return <BackWrap title="Recap & Memories" onBack={() => setSub("menu")}><ParentRecap {...props} /></BackWrap>;
   if (sub === "awards") return <BackWrap title="Accomplishments" onBack={() => setSub("menu")}><Accomplishments {...props} /></BackWrap>;
   if (sub === "board_theme") return <BackWrap title="Adventure Board" onBack={() => setSub("menu")}><AdventureBoardSettings {...props} /></BackWrap>;
+  if (sub === "gallery") return <BackWrap title="Photo Gallery" onBack={() => setSub("menu")}><PhotoGallery {...props} /></BackWrap>;
   const items = [
     { k: "portfolio", icon: <ImageIcon size={18} />, label: "Progress Portfolio", sub: "Photos, art & writing over time" },
     { k: "weekly", icon: <ClipboardList size={18} />, label: "Weekly Summary", sub: "Minutes, wins, needs attention" },
@@ -4283,6 +4285,7 @@ function MoreParent(props) {
     { k: "recap", icon: <Share2 size={18} />, label: "Recap & Memories", sub: "Weekly/monthly export · anniversaries" },
     { k: "awards", icon: <Medal size={18} />, label: "Accomplishments", sub: "Report cards · belts · certificates" },
     { k: "board_theme", icon: <Map size={18} />, label: "Adventure Board", sub: "Daily target · theme · controls" },
+    { k: "gallery", icon: <Camera size={18} />, label: "Photo Gallery", sub: "Every photo · sort by date · filter by activity" },
   ];
   return (
     <div className="px-4 pt-4">
