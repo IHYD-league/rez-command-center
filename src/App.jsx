@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import SummerQuest from "./SummerQuest.jsx";
+import { useSummerQuestProgress } from "./summerQuest/useSummerQuestProgress.js";
 import SongLogger from "./SongLogger.jsx";
 import BoardGame, { BOARD_THEMES, DEFAULT_BOARD_THEME } from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
@@ -1312,6 +1313,14 @@ function Router(props) {
 // + helpers can edit on his behalf; the row in Supabase is Reznor's.
 function SummerQuestRoute(props) {
   const kid = (props.users || []).find((u) => u.role === "kid");
+  // Hook MUST be called unconditionally before any early return — React
+  // rules-of-hooks. Pass null profileId when there's no kid yet; the
+  // hook hands back safe defaults + a no-op save.
+  const { mode, done, save } = useSummerQuestProgress({
+    profileId: kid?.id || null,
+    summerQuest: props.summerQuest,
+    setSummerQuest: props.setSummerQuest,
+  });
   if (!kid) {
     return (
       <div className="px-4 pt-6 text-sm text-slate-500">
@@ -1320,18 +1329,12 @@ function SummerQuestRoute(props) {
       </div>
     );
   }
-  const slot = props.summerQuest?.[kid.id] || { mode: "home", done: {} };
   return (
     <SummerQuest
       child={kid.name || "Reznor"}
-      initialMode={slot.mode}
-      initialDone={slot.done}
-      onSave={({ mode, done }) =>
-        props.setSummerQuest((prev) => ({
-          ...prev,
-          [kid.id]: { mode, done },
-        }))
-      }
+      initialMode={mode}
+      initialDone={done}
+      onSave={save}
     />
   );
 }
