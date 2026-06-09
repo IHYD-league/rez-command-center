@@ -1098,7 +1098,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
     submitTask, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest,
     openCompletionId, setOpenCompletionId, updateCompletion, addCompletionPhoto, removeCompletionPhoto,
-    pendingRegistrations, approveRegistration, denyRegistration, currentProfileId,
+    pendingRegistrations, approveRegistration, denyRegistration, currentProfileId, setCurrentUserId,
     kidData,
     familyId,
     songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay,
@@ -4307,9 +4307,32 @@ function AdventureBoardSettings(props) {
 // Per-family by design (one theme per family canvas); per-profile theme
 // would need a different storage location and is captured as a possible
 // v2 in docs/BOARD-THEMES.md.
-function BoardThemePicker({ boardTheme, setBoardTheme }) {
+function BoardThemePicker({ boardTheme, setBoardTheme, users, setCurrentUserId, setTab }) {
   const active = boardTheme || DEFAULT_BOARD_THEME;
   const ids = Object.keys(BOARD_THEMES);
+  // Mike's flow: he picks a theme, then jumps into Reznor's profile
+  // and onto the board to show him. Used to be 3 separate taps
+  // (active theme → back → switch profile → board tab). Now: tap
+  // the active card once more → confirm → jump.
+  const kid = (users || []).find((u) => u.role === "kid");
+  const jumpToBoard = () => {
+    if (!kid) {
+      alert("Couldn't find Reznor's profile.");
+      return;
+    }
+    const ok = window.confirm("Go to Reznor's game board?");
+    if (!ok) return;
+    setCurrentUserId?.(kid.id);
+    setTab?.("board");
+  };
+  const onCardTap = (id) => {
+    if (id === active) {
+      // Second tap on the live theme → offer the jump shortcut.
+      jumpToBoard();
+    } else {
+      setBoardTheme(id);
+    }
+  };
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-1 gap-3">
@@ -4320,7 +4343,7 @@ function BoardThemePicker({ boardTheme, setBoardTheme }) {
             <button
               key={id}
               type="button"
-              onClick={() => setBoardTheme(id)}
+              onClick={() => onCardTap(id)}
               className={`relative w-full rounded-2xl overflow-hidden border-2 transition active:scale-[0.99] text-left ${
                 isActive ? "border-indigo-500 ring-2 ring-indigo-200" : "border-slate-200 hover:border-indigo-200"
               }`}
@@ -4355,7 +4378,7 @@ function BoardThemePicker({ boardTheme, setBoardTheme }) {
                 <div>
                   <div className="font-bold text-sm text-slate-800">{t.name}</div>
                   <div className="text-[11px] text-slate-400">
-                    {isActive ? "Active on the board" : "Tap to switch"}
+                    {isActive ? "Tap again → Reznor's board" : "Tap to switch"}
                   </div>
                 </div>
                 {isActive && (
@@ -4368,6 +4391,18 @@ function BoardThemePicker({ boardTheme, setBoardTheme }) {
           );
         })}
       </div>
+      {/* Always-visible "go now" CTA so the jump is one tap from anywhere
+          on the picker, not just from the active card. Saves a tap when
+          Mike's already on the right theme and just wants to show Reznor. */}
+      {kid && (
+        <button
+          type="button"
+          onClick={jumpToBoard}
+          className="w-full mt-2 py-3 rounded-2xl bg-indigo-600 text-white font-extrabold text-sm active:scale-95 flex items-center justify-center gap-2"
+        >
+          🎮 Go to Reznor's game board
+        </button>
+      )}
     </div>
   );
 }
