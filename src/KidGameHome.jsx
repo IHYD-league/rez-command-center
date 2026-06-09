@@ -792,41 +792,62 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
         )}
       </div>
 
-      {/* NEXT BADGE — pull-forward card. Reads the closest unearned trophy
-          from the canonical ACHIEVEMENTS list so Reznor sees what's almost
-          in reach. Nothing stored; recomputes on every render. */}
-      {nextBadge && (
+      {/* Cream "Almost There · 1 Year of Drums" next-badge card REMOVED.
+          It was showing the exact same 312/365 stat as the orange "A Year
+          of Drums" card below, plus the streak chip in the hero — three
+          places, one fact. Single source kept: orange card lower in the
+          stack. The onTapBadges prop is still passed for future use
+          (badges screen) but no longer fires from here.
+
+          Orange "A Year of Drums" card moved BELOW Up Next per the new
+          layout: Board → Hero → Up Next → Drums streak → Today's Quests. */}
+
+      {/* UP NEXT — single-tap "what to do right now" card. Derived from
+          the canonical todaysTasks via the mainQuests/sideQuests already
+          on kidData. Tap → opens the same TaskSheet a tile would. Hidden
+          when everything is done; the bottom CTA shows the celebration. */}
+      {upNext && (
         <button
           type="button"
-          onClick={onTapBadges}
-          className="w-full rounded-2xl bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-200 p-3 flex items-center gap-3 active:scale-[0.98] transition shadow-sm"
+          onClick={() => onTapQuest?.(upNext.id)}
+          className="w-full rounded-3xl p-3.5 flex items-center gap-3 active:scale-[0.98] transition border-2 border-emerald-200 hover:-translate-y-0.5 hover:shadow-lg"
+          style={{
+            background: "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 60%, #ccfbf1 100%)",
+            // Gentle breathing glow draws the eye without thrashing. ~2.6s
+            // cycle reads as "alive", not "urgent".
+            animation: "kgh-breathe 2600ms ease-in-out infinite",
+          }}
         >
-          <div className="text-4xl shrink-0">{nextBadge.emoji}</div>
+          <div className="w-14 h-14 rounded-2xl bg-emerald-100 grid place-items-center shrink-0">
+            <Target size={26} className="text-emerald-600" />
+          </div>
           <div className="flex-1 min-w-0 text-left">
-            <div className="text-[10px] uppercase tracking-widest text-amber-700 font-bold">
-              Almost there
+            <div className="text-[10px] uppercase tracking-widest text-emerald-700 font-bold">
+              Up next {upNextIsRequired ? "" : "· extra"}
             </div>
-            <div className="text-sm font-extrabold text-slate-800 truncate">
-              {nextBadge.title}
+            <div className="text-base font-extrabold text-slate-800 truncate leading-tight">
+              {upNext.title}
             </div>
-            <div className="text-[11px] text-slate-500 truncate">{nextBadge.desc}</div>
-            <div className="mt-1.5 h-1.5 bg-amber-200/60 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-amber-500 transition-all"
-                style={{ width: `${nextBadge.pct}%` }}
-              />
-            </div>
-            <div className="text-[10px] text-amber-700 font-bold mt-0.5">
-              {nextBadge.value} / {nextBadge.goal}
+            <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+              <Sparkles size={11} className="text-amber-500" />
+              +{upNext.xp} XP
+              {upNext.subtasks && upNext.subtasks.length > 0 && (
+                <>
+                  <span className="text-slate-300">·</span>
+                  <span>
+                    {upNext.subtasks.filter((s) => s.done).length} / {upNext.subtasks.length} parts
+                  </span>
+                </>
+              )}
             </div>
           </div>
+          <div className="text-2xl text-emerald-600 shrink-0">▶</div>
         </button>
       )}
 
-      {/* DRUM STREAK HERO — sits right under the Daily Adventure Board
-          per Reznor's request: hero card → board → "almost there 1 year
-          of drums" flame card. Same canonical streak data, same visual
-          treatment (flame, count, progress, "don't break the chain"). */}
+      {/* A YEAR OF DRUMS — the single dedicated streak card. Sits between
+          Up Next and Today's Quests so it reads as a daily motivator
+          right where the kid's eye is heading to start work. */}
       {streak && (
         <div
           className="rounded-3xl p-4 text-white relative overflow-hidden border-2 border-orange-500/30"
@@ -902,49 +923,6 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
             </div>
           </div>
         </div>
-      )}
-
-      {/* UP NEXT — single-tap "what to do right now" card. Derived from
-          the canonical todaysTasks via the mainQuests/sideQuests already
-          on kidData. Tap → opens the same TaskSheet a tile would. Hidden
-          when everything is done; the bottom CTA shows the celebration. */}
-      {upNext && (
-        <button
-          type="button"
-          onClick={() => onTapQuest?.(upNext.id)}
-          className="w-full rounded-3xl p-3.5 flex items-center gap-3 active:scale-[0.98] transition border-2 border-emerald-200 hover:-translate-y-0.5 hover:shadow-lg"
-          style={{
-            background: "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 60%, #ccfbf1 100%)",
-            // Gentle breathing glow draws the eye without thrashing. ~2.6s
-            // cycle reads as "alive", not "urgent".
-            animation: "kgh-breathe 2600ms ease-in-out infinite",
-          }}
-        >
-          <div className="w-14 h-14 rounded-2xl bg-emerald-100 grid place-items-center shrink-0">
-            <Target size={26} className="text-emerald-600" />
-          </div>
-          <div className="flex-1 min-w-0 text-left">
-            <div className="text-[10px] uppercase tracking-widest text-emerald-700 font-bold">
-              Up next {upNextIsRequired ? "" : "· extra"}
-            </div>
-            <div className="text-base font-extrabold text-slate-800 truncate leading-tight">
-              {upNext.title}
-            </div>
-            <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
-              <Sparkles size={11} className="text-amber-500" />
-              +{upNext.xp} XP
-              {upNext.subtasks && upNext.subtasks.length > 0 && (
-                <>
-                  <span className="text-slate-300">·</span>
-                  <span>
-                    {upNext.subtasks.filter((s) => s.done).length} / {upNext.subtasks.length} parts
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="text-2xl text-emerald-600 shrink-0">▶</div>
-        </button>
       )}
 
       {/* MAIN QUESTS */}
