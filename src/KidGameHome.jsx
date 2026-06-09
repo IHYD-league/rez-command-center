@@ -613,6 +613,39 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
         }
       `}</style>
 
+      {/* DAILY ADVENTURE BOARD — TOP OF THE STACK. Reznor's stated
+          pick: he wants to see and tap into the board first thing,
+          above the hero card. Most prominent thing on the home. */}
+      {onOpenBoard && (
+        <button
+          type="button"
+          onClick={onOpenBoard}
+          className="w-full rounded-3xl p-4 flex items-center gap-3 active:scale-[0.98] transition relative overflow-hidden border-2 border-white/15 shadow-xl"
+          style={{
+            background: "linear-gradient(135deg, #1e293b 0%, #4338ca 35%, #7c3aed 70%, #ec4899 100%)",
+          }}
+        >
+          {/* sprinkle of stars baked into the gradient */}
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "18%", top: "22%", color: "rgba(255,255,255,0.5)", fontSize: 12 }}>✦</span>
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "44%", top: "68%", color: "rgba(255,255,255,0.4)", fontSize: 10 }}>✦</span>
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "72%", top: "30%", color: "rgba(255,255,255,0.5)", fontSize: 12 }}>✦</span>
+          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "86%", top: "60%", color: "rgba(255,255,255,0.35)", fontSize: 9 }}>✦</span>
+          <div className="w-14 h-14 rounded-2xl bg-white/15 grid place-items-center backdrop-blur border border-white/25 shrink-0 relative z-10">
+            <span className="text-3xl">🚀</span>
+          </div>
+          <div className="flex-1 text-left relative z-10 min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold">Today's Quest</div>
+            <div className="text-lg font-extrabold text-white tracking-tight leading-tight mt-0.5">
+              Daily Adventure Board
+            </div>
+            <div className="text-[11px] text-white/80 mt-0.5 truncate">
+              Tap to play through today's missions →
+            </div>
+          </div>
+          <Map size={22} className="text-white/80 relative z-10 shrink-0" />
+        </button>
+      )}
+
       {/* HERO: avatar + stars + streak */}
       <div
         className="rounded-3xl p-5 text-white relative overflow-hidden"
@@ -787,39 +820,6 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               {nextBadge.value} / {nextBadge.goal}
             </div>
           </div>
-        </button>
-      )}
-
-      {/* DAILY ADVENTURE BOARD entry — moved ABOVE Up Next per the new
-          default layout. Kid can jump straight into the board from the
-          home screen without scrolling. */}
-      {onOpenBoard && (
-        <button
-          type="button"
-          onClick={onOpenBoard}
-          className="w-full rounded-3xl p-3.5 flex items-center gap-3 active:scale-[0.98] transition relative overflow-hidden border-2 border-white/15 shadow-lg"
-          style={{
-            background: "linear-gradient(135deg, #1e293b 0%, #4338ca 35%, #7c3aed 70%, #ec4899 100%)",
-          }}
-        >
-          {/* sprinkle of stars baked into the gradient */}
-          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "18%", top: "22%", color: "rgba(255,255,255,0.5)", fontSize: 10 }}>✦</span>
-          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "44%", top: "68%", color: "rgba(255,255,255,0.4)", fontSize: 9 }}>✦</span>
-          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "72%", top: "30%", color: "rgba(255,255,255,0.5)", fontSize: 11 }}>✦</span>
-          <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "86%", top: "60%", color: "rgba(255,255,255,0.35)", fontSize: 8 }}>✦</span>
-          <div className="w-12 h-12 rounded-2xl bg-white/15 grid place-items-center backdrop-blur border border-white/25 shrink-0 relative z-10">
-            <span className="text-2xl">🚀</span>
-          </div>
-          <div className="flex-1 text-left relative z-10 min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold">Space Quest</div>
-            <div className="text-base font-extrabold text-white tracking-tight leading-tight mt-0.5">
-              Daily Adventure Board
-            </div>
-            <div className="text-[11px] text-white/80 mt-0.5 truncate">
-              Fly your rocket through today's missions →
-            </div>
-          </div>
-          <Map size={20} className="text-white/80 relative z-10 shrink-0" />
         </button>
       )}
 
