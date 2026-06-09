@@ -510,6 +510,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
   const [activities, setActivities] = useState(SEED_ACTIVITIES);
   const [celebrate, setCelebrate] = useState(null);
+  const [submitPop, setSubmitPop] = useState(null);
+  useEffect(() => {
+    if (!submitPop) return;
+    const t = setTimeout(() => setSubmitPop(null), 1400);
+    return () => clearTimeout(t);
+  }, [submitPop]);
   const [detailId, _setDetailId] = useState(null);
   const [statDetailId, _setStatDetailId] = useState(null);
   // Same wrap-on-open juice pattern as setOpenTask. Every site that
@@ -652,6 +658,26 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       juice.burst("success", "approve");
       // Stars actually landed → fly them to the bank chip.
       starBurst.fly({ value: t.starValue });
+    }
+    // Kid-side reward: when REZNOR is the one tapping (active profile is
+    // the kid), every submission gets a confetti+stars pop — pending or
+    // auto-approved. Pending = "Sent for review", auto = "Stars!". The
+    // parent-as-self path skips this so the parent doesn't get a kid
+    // confetti pop on their own dashboard.
+    if (activeIsKid) {
+      const stars = t.starValue || 1;
+      setSubmitPop({
+        id: Date.now(),
+        title: needsApproval ? "Sent for review!" : "Nice work!",
+        sub: needsApproval
+          ? `${stars} ⭐ pending Mom/Dad's check`
+          : `+${stars} ⭐ banked!`,
+      });
+      // Visual star flight even on pending — gives the kid the satisfying
+      // "I got something" feedback. The actual bank count won't change
+      // until the parent approves; the flying stars represent the
+      // submission, not the award.
+      if (needsApproval) starBurst.fly({ value: stars });
     }
   };
 
@@ -1097,6 +1123,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
           />
         )}
         {celebrate && <CelebrateOverlay data={celebrate} onClose={() => setCelebrate(null)} />}
+        {submitPop && <SubmitCelebrate data={submitPop} onClose={() => setSubmitPop(null)} />}
         {detailId && (() => {
           const t = tasks.find((x) => x.id === detailId);
           if (!t) return null;
@@ -2028,6 +2055,70 @@ function StatDetailSheet({ onClose, meta, body, tally }) {
         {tally}
         <button onClick={handleClose} className="w-full mt-4 py-3 rounded-2xl bg-slate-100 text-slate-500 font-bold text-sm">Done</button>
       </div>
+    </div>
+  );
+}
+
+function SubmitCelebrate({ data, onClose }) {
+  // Brief, non-blocking confetti pop fired when the kid submits a task.
+  // Distinct from CelebrateOverlay (full streak modal) and from the board
+  // landing pop — this one rewards the act of TURNING IT IN.
+  const palette = ["#fde047", "#facc15", "#22d3ee", "#a78bfa", "#f472b6", "#34d399", "#fb923c"];
+  const emojis = ["⭐", "✨", "🎉", "💫", "🌟", "🎊"];
+  const pieces = [];
+  for (let i = 0; i < 26; i++) {
+    const dx = (Math.random() - 0.5) * 360;
+    const left = 50 + (Math.random() - 0.5) * 26;
+    const top = 42 + (Math.random() - 0.5) * 18;
+    pieces.push(
+      <span
+        key={i}
+        className="absolute text-2xl"
+        style={{
+          left: `${left}%`,
+          top: `${top}%`,
+          color: palette[i % palette.length],
+          ["--dx"]: `${dx}px`,
+          animation: `subConfetti ${950 + Math.random() * 600}ms ease-out ${i * 26}ms forwards`,
+          willChange: "transform, opacity",
+        }}
+      >
+        {emojis[i % emojis.length]}
+      </span>
+    );
+  }
+  return (
+    <div
+      key={data.id}
+      className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none"
+      aria-hidden="true"
+    >
+      <style>{`
+        @keyframes subBurst { 0% { transform: scale(0.25); opacity: 0; } 30% { transform: scale(1.4); opacity: 1; } 70% { transform: scale(1.05); opacity: 0.95; } 100% { transform: scale(1); opacity: 0; } }
+        @keyframes subRise { 0% { transform: translateY(8px); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-130px); opacity: 0; } }
+        @keyframes subConfetti { 0% { transform: translate(0, -8vh) rotate(0deg); opacity: 0; } 12% { opacity: 1; } 100% { transform: translate(var(--dx), 50vh) rotate(640deg); opacity: 0; } }
+      `}</style>
+      <div
+        className="drop-shadow-lg"
+        style={{ animation: "subBurst 1100ms ease-out forwards", fontSize: "7rem" }}
+      >
+        ⭐
+      </div>
+      <div
+        className="absolute text-2xl font-extrabold text-amber-300"
+        style={{ animation: "subRise 1200ms ease-out forwards", textShadow: "0 2px 14px rgba(0,0,0,0.55)" }}
+      >
+        {data.title}
+      </div>
+      {data.sub && (
+        <div
+          className="absolute text-sm font-bold text-white/95 mt-16"
+          style={{ animation: "subRise 1200ms ease-out 80ms forwards", textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}
+        >
+          {data.sub}
+        </div>
+      )}
+      {pieces}
     </div>
   );
 }

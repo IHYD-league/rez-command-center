@@ -591,8 +591,29 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
       } else if (state === "needs-fix") {
         glow = true; ring = "#ef4444";
       }
+    } else if (theme.bgImg) {
+      // Themed board with NO painted space-tile art — use a soft dark
+      // disc + floating emoji so the painted background reads through.
+      // Bright colored chips (like Volcano's orange) shout "UI" and
+      // break immersion; this matches the subtle feel of Candy/Forest.
+      // State cues stay via ring color + glow, not full chip color.
+      size = "w-10 h-10 sm:w-12 sm:h-12";
+      if (state === "completed") {
+        bg = "radial-gradient(circle, rgba(16,185,129,0.92) 0%, rgba(4,120,87,0.78) 100%)";
+        ring = "rgba(255,255,255,0.32)";
+      } else {
+        bg = "radial-gradient(circle, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.28) 78%, rgba(0,0,0,0.12) 100%)";
+        ring = "rgba(255,255,255,0.22)";
+      }
+      if (state === "pending") { glow = true; ring = "#f59e0b"; }
+      else if (state === "needs-fix") { glow = true; ring = "#ef4444"; }
+      content = (
+        <span className="text-xl sm:text-2xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.7)]">
+          {emoji}
+        </span>
+      );
     } else {
-      // No theme art for spaces — use the original colored circle.
+      // Procedural board (Space Quest) — keep the bright colored chip.
       bg = p.bg;
       ring = p.ring;
       content = <span className="text-xl sm:text-2xl">{emoji}</span>;
@@ -653,7 +674,10 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
       className={`relative ${size} rounded-full grid place-items-center transition`}
       style={{
         background: bg,
-        border: `3px solid ${ring}`,
+        // 1.5px border on themed boards keeps the dark disc subtle
+        // against painted artwork; 3px on procedural Space Quest where
+        // the chip is the primary visual element.
+        border: `${theme.bgImg ? 1.5 : 3}px solid ${ring}`,
         boxShadow: glow ? `0 0 24px ${ring}` : "0 4px 12px rgba(0,0,0,0.4)",
       }}
     >
@@ -815,6 +839,8 @@ export default function BoardGame({
   const seenIdsRef = useRef(null); // null until catch-up replay finishes
   const tokenIdxRef = useRef(0);
   const outerRef = useRef(null); // for scroll reset on mount
+  const boardRef = useRef(null); // inner board container — drag coord space
+  const dragRef = useRef({ active: false, moved: false, pointerId: null });
 
   const [tokenXY, setTokenXY] = useState(() => {
     // Always start at the theme's START anchor so the token is
@@ -867,6 +893,74 @@ export default function BoardGame({
     if (cheerTimerRef.current) clearTimeout(cheerTimerRef.current);
     setFlying(true);
     cheerTimerRef.current = setTimeout(() => setFlying(false), 600);
+  };
+
+  // Drag-the-token: Reznor can grab the token and slide it up/down the
+  // completed path. Pointer Y maps to nearest chip index in [0,targetIdx]
+  // (treasure included once unlocked). On release, the index snaps to
+  // the nearest chip and the token sits there — no animation needed,
+  // the drag itself IS the animation. Cancels any running animateAlong
+  // so we never fight the catch-up replay.
+  const dragNearestIdx = (clientX, clientY) => {
+    const rect = boardRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const xPct = ((clientX - rect.left) / rect.width) * 100;
+    const yViewBox = ((clientY - rect.top) / rect.height) * VIEWBOX_H;
+    const maxIdx = Math.min(targetIdx, positions.length - 1);
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i <= maxIdx; i++) {
+      const dx = positions[i].x - xPct;
+      const dy = positions[i].y - yViewBox;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; best = i; }
+    }
+    return best;
+  };
+  const onTokenPointerDown = (e) => {
+    // Only draggable once the catch-up replay has fired (otherwise the
+    // launch tap is consumed) AND there's somewhere to drag TO.
+    if (!launched || targetIdx <= 0) return;
+    if (animRef.current) {
+      cancelAnimationFrame(animRef.current);
+      animRef.current = null;
+    }
+    e.stopPropagation();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    dragRef.current = { active: true, moved: false, pointerId: e.pointerId };
+    juice.haptic("light");
+  };
+  const onTokenPointerMove = (e) => {
+    if (!dragRef.current.active) return;
+    if (e.pointerId !== dragRef.current.pointerId) return;
+    const idx = dragNearestIdx(e.clientX, e.clientY);
+    if (idx == null) return;
+    dragRef.current.moved = true;
+    if (idx !== tokenIdxRef.current) {
+      tokenIdxRef.current = idx;
+      const p = positions[idx];
+      setTokenXY({ x: p.x, y: p.y });
+      // Soft tick haptic on each chip cross so the drag feels physical.
+      juice.haptic("light");
+    }
+  };
+  const onTokenPointerUp = (e) => {
+    if (!dragRef.current.active) return;
+    if (e.pointerId !== dragRef.current.pointerId) return;
+    const wasDragged = dragRef.current.moved;
+    dragRef.current = { active: false, moved: false, pointerId: null };
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    if (wasDragged) {
+      // Land cheer on whichever chip we ended on.
+      e.stopPropagation();
+      setFlying(true);
+      if (cheerTimerRef.current) clearTimeout(cheerTimerRef.current);
+      cheerTimerRef.current = setTimeout(() => setFlying(false), 600);
+      juice.sfx("tap");
+    } else {
+      // No drag → it's a tap; fire the tap-cheer.
+      onTokenTap();
+    }
   };
 
   // Walk-the-token: tapping a COMPLETED space animates the token from
@@ -934,6 +1028,15 @@ export default function BoardGame({
       } else {
         animRef.current = null;
         tokenIdxRef.current = toIdx;
+        // SNAP to the exact chip position. The SVG path bulges
+        // between positions (Q/C curves), and lenAt uses uniform
+        // fractions of total length — those two together leave
+        // the token a few % off the chip in INTERPOLATE mode (the
+        // "stuck between two tiles" bug). Force the landing point
+        // to be ON the chip so every walk ends exactly on the
+        // painted feature, no matter the theme's waypoint count.
+        const dest = positions[toIdx];
+        if (dest) setTokenXY({ x: dest.x, y: dest.y });
         setFlying(false);
         // "Made it!" cheer — flip the token back to its alt sprite
         // for 650ms after the move finishes so every successful
@@ -1109,6 +1212,7 @@ export default function BoardGame({
       </div>
 
       <div
+        ref={boardRef}
         className="relative z-10 mx-auto overflow-hidden"
         style={{
           maxWidth: 420,
@@ -1162,13 +1266,17 @@ export default function BoardGame({
         ))}
 
         <div
-          className="absolute pointer-events-none"
+          className="absolute"
           style={{
             left: `${tokenLeftPct}%`,
             top: `${tokenTopPct}%`,
             transform: "translate(-50%, -50%)",
             zIndex: 20,
             transition: "transform 80ms linear",
+            // Wrapper itself doesn't capture pointer — only the inner
+            // button does, so non-button area (the 80×80 hit zone
+            // around the token) still lets chip-taps + drags pass.
+            pointerEvents: "none",
           }}
         >
           <style>{`
@@ -1210,21 +1318,26 @@ export default function BoardGame({
               When the theme provides art, render both rest + fly PNGs and
               crossfade via opacity (single-tree avoids any DOM thrash that
               would interrupt the inherited rocketHover animation). */}
-          {/* Token is now tappable — every tap flips the rest/alt sprite
-              for 600ms + plays a soft tap chime. This is the "let him
-              have fun" loop: Reznor can wake the dragon up any time. */}
+          {/* Token: tap to animate, DRAG (after launch) to slide up/down
+              the completed path. Drag handlers convert pointer-Y to the
+              nearest chip index in [0,targetIdx]. Pre-launch the parent
+              container's onClick handles launchNow; we just guard. */}
           <button
             type="button"
+            onPointerDown={(e) => {
+              if (!launched) { return; }
+              onTokenPointerDown(e);
+            }}
+            onPointerMove={onTokenPointerMove}
+            onPointerUp={onTokenPointerUp}
+            onPointerCancel={onTokenPointerUp}
             onClick={(e) => {
+              // Pointer-up already handled tap vs drag — swallow so the
+              // outer container's launch handler doesn't double-fire.
               e.stopPropagation();
-              // If we haven't launched yet (catch-up replay queued),
-              // the container handles the first tap. After launch,
-              // taps go to onTokenTap.
-              if (!launched) return;
-              onTokenTap();
             }}
             className="text-5xl sm:text-6xl drop-shadow-[0_4px_8px_rgba(0,0,0,0.6)] relative active:scale-95 transition-transform"
-            aria-label="Tap your character"
+            aria-label="Tap or drag your character"
             style={{
               animation:
                 !launched && targetIdx > 0
@@ -1234,10 +1347,12 @@ export default function BoardGame({
                 !launched && targetIdx > 0
                   ? "drop-shadow(0 0 18px rgba(253,224,71,0.7))"
                   : undefined,
-              cursor: launched ? "pointer" : "default",
+              cursor: launched && targetIdx > 0 ? "grab" : "pointer",
               border: 0,
               padding: 0,
               background: "transparent",
+              touchAction: "none", // pointer drag instead of browser scroll
+              pointerEvents: "auto", // re-enable: parent wrapper is none
             }}
           >
             {theme.tokenRestImg ? (
