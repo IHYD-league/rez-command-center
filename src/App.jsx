@@ -749,24 +749,33 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }
   };
 
-  const decide = (taskId, decision, bonus = 0) => {
+  // decide() acts on ONE specific completion identified by its row id.
+  // Older versions filtered by c.taskId — that mapped over every
+  // completion in the array and silently zeroed prior approved rows
+  // for recurring tasks (Drums on Mon zeroed Drums on Sun, etc.,
+  // because c.pendingStars was already 0 on the already-approved row →
+  // new awardedStars = 0 + bonus). Matching on c.id eliminates that
+  // bug class entirely. Both call sites (parent home inline + the
+  // Approvals tab) now pass the completion id.
+  const decide = (completionId, decision, bonus = 0) => {
     setCompletions((prev) => prev.map((c) => {
-      if (c.taskId !== taskId) return c;
+      if (c.id !== completionId) return c;
       if (decision === "approve") return { ...c, status: "approved", awardedStars: c.pendingStars + bonus, pendingStars: 0, approvedBy: currentProfileId || currentUserId };
       if (decision === "needs_fix") return { ...c, status: "needs_fix", pendingStars: 0 };
       if (decision === "reject") return { ...c, status: "skipped", pendingStars: 0, awardedStars: 0 };
       return c;
     }));
     if (decision === "approve") {
-      const tk = tasks.find((x) => x.id === taskId);
+      // Resolve the completion → its task → its activity for streak
+      // bumps and star-burst fly amount. We look it up in the current
+      // (pre-update) completions array since the setCompletions above
+      // hasn't applied yet on this tick.
+      const target = completions.find((c) => c.id === completionId);
+      const tk = target ? tasks.find((x) => x.id === target.taskId) : null;
       const aid = tk?.activityId || TYPE_TO_ACT[tk?.activityType];
       if (aid) bumpStreak(aid); // only bumps if that activity is being tracked
       juice.burst("success", "approve");
-      // Find the pending completion still in current state (the
-      // setCompletions above hasn't applied yet on this tick) and use
-      // its pendingStars + bonus as the fly amount.
-      const pending = completions.find((c) => c.taskId === taskId && c.status === "pending");
-      const flyValue = (pending?.pendingStars || 0) + (bonus || 0);
+      const flyValue = (target?.pendingStars || 0) + (bonus || 0);
       starBurst.fly({ value: flyValue || 1 });
     } else if (decision === "needs_fix") {
       juice.burst("warning", "nope");
@@ -3429,10 +3438,10 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
                 bump fire identically. */}
             {c?.id && decide && (
               <div className="flex gap-2 mt-1.5 px-1">
-                <button onClick={() => decide(t.id, "approve")} className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={15} />Approve</button>
-                <button onClick={() => decide(t.id, "approve", 5)} className="px-3 py-2 rounded-2xl bg-violet-500 text-white font-bold text-sm active:scale-95">+5⭐</button>
-                <button onClick={() => decide(t.id, "needs_fix")} className="px-3 py-2 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm active:scale-95" aria-label="Needs fix"><RotateCcw size={15} /></button>
-                <button onClick={() => decide(t.id, "reject")} className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95" aria-label="Reject"><X size={15} /></button>
+                <button onClick={() => decide(c.id, "approve")} className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={15} />Approve</button>
+                <button onClick={() => decide(c.id, "approve", 5)} className="px-3 py-2 rounded-2xl bg-violet-500 text-white font-bold text-sm active:scale-95">+5⭐</button>
+                <button onClick={() => decide(c.id, "needs_fix")} className="px-3 py-2 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm active:scale-95" aria-label="Needs fix"><RotateCcw size={15} /></button>
+                <button onClick={() => decide(c.id, "reject")} className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95" aria-label="Reject"><X size={15} /></button>
               </div>
             )}
           </div>
@@ -3683,10 +3692,10 @@ function Approvals({ completions, tasks, users, decide }) {
             {c.proof?.length > 0 && !c.proof.some((p) => p.path || p.url) && <Detail label="Proof">{c.proof.map((p) => p.name).join(", ")}</Detail>}
 
             <div className="flex gap-2 mt-3">
-              <button onClick={() => decide(c.taskId, "approve")} className="flex-1 py-2.5 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={16} />Approve</button>
-              <button onClick={() => decide(c.taskId, "approve", 5)} className="px-3 py-2.5 rounded-2xl bg-violet-500 text-white font-bold text-sm active:scale-95">+5⭐</button>
-              <button onClick={() => decide(c.taskId, "needs_fix")} className="px-3 py-2.5 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm active:scale-95"><RotateCcw size={16} /></button>
-              <button onClick={() => decide(c.taskId, "reject")} className="px-3 py-2.5 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95"><X size={16} /></button>
+              <button onClick={() => decide(c.id, "approve")} className="flex-1 py-2.5 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={16} />Approve</button>
+              <button onClick={() => decide(c.id, "approve", 5)} className="px-3 py-2.5 rounded-2xl bg-violet-500 text-white font-bold text-sm active:scale-95">+5⭐</button>
+              <button onClick={() => decide(c.id, "needs_fix")} className="px-3 py-2.5 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm active:scale-95"><RotateCcw size={16} /></button>
+              <button onClick={() => decide(c.id, "reject")} className="px-3 py-2.5 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95"><X size={16} /></button>
             </div>
           </Card>
         );
