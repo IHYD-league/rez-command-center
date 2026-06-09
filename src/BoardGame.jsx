@@ -1528,23 +1528,25 @@ export default function BoardGame({
         }}
         onClick={launchNow}
       >
-        {/* Title overlays INSIDE the map at the top — the map IS the
-            screen now, so the header has to live within it. Strong
-            drop-shadow keeps text legible against any painted bg. */}
+        {/* Minimal chrome header. The big "Daily Adventure" banner
+            used to sit here and overlap the treasure art at the top
+            of the board (the Dragon's Hoard / Cloud Citadel / etc.
+            are all painted near y=12-14% — a multi-line title
+            sitting at top would cover the chest). Now: just a single
+            tight line — theme name • progress — held at the very
+            top edge with a soft text-shadow. The art is the hero. */}
         <div
-          className="absolute top-2 left-0 right-0 text-center z-20 pointer-events-none px-3"
-          style={{ textShadow: "0 2px 10px rgba(0,0,0,0.7)" }}
+          className="absolute top-1 left-0 right-0 text-center z-20 pointer-events-none px-3 flex items-center justify-center gap-2"
+          style={{ textShadow: "0 1px 6px rgba(0,0,0,0.75)" }}
         >
-          <div className="text-[10px] uppercase tracking-[0.18em] text-white/85 font-bold drop-shadow">
+          <span className="text-[10px] uppercase tracking-[0.18em] text-white/90 font-extrabold">
             {theme.name}
-          </div>
-          <div className="text-2xl font-extrabold text-white tracking-tight mt-0.5">
-            Daily Adventure
-          </div>
-          <div className="text-[11px] text-white/90 mt-1 font-semibold">
+          </span>
+          <span className="text-white/40 text-[10px]">·</span>
+          <span className="text-[10px] text-white font-bold">
             {doneCount} of {safeTasks.length} cleared
-            {pendingCount > 0 ? ` · ${pendingCount} pending ⏳` : ""}
-          </div>
+            {pendingCount > 0 ? ` · ${pendingCount} ⏳` : ""}
+          </span>
         </div>
         <svg
           viewBox={`0 0 100 ${VIEWBOX_H}`}
