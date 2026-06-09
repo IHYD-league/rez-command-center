@@ -1,5 +1,6 @@
-import React, { useMemo } from "react";
-import { Drum, Music, BookOpen, Image as ImageIcon, Heart, TrendingUp, Sparkles } from "lucide-react";
+import React, { useMemo, useState, useEffect } from "react";
+import { Drum, Music, BookOpen, Image as ImageIcon, Heart, TrendingUp, Sparkles, Check, X, RotateCcw } from "lucide-react";
+import { searchOpenLibrary, pickFirstMatch } from "./lib/enrichBook.js";
 
 /* =====================================================================
    Insights — Phase 3.
@@ -133,6 +134,205 @@ function EmptyLine({ children }) {
   return <div className="text-[12px] text-slate-400 italic">{children}</div>;
 }
 
+// Single book row that renders its cover thumbnail (when enriched),
+// auto-enriches on first render if match_status === "unmatched", and
+// shows Confirm / Pick another / Skip CTAs when status === "auto".
+// Updates persist through updateBook(id, patch) — same synced setter
+// the Reading Library uses, so a single call replicates to Supabase
+// and back into shared state.
+function EnrichedBookRow({ b, updateBook }) {
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // Auto-enrich on first render. Idempotent: pickFirstMatch de-dupes
+  // concurrent calls, and we guard on match_status so a row only
+  // ever fetches once per family-life. Effects don't fire when
+  // updateBook is missing (e.g. some preview viewers); the row still
+  // renders correctly with whatever cached fields it has.
+  useEffect(() => {
+    if (!updateBook) return;
+    if (b.matchStatus && b.matchStatus !== "unmatched") return;
+    if (!b.title) return;
+    let cancelled = false;
+    (async () => {
+      const match = await pickFirstMatch(b.title, b.canonicalAuthor || "");
+      if (cancelled || !match) return;
+      updateBook(b.id, {
+        coverUrl:        match.coverUrl,
+        canonicalTitle:  match.title,
+        canonicalAuthor: match.author,
+        externalSource:  match.externalSource,
+        externalId:      match.externalId,
+        enrichedAt:      new Date().toISOString(),
+        matchStatus:     "auto",
+      });
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [b.id, b.matchStatus, b.title]);
+
+  const statusBadge = (
+    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+      b.status === "finished" ? "bg-emerald-100 text-emerald-700"
+        : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
+        : b.status === "dropped" ? "bg-slate-200 text-slate-500"
+        : "bg-amber-100 text-amber-700"
+    }`}>{b.status || "reading"}</span>
+  );
+
+  const onConfirm = () => updateBook && updateBook(b.id, { matchStatus: "confirmed" });
+  const onSkip    = () => updateBook && updateBook(b.id, { matchStatus: "rejected", coverUrl: "" });
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-2">
+      <div className="flex items-center gap-2">
+        {b.coverUrl ? (
+          <img
+            src={b.coverUrl}
+            alt=""
+            draggable={false}
+            className="w-10 h-14 object-cover rounded-md border border-slate-200 shrink-0 bg-slate-100"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-10 h-14 rounded-md bg-slate-100 border border-slate-200 grid place-items-center shrink-0 text-slate-300">
+            <BookOpen size={16} />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-slate-800 truncate">
+            {b.canonicalTitle || b.title || "(untitled)"}
+          </div>
+          <div className="text-[11px] text-slate-500 truncate">
+            {b.canonicalAuthor || ""}
+            {b.canonicalAuthor && (b.lang || b.level) ? " · " : ""}
+            {b.lang}{b.lang && b.level ? " · " : ""}{b.level}
+          </div>
+        </div>
+        {statusBadge}
+      </div>
+      {b.matchStatus === "auto" && updateBook && !picking && (
+        <div className="flex gap-1 mt-2">
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-emerald-500 text-white active:scale-95 flex items-center justify-center gap-1"
+          >
+            <Check size={12} /> Looks right
+          </button>
+          <button
+            type="button"
+            onClick={() => setPicking(true)}
+            className="flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-slate-100 text-slate-700 active:scale-95 flex items-center justify-center gap-1"
+          >
+            <RotateCcw size={12} /> Pick another
+          </button>
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={busy}
+            className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
+            aria-label="Skip enrichment"
+          >
+            Skip
+          </button>
+        </div>
+      )}
+      {picking && (
+        <BookMatchPicker
+          b={b}
+          updateBook={updateBook}
+          busy={busy}
+          setBusy={setBusy}
+          onClose={() => setPicking(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Inline picker — fetches up to 5 Open Library candidates for the
+// free-typed title + author and renders them as tap-to-select rows.
+// On select, writes the chosen result fields onto the row and locks
+// match_status = "confirmed".
+function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
+  const [candidates, setCandidates] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    setBusy(true);
+    (async () => {
+      try {
+        const out = await searchOpenLibrary(b.title, b.canonicalAuthor || "", 5);
+        if (!cancelled) setCandidates(out);
+      } catch (e) {
+        if (!cancelled) setError(e?.message || "search failed");
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [b.title]);
+
+  const pick = (c) => {
+    if (!updateBook) return;
+    updateBook(b.id, {
+      coverUrl:        c.coverUrl,
+      canonicalTitle:  c.title,
+      canonicalAuthor: c.author,
+      externalSource:  c.externalSource,
+      externalId:      c.externalId,
+      enrichedAt:      new Date().toISOString(),
+      matchStatus:     "confirmed",
+    });
+    onClose();
+  };
+
+  return (
+    <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-2">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+          Pick the right match
+        </div>
+        <button onClick={onClose} className="text-slate-400" aria-label="Cancel">
+          <X size={14} />
+        </button>
+      </div>
+      {busy && <div className="text-[12px] text-slate-400">Searching Open Library…</div>}
+      {error && <div className="text-[12px] text-rose-500">Search failed: {error}</div>}
+      {candidates && candidates.length === 0 && (
+        <div className="text-[12px] text-slate-400">No matches found.</div>
+      )}
+      {candidates && candidates.length > 0 && (
+        <div className="space-y-1">
+          {candidates.map((c, i) => (
+            <button
+              key={c.externalId || i}
+              type="button"
+              onClick={() => pick(c)}
+              className="w-full flex items-center gap-2 p-1.5 rounded-lg bg-white border border-slate-200 hover:border-indigo-300 active:scale-[0.99] text-left"
+            >
+              {c.coverThumbUrl ? (
+                <img src={c.coverThumbUrl} alt="" className="w-8 h-12 object-cover rounded shrink-0 bg-slate-100" />
+              ) : (
+                <div className="w-8 h-12 rounded bg-slate-100 grid place-items-center shrink-0 text-slate-300">
+                  <BookOpen size={12} />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] font-bold text-slate-800 truncate">{c.title}</div>
+                <div className="text-[10px] text-slate-500 truncate">
+                  {c.author}{c.year ? ` · ${c.year}` : ""}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Insights({
   completions = [],
   tasks = [],
@@ -141,6 +341,7 @@ export default function Insights({
   songPlays = [],
   books = [],
   albumPhotos = [],
+  updateBook,
 }) {
   /* ----- PRACTICE TIME ---------------------------------------------- */
   const practiceStats = useMemo(() => {
@@ -398,25 +599,18 @@ export default function Insights({
             {booksStats.recent.length > 0 && (
               <>
                 <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Recent (tracked)</div>
-                <ul className="space-y-1 mb-3">
+                <div className="space-y-2 mb-3">
                   {booksStats.recent.map((b) => (
-                    <li key={b.id} className="flex items-center gap-2 text-sm">
-                      <span className="flex-1 truncate">
-                        <span className="font-bold text-slate-800">{b.title || "(untitled)"}</span>
-                        {b.lang && <span className="text-[11px] text-slate-500"> · {b.lang}</span>}
-                        {b.level && <span className="text-[11px] text-slate-500"> · {b.level}</span>}
-                      </span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        b.status === "finished" ? "bg-emerald-100 text-emerald-700"
-                          : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
-                          : b.status === "dropped" ? "bg-slate-200 text-slate-500"
-                          : "bg-amber-100 text-amber-700"
-                      }`}>
-                        {b.status || "reading"}
-                      </span>
-                    </li>
+                    <EnrichedBookRow key={b.id} b={b} updateBook={updateBook} />
                   ))}
-                </ul>
+                </div>
+                {booksStats.recent.some((b) => b.matchStatus === "auto") && (
+                  <div className="text-[10px] text-slate-400 mb-3 leading-snug">
+                    Auto-matched titles need a parent thumbs-up. Tap ✓ to lock the
+                    match, "Pick another" to fix it, or "Skip" to leave the entry
+                    as free text.
+                  </div>
+                )}
               </>
             )}
             {/* Pre-tracking archive — grouped by era, no dates. Counts toward

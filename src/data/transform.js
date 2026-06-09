@@ -89,6 +89,16 @@ export const toApp = {
     // label carries the rough when.
     preTracking: r.pre_tracking ?? false,
     eraLabel: r.era_label || "",
+    // Phase 6a: Open Library enrichment cache. NULL on existing rows
+    // until the first auto-match writes them. matchStatus = "unmatched"
+    // by DB default so the auto-enrich effect picks them up.
+    coverUrl:        r.cover_url || "",
+    canonicalTitle:  r.canonical_title || "",
+    canonicalAuthor: r.canonical_author || "",
+    externalSource:  r.external_source || "",
+    externalId:      r.external_id || "",
+    enrichedAt:      r.enriched_at || null,
+    matchStatus:     r.match_status || "unmatched",
   }),
 
   award: (r) => ({
@@ -282,6 +292,15 @@ export const toDb = {
     notes: o.notes,
     pre_tracking: !!o.preTracking,
     era_label: o.eraLabel || null,
+    cover_url:        o.coverUrl || null,
+    canonical_title:  o.canonicalTitle || null,
+    canonical_author: o.canonicalAuthor || null,
+    external_source:  o.externalSource || null,
+    external_id:      o.externalId || null,
+    // enriched_at written via toIsoOrNow; let the JS layer pass a
+    // string when stamping a fresh match, else leave null.
+    enriched_at:      o.enrichedAt || null,
+    match_status:     o.matchStatus || "unmatched",
   }),
 
   award: (familyId) => (o) => ({
