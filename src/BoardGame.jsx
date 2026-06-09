@@ -491,20 +491,26 @@ function buildPathD(positions) {
   return d;
 }
 
-function BoardPop({ id, kind, label, sub }) {
+function BoardPop({ id, kind, label, sub, big }) {
   if (!id) return null;
+  // BIG = first-time-board-cleared treasure payoff. Three knobs amp up
+  // proportionally: piece count, throw distance, and an extra ray
+  // flash behind the trophy emoji.
   const palette =
     kind === "treasure"
-      ? ["#fde047", "#facc15", "#f59e0b", "#fb923c", "#22d3ee", "#a78bfa"]
+      ? ["#fde047", "#facc15", "#f59e0b", "#fb923c", "#22d3ee", "#a78bfa", "#f472b6", "#34d399"]
       : ["#22d3ee", "#a78bfa", "#f472b6", "#fde047", "#34d399"];
-  const emojis = kind === "treasure" ? ["🏆", "✨", "⭐", "🎉", "💫"] : ["⭐", "✨", "🎉", "💫", "🚀"];
-  const count = kind === "treasure" ? 36 : 18;
-  const burst = kind === "treasure" ? "8rem" : "5rem";
+  const emojis = kind === "treasure"
+    ? ["🏆", "✨", "⭐", "🎉", "💫", "🎊", "💎", "🌟"]
+    : ["⭐", "✨", "🎉", "💫", "🚀"];
+  const count = big ? 90 : kind === "treasure" ? 36 : 18;
+  const burst = big ? "11rem" : kind === "treasure" ? "8rem" : "5rem";
+  const throwRange = big ? 760 : kind === "treasure" ? 480 : 280;
   const pieces = [];
   for (let i = 0; i < count; i++) {
-    const dx = (Math.random() - 0.5) * (kind === "treasure" ? 480 : 280);
-    const left = 50 + (Math.random() - 0.5) * 24;
-    const top = 38 + (Math.random() - 0.5) * 18;
+    const dx = (Math.random() - 0.5) * throwRange;
+    const left = 50 + (Math.random() - 0.5) * (big ? 32 : 24);
+    const top = 38 + (Math.random() - 0.5) * (big ? 24 : 18);
     pieces.push(
       <span
         key={i}
@@ -514,7 +520,7 @@ function BoardPop({ id, kind, label, sub }) {
           top: `${top}%`,
           color: palette[i % palette.length],
           ["--dx"]: `${dx}px`,
-          animation: `bpConfetti ${900 + Math.random() * 700}ms ease-out ${i * 28}ms forwards`,
+          animation: `bpConfetti ${900 + Math.random() * 900}ms ease-out ${i * (big ? 12 : 28)}ms forwards`,
           willChange: "transform, opacity",
         }}
       >
@@ -530,28 +536,55 @@ function BoardPop({ id, kind, label, sub }) {
     >
       <style>{`
         @keyframes bpBurst { 0% { transform: scale(0.25); opacity: 0; } 30% { transform: scale(1.35); opacity: 1; } 70% { transform: scale(1.08); opacity: 0.95; } 100% { transform: scale(1); opacity: 0; } }
+        @keyframes bpBurstBig { 0% { transform: scale(0.2) rotate(-12deg); opacity: 0; } 22% { transform: scale(1.55) rotate(4deg); opacity: 1; } 55% { transform: scale(1.18) rotate(-2deg); opacity: 1; } 100% { transform: scale(1.05) rotate(0deg); opacity: 0; } }
         @keyframes bpRise { 0% { transform: translateY(8px); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-140px); opacity: 0; } }
-        @keyframes bpConfetti { 0% { transform: translate(0, -10vh) rotate(0deg); opacity: 0; } 12% { opacity: 1; } 100% { transform: translate(var(--dx), 55vh) rotate(720deg); opacity: 0; } }
+        @keyframes bpConfetti { 0% { transform: translate(0, -10vh) rotate(0deg); opacity: 0; } 12% { opacity: 1; } 100% { transform: translate(var(--dx), 60vh) rotate(720deg); opacity: 0; } }
+        @keyframes bpRays { 0% { transform: scale(0.4) rotate(0deg); opacity: 0; } 20% { opacity: 0.9; } 100% { transform: scale(1.6) rotate(180deg); opacity: 0; } }
       `}</style>
+      {big && (
+        <div
+          aria-hidden="true"
+          className="absolute"
+          style={{
+            width: 600, height: 600,
+            background: "radial-gradient(circle, rgba(253,224,71,0.55) 0%, rgba(251,191,36,0.25) 35%, rgba(0,0,0,0) 70%)",
+            animation: "bpRays 1800ms ease-out forwards",
+            mixBlendMode: "screen",
+          }}
+        />
+      )}
       <div
         className="drop-shadow-lg"
         style={{
-          animation: `bpBurst ${kind === "treasure" ? 1300 : 950}ms ease-out forwards`,
+          animation: big
+            ? "bpBurstBig 2000ms ease-out forwards"
+            : `bpBurst ${kind === "treasure" ? 1300 : 950}ms ease-out forwards`,
           fontSize: burst,
+          filter: big ? "drop-shadow(0 0 24px rgba(253,224,71,0.85))" : undefined,
         }}
       >
         {kind === "treasure" ? "🏆" : "⭐"}
       </div>
       <div
-        className="absolute text-2xl font-extrabold text-amber-300"
-        style={{ animation: "bpRise 1200ms ease-out forwards", textShadow: "0 2px 14px rgba(0,0,0,0.45)" }}
+        className="absolute font-extrabold text-amber-300"
+        style={{
+          animation: "bpRise 1400ms ease-out forwards",
+          textShadow: "0 2px 14px rgba(0,0,0,0.55)",
+          fontSize: big ? "2.6rem" : "1.5rem",
+          top: big ? "62%" : undefined,
+        }}
       >
         {label}
       </div>
       {sub && (
         <div
-          className="absolute text-sm font-bold text-white/90 mt-16"
-          style={{ animation: "bpRise 1200ms ease-out 80ms forwards", textShadow: "0 2px 10px rgba(0,0,0,0.5)" }}
+          className="absolute font-bold text-white"
+          style={{
+            animation: "bpRise 1400ms ease-out 80ms forwards",
+            textShadow: "0 2px 10px rgba(0,0,0,0.6)",
+            fontSize: big ? "1.1rem" : "0.875rem",
+            marginTop: big ? "8rem" : "4rem",
+          }}
         >
           {sub}
         </div>
@@ -972,6 +1005,43 @@ export default function BoardGame({
   // Holds the post-land "cheer" timer so a quick re-launch cancels it
   // cleanly instead of double-flipping the flying state.
   const cheerTimerRef = useRef(null);
+  // Treasure reveal gate. The chest stays VISUALLY locked even after
+  // every task is approved — only flips open after the token actually
+  // arrives at the treasure space and finishes its cheer animation.
+  // The whole point: don't spoil the reveal. Reznor's first time
+  // clearing the board (and every replay) gets the full "arrive →
+  // animate → chest opens → big celebration" sequence in order.
+  const [treasureRevealed, setTreasureRevealed] = useState(false);
+  // Cancels in-flight reveal timers if the kid taps undo on the last
+  // task mid-reveal — keeps state consistent.
+  const revealTimerRef = useRef(null);
+
+  const triggerTreasureReveal = () => {
+    // Sequence:
+    //  t=0           token has just snapped to BESIDE the chest. The
+    //                animateAlong end-frame already started the cheer
+    //                (alt sprite + 650ms timer).
+    //  t≈700ms       chest opens (treasureRevealed → true)
+    //  t≈700ms       multi-SFX chime chain + heavy haptic + BoardPop
+    //                with extra confetti density. The audio chain
+    //                (treasure→streak→levelUp) reads as a "bell, then
+    //                fanfare" without writing new SFX code.
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    revealTimerRef.current = setTimeout(() => {
+      setTreasureRevealed(true);
+      juice.haptic("success");
+      juice.sfx("treasure");
+      setTimeout(() => juice.sfx("streak"), 260);
+      setTimeout(() => juice.sfx("levelUp"), 560);
+      setPop({
+        id: Date.now(),
+        kind: "treasure",
+        label: "TREASURE!!! 🏆",
+        sub: "You did the WHOLE board!",
+        big: true,
+      });
+    }, 700);
+  };
 
   // Token tap — Reznor loves making the dragon/butterfly/lollipop do
   // its thing on demand. Each tap fires the alt-sprite crossfade for
@@ -1119,15 +1189,17 @@ export default function BoardGame({
       } else {
         animRef.current = null;
         tokenIdxRef.current = toIdx;
-        // SNAP to the exact chip position. The SVG path bulges
-        // between positions (Q/C curves), and lenAt uses uniform
-        // fractions of total length — those two together leave
-        // the token a few % off the chip in INTERPOLATE mode (the
-        // "stuck between two tiles" bug). Force the landing point
-        // to be ON the chip so every walk ends exactly on the
-        // painted feature, no matter the theme's waypoint count.
+        // SNAP to the exact chip position. EXCEPTION: treasure
+        // landing — the chest is the visual hero, so the token
+        // sits BESIDE it (offset down-left) instead of ON it.
+        // For every other space, snap-on-chip prevents the
+        // "stuck between two tiles" bug from v4.4.
         const dest = positions[toIdx];
-        if (dest) setTokenXY({ x: dest.x, y: dest.y });
+        const isTreasureLand = spaces[toIdx]?.kind === "treasure";
+        const final = isTreasureLand && dest
+          ? { x: Math.max(10, dest.x - 22), y: Math.min(VIEWBOX_H * 0.99, dest.y + 6) }
+          : dest;
+        if (final) setTokenXY({ x: final.x, y: final.y });
         setFlying(false);
         // "Made it!" cheer — flip the token back to its alt sprite
         // for 650ms after the move finishes so every successful
@@ -1169,6 +1241,12 @@ export default function BoardGame({
         duration: Math.min(700, 320 + targetIdx * 70),
         onLand: () => {
           seenIdsRef.current = new Set(approvedIds);
+          // Catch-up reloads still need the full payoff at the end.
+          // If we landed on treasure, fire the reveal sequence here
+          // too — chest opens + celebration play after the cheer.
+          if (spaces[targetIdx]?.kind === "treasure") {
+            triggerTreasureReveal();
+          }
         },
       });
     }, 80);
@@ -1207,16 +1285,12 @@ export default function BoardGame({
         // an undo→redo) each re-trigger the pulse.
         setLastLanded({ idx: targetIdx, t: Date.now() });
         if (landed?.kind === "treasure") {
-          // Treasure landing — big juice. Same `treasure` SFX as a
-          // reward redemption + a success haptic to signal "this is
-          // the big one".
-          juice.burst("success", "treasure");
-          setPop({
-            id: Date.now(),
-            kind: "treasure",
-            label: "TREASURE! 🏆",
-            sub: "All missions complete!",
-          });
+          // Treasure landing — DON'T pop/celebrate yet. The full
+          // reveal sequence (closed chest → token cheer → chest
+          // opens → big celebration) is handled by
+          // triggerTreasureReveal so the sequence stays in order
+          // every time.
+          triggerTreasureReveal();
         } else if (landed?.kind === "task") {
           // Per-space landing — softer juice so the treasure ending
           // still feels distinct after multiple of these.
@@ -1234,10 +1308,23 @@ export default function BoardGame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [approvedIds.join("|"), targetIdx, launched]);
 
-  // Auto-clear the pop after its CSS animation finishes.
+  // Reset the chest-open gate when the board's no-longer-fully-done
+  // (e.g., a parent undoes one of today's approvals, or a new task
+  // gets added). Means a future re-arrival plays the full reveal
+  // sequence again — no stuck-open chest after an undo.
+  useEffect(() => {
+    if (spaces[spaces.length - 1]?.state !== "treasure-open") {
+      setTreasureRevealed(false);
+    }
+  }, [spaces]);
+
+  // Auto-clear the pop after its CSS animation finishes. The big
+  // treasure variant hangs around longer — that's the moment Mom and
+  // Dad get the screenshot, the kid's eyes are wide, give it room.
   useEffect(() => {
     if (!pop) return;
-    const t = setTimeout(() => setPop(null), pop.kind === "treasure" ? 2200 : 1500);
+    const ms = pop.big ? 3400 : pop.kind === "treasure" ? 2200 : 1500;
+    const t = setTimeout(() => setPop(null), ms);
     return () => clearTimeout(t);
   }, [pop]);
 
@@ -1362,26 +1449,32 @@ export default function BoardGame({
           />
         </svg>
 
-        {spaces.map((s, i) => (
-          <SpaceMarker
-            key={`${s.kind}-${s.task?.id || s.kind}-${i}`}
-            space={s}
-            x={positions[i].x}
-            y={positions[i].y}
-            viewBoxH={VIEWBOX_H}
-            onTap={setOpenTask}
-            theme={theme}
-            activities={activities}
-            // pulseKey changes when THIS space just had a landing —
-            // the SpaceMarker effect re-triggers its arrival animation
-            // each time the key flips.
-            pulseKey={lastLanded.idx === i ? lastLanded.t : 0}
-            // Tap-to-walk: completed spaces call this with their index
-            // instead of opening the task sheet (task's already done).
-            index={i}
-            onWalkTo={walkToCompleted}
-          />
-        ))}
+        {spaces.map((s, i) => {
+          // Treasure space holds its CLOSED art until the token has
+          // arrived + cheered. The canonical `spaces` array still
+          // says "treasure-open" once everything's approved (that's
+          // the data truth used to decide WHEN the reveal fires),
+          // but the rendered chip stays locked-looking until
+          // `treasureRevealed` flips. No spoiler.
+          const renderSpace = (s.kind === "treasure" && !treasureRevealed)
+            ? { ...s, state: "treasure-locked" }
+            : s;
+          return (
+            <SpaceMarker
+              key={`${s.kind}-${s.task?.id || s.kind}-${i}`}
+              space={renderSpace}
+              x={positions[i].x}
+              y={positions[i].y}
+              viewBoxH={VIEWBOX_H}
+              onTap={setOpenTask}
+              theme={theme}
+              activities={activities}
+              pulseKey={lastLanded.idx === i ? lastLanded.t : 0}
+              index={i}
+              onWalkTo={walkToCompleted}
+            />
+          );
+        })}
 
         <div
           className="absolute"
@@ -1525,7 +1618,7 @@ export default function BoardGame({
         )}
       </div>
 
-      {pop && <BoardPop id={pop.id} kind={pop.kind} label={pop.label} sub={pop.sub} />}
+      {pop && <BoardPop id={pop.id} kind={pop.kind} label={pop.label} sub={pop.sub} big={pop.big} />}
     </div>
   );
 }
