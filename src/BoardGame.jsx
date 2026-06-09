@@ -1075,6 +1075,10 @@ export default function BoardGame({
   // the same art as both states; this state is harmless for emoji-only
   // themes. Reset to false on every land.
   const [flying, setFlying] = useState(false);
+  // `isAnimating` mirrors animRef.current's lifetime in state so the
+  // render layer (Replay button visibility) can react to it. Refs
+  // alone don't trigger re-renders.
+  const [isAnimating, setIsAnimating] = useState(false);
   // Holds the post-land "cheer" timer so a quick re-launch cancels it
   // cleanly instead of double-flipping the flying state.
   const cheerTimerRef = useRef(null);
@@ -1158,6 +1162,7 @@ export default function BoardGame({
     if (animRef.current) {
       cancelAnimationFrame(animRef.current);
       animRef.current = null;
+      setIsAnimating(false);
     }
     e.stopPropagation();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
@@ -1195,6 +1200,31 @@ export default function BoardGame({
       // No drag → it's a tap; fire the tap-cheer.
       onTokenTap();
     }
+  };
+
+  // Replay journey — Reznor's "Start again" button. Snaps the token
+  // back to START, then walks slowly through every completed space
+  // to wherever the canonical position currently is. Pure visual,
+  // no data changes, no celebration replay (so it can be re-run
+  // without re-firing the treasure pop — that lives on its own gate).
+  const replayJourney = () => {
+    if (isAnimating) return;
+    if (targetIdx === 0) return;
+    // Snap to start.
+    tokenIdxRef.current = 0;
+    const p0 = positions[0];
+    if (p0) setTokenXY({ x: p0.x, y: p0.y });
+    juice.haptic("light");
+    juice.sfx("swipe");
+    // Then animate slowly. Speed scales with distance so a long
+    // board still finishes in a reasonable time, but each segment
+    // is visible (~300ms per space) rather than the catch-up
+    // sweep's compressed pace.
+    setTimeout(() => {
+      animateAlong(0, targetIdx, {
+        duration: Math.min(3000, 600 + targetIdx * 280),
+      });
+    }, 280);
   };
 
   // Walk-the-token: tapping a COMPLETED space animates the token from
@@ -1285,6 +1315,7 @@ export default function BoardGame({
     // without this the chest opens off-screen above the viewport.
     const dest = positions[toIdx];
     if (dest) scrollToBoardY(dest.y / VIEWBOX_H);
+    setIsAnimating(true);
     setFlying(true);
     const pathEl = pathRef.current;
     const total = pathEl.getTotalLength();
@@ -1302,6 +1333,7 @@ export default function BoardGame({
         animRef.current = requestAnimationFrame(tick);
       } else {
         animRef.current = null;
+        setIsAnimating(false);
         tokenIdxRef.current = toIdx;
         // SNAP to the exact chip position. EXCEPTION: treasure
         // landing — the chest is the visual hero, so the token
@@ -1591,6 +1623,100 @@ export default function BoardGame({
           );
         })}
 
+        {/* Chest-anchored sparkles. Renders ONLY when the reveal gate
+            flips, layered over the open-chest art at the treasure
+            space's exact position. Adds to (not replaces) the existing
+            fullscreen BoardPop burst. Reads as light/magic radiating
+            out of the chest itself — the "this thing just opened up
+            and treasure is pouring out" moment. */}
+        {treasureRevealed && positions.length > 0 && (() => {
+          const treasureIdx = spaces.length - 1;
+          const p = positions[treasureIdx];
+          if (!p) return null;
+          const leftPct = p.x;
+          const topPct = (p.y / VIEWBOX_H) * 100;
+          const sparkles = [];
+          const sparkleEmojis = ["✨", "⭐", "💫", "🌟", "💎", "🎉"];
+          for (let i = 0; i < 18; i++) {
+            const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.4;
+            const dist = 40 + Math.random() * 40;
+            const dx = Math.cos(angle) * dist;
+            const dy = Math.sin(angle) * dist - 18; // bias upward
+            sparkles.push(
+              <span
+                key={i}
+                className="absolute text-xl"
+                style={{
+                  left: 0, top: 0,
+                  transform: "translate(-50%, -50%)",
+                  ["--dx"]: `${dx}px`,
+                  ["--dy"]: `${dy}px`,
+                  animation: `chestSpark ${1200 + Math.random() * 700}ms ease-out ${i * 35}ms forwards`,
+                  willChange: "transform, opacity",
+                  textShadow: "0 0 6px rgba(253,224,71,0.7)",
+                  pointerEvents: "none",
+                }}
+              >
+                {sparkleEmojis[i % sparkleEmojis.length]}
+              </span>
+            );
+          }
+          return (
+            <div
+              aria-hidden="true"
+              className="absolute pointer-events-none"
+              style={{
+                left: `${leftPct}%`,
+                top: `${topPct}%`,
+                width: 0, height: 0,
+                zIndex: 18,
+              }}
+            >
+              <style>{`
+                @keyframes chestSpark {
+                  0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
+                  20%  { opacity: 1; }
+                  100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.1) rotate(360deg); opacity: 0; }
+                }
+                @keyframes chestGlow {
+                  0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
+                  35%  { transform: translate(-50%, -50%) scale(1.6); opacity: 0.85; }
+                  100% { transform: translate(-50%, -50%) scale(2.4); opacity: 0; }
+                }
+                @keyframes chestRay {
+                  0%   { transform: translate(-50%, -50%) scale(0.5) rotate(0deg); opacity: 0; }
+                  40%  { opacity: 0.6; }
+                  100% { transform: translate(-50%, -50%) scale(1.4) rotate(180deg); opacity: 0; }
+                }
+              `}</style>
+              {/* Soft golden glow disc behind the chest */}
+              <div
+                className="absolute rounded-full"
+                style={{
+                  left: 0, top: 0,
+                  width: 180, height: 180,
+                  background: "radial-gradient(circle, rgba(253,224,71,0.75) 0%, rgba(251,191,36,0.35) 45%, rgba(0,0,0,0) 70%)",
+                  animation: "chestGlow 1800ms ease-out forwards",
+                  mixBlendMode: "screen",
+                }}
+              />
+              {/* Rotating ray flare */}
+              <div
+                className="absolute"
+                style={{
+                  left: 0, top: 0,
+                  width: 220, height: 220,
+                  background: "conic-gradient(from 0deg, rgba(253,224,71,0) 0deg, rgba(253,224,71,0.5) 20deg, rgba(253,224,71,0) 40deg, rgba(253,224,71,0) 60deg, rgba(253,224,71,0.5) 80deg, rgba(253,224,71,0) 100deg, rgba(253,224,71,0) 120deg, rgba(253,224,71,0.5) 140deg, rgba(253,224,71,0) 160deg, rgba(253,224,71,0) 180deg, rgba(253,224,71,0.5) 200deg, rgba(253,224,71,0) 220deg, rgba(253,224,71,0) 240deg, rgba(253,224,71,0.5) 260deg, rgba(253,224,71,0) 280deg, rgba(253,224,71,0) 300deg, rgba(253,224,71,0.5) 320deg, rgba(253,224,71,0) 340deg)",
+                  borderRadius: "50%",
+                  animation: "chestRay 2000ms ease-out forwards",
+                  mixBlendMode: "screen",
+                }}
+              />
+              {sparkles}
+            </div>
+          );
+        })()}
+
         <div
           className="absolute"
           style={{
@@ -1729,6 +1855,24 @@ export default function BoardGame({
             >
               👆 Tap your character to launch!
             </div>
+          </div>
+        )}
+
+        {/* Start again — Reznor's replay button. Once the catch-up
+            replay has fired and the token is at rest, this surfaces
+            so he can re-watch his journey from START as many times
+            as he wants. Stays out of the way mid-animation. */}
+        {launched && targetIdx > 0 && !isAnimating && (
+          <div className="absolute bottom-2 left-0 right-0 text-center z-40 pointer-events-none">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); replayJourney(); }}
+              className="pointer-events-auto inline-flex items-center gap-1 bg-white/95 text-slate-900 text-[11px] font-extrabold px-3 py-1.5 rounded-full shadow-lg active:scale-95"
+              style={{ WebkitTapHighlightColor: "transparent", border: 0 }}
+              aria-label="Replay journey from start"
+            >
+              ▶ Start again
+            </button>
           </div>
         )}
       </div>

@@ -612,89 +612,6 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           @keyframes kgh-aurora       { 0%, 100% { transform: none; opacity: 0.7; } }
         }
       `}</style>
-      {/* DRUM STREAK HERO — standalone "A year of drums" presentation
-          card. Sits ABOVE the Hero card per the new default layout.
-          Reads canonical streak data; nothing new stored. Designed to
-          read as the kid's signature stat — flame, count, goal, glow. */}
-      {streak && (
-        <div
-          className="rounded-3xl p-4 text-white relative overflow-hidden border-2 border-orange-500/30"
-          style={{
-            background:
-              "linear-gradient(135deg,#7f1d1d 0%, #c2410c 35%, #ea580c 65%, #facc15 100%)",
-            boxShadow: "0 12px 30px -10px rgba(249, 115, 22, 0.55)",
-          }}
-        >
-          {/* Heat-haze pulse behind the contents — same kgh-heat animation
-              as the original chip, scaled up. */}
-          <div
-            aria-hidden
-            style={{
-              position: "absolute",
-              inset: 0,
-              background:
-                "radial-gradient(circle at 20% 70%, rgba(254,243,199,0.35), transparent 55%), radial-gradient(circle at 80% 30%, rgba(239,68,68,0.30), transparent 55%)",
-              animation: "kgh-heat 2400ms ease-in-out infinite",
-              pointerEvents: "none",
-            }}
-          />
-          <div className="flex items-center gap-3 relative">
-            {/* Big flickering flame */}
-            <div
-              aria-hidden
-              className="shrink-0 w-16 h-16 rounded-2xl bg-white/10 backdrop-blur grid place-items-center text-5xl"
-              style={{
-                transformOrigin: "50% 80%",
-                animation: "kgh-flame-sway 1700ms ease-in-out infinite",
-              }}
-            >
-              <span
-                style={{
-                  display: "inline-block",
-                  transformOrigin: "50% 70%",
-                  animation: "kgh-flame-flicker 1100ms ease-in-out infinite",
-                  filter:
-                    "drop-shadow(0 0 8px rgba(251,146,60,0.85)) drop-shadow(0 0 18px rgba(239,68,68,0.6))",
-                }}
-              >
-                🔥
-              </span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold flex items-center gap-1.5">
-                <Flame size={11} className="text-amber-200" />
-                A Year of Drums
-              </div>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span
-                  className="text-4xl font-extrabold leading-none"
-                  style={{
-                    textShadow:
-                      "0 0 10px rgba(253,224,71,0.65), 0 0 22px rgba(251,146,60,0.5)",
-                  }}
-                >
-                  <AnimatedNumber value={streak?.current ?? 0} />
-                </span>
-                <span className="text-base font-bold text-white/80 leading-none">
-                  / {streak?.milestone ?? 365}
-                </span>
-              </div>
-              <div className="mt-2">
-                <ProgressBar
-                  have={streak?.current ?? 0}
-                  need={streak?.milestone ?? 365}
-                  color="#fde047"
-                />
-              </div>
-              <div className="text-[11px] text-white/85 font-semibold mt-1.5">
-                {(streak?.current ?? 0) >= (streak?.milestone ?? 365)
-                  ? "🏆 You did it!"
-                  : `Don't break the chain · ${Math.max(0, (streak?.milestone ?? 365) - (streak?.current ?? 0))} days to go`}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* HERO: avatar + stars + streak */}
       <div
@@ -904,6 +821,87 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           </div>
           <Map size={20} className="text-white/80 relative z-10 shrink-0" />
         </button>
+      )}
+
+      {/* DRUM STREAK HERO — sits right under the Daily Adventure Board
+          per Reznor's request: hero card → board → "almost there 1 year
+          of drums" flame card. Same canonical streak data, same visual
+          treatment (flame, count, progress, "don't break the chain"). */}
+      {streak && (
+        <div
+          className="rounded-3xl p-4 text-white relative overflow-hidden border-2 border-orange-500/30"
+          style={{
+            background:
+              "linear-gradient(135deg,#7f1d1d 0%, #c2410c 35%, #ea580c 65%, #facc15 100%)",
+            boxShadow: "0 12px 30px -10px rgba(249, 115, 22, 0.55)",
+          }}
+        >
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "radial-gradient(circle at 20% 70%, rgba(254,243,199,0.35), transparent 55%), radial-gradient(circle at 80% 30%, rgba(239,68,68,0.30), transparent 55%)",
+              animation: "kgh-heat 2400ms ease-in-out infinite",
+              pointerEvents: "none",
+            }}
+          />
+          <div className="flex items-center gap-3 relative">
+            <div
+              aria-hidden
+              className="shrink-0 w-16 h-16 rounded-2xl bg-white/10 backdrop-blur grid place-items-center text-5xl"
+              style={{
+                transformOrigin: "50% 80%",
+                animation: "kgh-flame-sway 1700ms ease-in-out infinite",
+              }}
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  transformOrigin: "50% 70%",
+                  animation: "kgh-flame-flicker 1100ms ease-in-out infinite",
+                  filter:
+                    "drop-shadow(0 0 8px rgba(251,146,60,0.85)) drop-shadow(0 0 18px rgba(239,68,68,0.6))",
+                }}
+              >
+                🔥
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold flex items-center gap-1.5">
+                <Flame size={11} className="text-amber-200" />
+                A Year of Drums
+              </div>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span
+                  className="text-4xl font-extrabold leading-none"
+                  style={{
+                    textShadow:
+                      "0 0 10px rgba(253,224,71,0.65), 0 0 22px rgba(251,146,60,0.5)",
+                  }}
+                >
+                  <AnimatedNumber value={streak?.current ?? 0} />
+                </span>
+                <span className="text-base font-bold text-white/80 leading-none">
+                  / {streak?.milestone ?? 365}
+                </span>
+              </div>
+              <div className="mt-2">
+                <ProgressBar
+                  have={streak?.current ?? 0}
+                  need={streak?.milestone ?? 365}
+                  color="#fde047"
+                />
+              </div>
+              <div className="text-[11px] text-white/85 font-semibold mt-1.5">
+                {(streak?.current ?? 0) >= (streak?.milestone ?? 365)
+                  ? "🏆 You did it!"
+                  : `Don't break the chain · ${Math.max(0, (streak?.milestone ?? 365) - (streak?.current ?? 0))} days to go`}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* UP NEXT — single-tap "what to do right now" card. Derived from

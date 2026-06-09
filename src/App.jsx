@@ -371,16 +371,38 @@ function nextBadgeFor(ctx) {
 
 // ---- STREAKS: milestone badges (★ = big reward) ----
 const STREAK_TIERS = [
-  { d: 5,   emoji: "🌱", label: "Sprout",        big: false },
-  { d: 10,  emoji: "⭐", label: "Star",           big: false },
-  { d: 20,  emoji: "🔥", label: "On Fire",        big: false },
-  { d: 50,  emoji: "🏅", label: "Champion",       big: true },
-  { d: 100, emoji: "🏆", label: "Legend",         big: true },
-  { d: 150, emoji: "💎", label: "Diamond",        big: true },
-  { d: 200, emoji: "👑", label: "Royalty",        big: true },
-  { d: 250, emoji: "🚀", label: "Rocket",         big: true },
-  { d: 300, emoji: "🦸", label: "Superhero",      big: true },
-  { d: 365, emoji: "🐐", label: "G.O.A.T · 1 yr", big: true },
+  { d: 5,    emoji: "🌱", label: "Sprout",            big: false },
+  { d: 10,   emoji: "⭐", label: "Star",               big: false },
+  { d: 20,   emoji: "🔥", label: "On Fire",            big: false },
+  { d: 50,   emoji: "🏅", label: "Champion",           big: true  },
+  { d: 100,  emoji: "🏆", label: "Legend",             big: true  },
+  { d: 150,  emoji: "💎", label: "Diamond",            big: true  },
+  { d: 200,  emoji: "👑", label: "Royalty",            big: true  },
+  { d: 250,  emoji: "🚀", label: "Rocket",             big: true  },
+  { d: 300,  emoji: "🦸", label: "Superhero",          big: true  },
+  { d: 365,  emoji: "🐐", label: "G.O.A.T · 1 yr",     big: true  },
+  // Year 1 → 2 arc. Reznor's drum-streak roadmap: kicks off
+  // with a baby gator at 1y+50, ramps up with fun 50-day milestones
+  // every step, lands on a full gator at 2y.
+  { d: 415,  emoji: "🐊", label: "Baby Gator · 1y+50", big: true  },
+  { d: 465,  emoji: "⚡",  label: "Lightning",          big: false },
+  { d: 515,  emoji: "🌟", label: "Shooting Star",      big: false },
+  { d: 565,  emoji: "🐉", label: "Dragon",             big: true  },
+  { d: 615,  emoji: "☄️", label: "Comet",              big: false },
+  { d: 665,  emoji: "🦅", label: "Eagle",              big: false },
+  { d: 715,  emoji: "⚔️", label: "Warrior",            big: false },
+  { d: 730,  emoji: "🐊", label: "Big Gator · 2 yr",   big: true  },
+  // Year 2 → 3 arc. Baby dino at 2y+50, fun 50-day specials, full
+  // T-rex at 3y. If Reznor gets there (Mike's call: "I don't think
+  // we will get there, but since he wants it lets let him see it.")
+  // the badge ladder is here waiting.
+  { d: 780,  emoji: "🦕", label: "Baby Dino · 2y+50",  big: true  },
+  { d: 830,  emoji: "🌋", label: "Volcano",            big: false },
+  { d: 880,  emoji: "⛈️", label: "Thunder",            big: false },
+  { d: 930,  emoji: "💠", label: "Diamond Crown",      big: true  },
+  { d: 980,  emoji: "🛸", label: "UFO",                big: false },
+  { d: 1030, emoji: "🔱", label: "Trident",            big: false },
+  { d: 1095, emoji: "🦖", label: "T-REX · 3 yr",       big: true  },
 ];
 function streakInfo(current) {
   const earned = STREAK_TIERS.filter((t) => current >= t.d);
