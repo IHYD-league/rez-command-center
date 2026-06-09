@@ -5227,11 +5227,18 @@ function BottomNav({ user, tab, setTab }) {
   const items = sets[user.role] || sets.helper;
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 bg-white border-t border-slate-100 flex justify-around px-2 py-2"
+      className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 flex justify-around px-2 py-2"
+      // FIXED + z-50: BoardGame chips were rendering OVER the nav on
+      // scroll because they're absolutely positioned inside the scroll
+      // container and the nav was sibling-absolute at the same stacking
+      // level. Pinning to viewport with a hard z-index means the game
+      // ALWAYS scrolls UNDER the nav — non-negotiable per the AAA brief.
       // Honor the iPhone home-indicator safe area so the nav floats above
-      // the gesture bar instead of sitting under it. Falls back to ~12px
-      // (matches the previous pb-3) on devices without an inset.
-      style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      // the gesture bar instead of sitting under it.
+      style={{
+        zIndex: 50,
+        paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+      }}
     >
       {items.map(({ k, icon: Icon, label }) => {
         const active = tab === k;

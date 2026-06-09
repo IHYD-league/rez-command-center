@@ -1262,17 +1262,20 @@ export default function BoardGame({
   return (
     <div
       ref={outerRef}
-      className="min-h-screen px-3 pt-3 pb-24 relative overflow-hidden"
+      className="min-h-screen relative overflow-hidden"
       style={{
-        // Outer = solid theme gradient only. The map (bg image) lives
-        // ONLY in the inner board container. Rendering bgImg in both
-        // creates the "doubled image" eyesore — never do that again.
+        // Outer = solid theme gradient as the absolute fallback if
+        // the bg image is loading or fails. Once the inner board is
+        // mounted edge-to-edge with `cover`, this gradient should
+        // never be visible to the user — that's intentional.
         background: theme.background,
         fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
-        // Suppress browser tap-highlight rectangles + accidental text
-        // selection across the whole board screen. This IS a game; we
-        // don't want cyan focus boxes around chips or selection drag
-        // rectangles around labels.
+        // No horizontal padding — the map MUST go edge-to-edge of
+        // the viewport. The earlier letterboxed version (px-3 + maxWidth
+        // 520) left dark gradient bars on wider viewports; that's
+        // what the user means by "I can see off the board." Full
+        // bleed solves it permanently for every theme.
+        paddingBottom: "calc(5.5rem + env(safe-area-inset-bottom))",
         WebkitTapHighlightColor: "transparent",
         WebkitUserSelect: "none",
         userSelect: "none",
@@ -1299,22 +1302,26 @@ export default function BoardGame({
 
       <div
         ref={boardRef}
-        className="relative z-10 mx-auto overflow-hidden"
+        className="relative z-10 w-full overflow-hidden"
         style={{
-          // Bumped wider — the map should DOMINATE the screen, not
-          // float as a small tile centered between dark margins on
-          // bigger viewports. 520 is still phone-ish on tablets but
-          // reads as a serious game surface, not a thumbnail.
-          maxWidth: 520,
+          // Full-bleed: no maxWidth, no borderRadius. The map IS the
+          // viewport's playable surface, edge-to-edge. The earlier
+          // 520px-centered tile created dark gradient bars at every
+          // wider screen size — full-bleed is what the user means by
+          // "the bg image covered the entire board area, bleeding to
+          // all edges." Every theme, present and future, lands the
+          // same way through this branch — no per-theme overrides
+          // needed for layout.
           aspectRatio: `100 / ${VIEWBOX_H}`,
-          // ONE bg image lives here. Outer is just gradient. No more
-          // duplicated cover-bg leaking around the sides.
+          // cover (vs 100% 100%) gracefully handles the cases where
+          // the viewport aspect-ratio rounding doesn't perfectly
+          // match the bg's bgAspect. cover always fills the frame,
+          // cropping as needed; chips still land at viewBox % coords
+          // because the container's aspect matches the bg's aspect
+          // 1:1, so the crop is zero in the common case.
           background: theme.bgImg
-            ? `url(${theme.bgImg}) center / 100% 100% no-repeat, ${theme.background}`
+            ? `url(${theme.bgImg}) center / cover no-repeat, ${theme.background}`
             : undefined,
-          borderRadius: 16,
-          // Cancel browser focus rings + selection rectangles on the
-          // whole playable surface.
           outline: "none",
           WebkitTapHighlightColor: "transparent",
         }}
