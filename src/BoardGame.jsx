@@ -33,6 +33,11 @@ import { juice } from "./lib/juice.js";
 //   tokenEmoji        Emoji fallback (used if tokenRestImg is null).
 //   tokenRestImg      Optional resting-state token PNG.
 //   tokenFlyImg       Optional flying-state token PNG (animation swap).
+//   tokenWalkImgs     Optional [walkA, walkB] frames rendered ONLY while
+//                     the token is animating along the path. Frames
+//                     alternate every ~170ms. Themes without this just
+//                     keep showing rest/fly during travel. (Dino themes
+//                     use this for a stride/dust running animation.)
 //   startEmoji        Required.
 //   startImg          Optional PNG for the START marker.
 //   treasureEmoji     Required.
@@ -258,6 +263,14 @@ const DINO_WORLD = {
   tokenEmoji: "🦖",
   tokenRestImg: "/board/themes/dino-world/token.png",
   tokenFlyImg: "/board/themes/dino-world/token-roar.png",
+  // Walk-cycle frames — only rendered WHILE animating along the path.
+  // Two strides alternated at walkFrameMs interval read as "running
+  // through the jungle." Idle + tap behavior is untouched (still uses
+  // tokenRestImg / tokenFlyImg crossfade).
+  tokenWalkImgs: [
+    "/board/themes/dino-world/token-walk-1.png",
+    "/board/themes/dino-world/token-walk-2.png",
+  ],
   treasureEmoji: "🏆",
   treasureLockedImg: "/board/themes/dino-world/treasure-locked.png",
   treasureOpenImg: "/board/themes/dino-world/treasure-open.png",
@@ -293,6 +306,12 @@ const DINO_DESERT = {
   tokenEmoji: "🦖",
   tokenRestImg: "/board/themes/dino-desert/token.png",
   tokenFlyImg: "/board/themes/dino-desert/token-roar.png",
+  // Same walk-cycle pattern as Dino World — Reznor wanted both dino
+  // themes to share the running-stride animation.
+  tokenWalkImgs: [
+    "/board/themes/dino-desert/token-walk-1.png",
+    "/board/themes/dino-desert/token-walk-2.png",
+  ],
   treasureEmoji: "🏆",
   treasureLockedImg: "/board/themes/dino-desert/treasure-locked.png",
   treasureOpenImg: "/board/themes/dino-desert/treasure-open.png",
@@ -562,6 +581,65 @@ function buildPathD(positions) {
     }
   }
   return d;
+}
+
+// Replay pill — bottom-of-board button that lets the kid re-watch the
+// catch-up journey. Tap = fast (Reznor's preferred); long-press OR
+// right-click = slow walk-pace (for enjoying the dino walk-cycle).
+// Long-press fires on pointer-up after a 500ms hold; right-click fires
+// onContextMenu. A small badge appears under the pill while holding
+// so the gesture has feedback.
+function ReplayPill({ onFast, onSlow }) {
+  const [holding, setHolding] = useState(false);
+  const heldRef = useRef(false);
+  const timerRef = useRef(null);
+  const onDown = (e) => {
+    e.stopPropagation();
+    heldRef.current = false;
+    setHolding(true);
+    timerRef.current = setTimeout(() => {
+      heldRef.current = true;
+    }, 500);
+  };
+  const finish = (e) => {
+    e?.stopPropagation();
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    const wasHeld = heldRef.current;
+    heldRef.current = false;
+    setHolding(false);
+    if (wasHeld) onSlow();
+    else onFast();
+  };
+  const cancel = (e) => {
+    e?.stopPropagation();
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    heldRef.current = false;
+    setHolding(false);
+  };
+  return (
+    <div className="absolute bottom-2 left-0 right-0 text-center z-40 pointer-events-none">
+      <button
+        type="button"
+        onPointerDown={onDown}
+        onPointerUp={finish}
+        onPointerLeave={cancel}
+        onPointerCancel={cancel}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onSlow(); }}
+        className={`pointer-events-auto inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-full shadow-lg ${holding ? "bg-amber-300 text-slate-900 scale-105" : "bg-white/95 text-slate-900"} transition`}
+        style={{
+          WebkitTapHighlightColor: "transparent",
+          border: 0,
+          touchAction: "none",
+          userSelect: "none",
+        }}
+        aria-label="Replay journey. Tap for fast, hold or right-click for slow walk."
+      >
+        {holding ? "🐢 Hold for slow walk…" : "▶ Start again"}
+      </button>
+    </div>
+  );
 }
 
 function BoardPop({ id, kind, label, sub, big }) {
@@ -1076,9 +1154,19 @@ export default function BoardGame({
   // themes. Reset to false on every land.
   const [flying, setFlying] = useState(false);
   // `isAnimating` mirrors animRef.current's lifetime in state so the
-  // render layer (Replay button visibility) can react to it. Refs
-  // alone don't trigger re-renders.
+  // render layer (Replay button visibility, walk-cycle frame swap)
+  // can react to it. Refs alone don't trigger re-renders.
   const [isAnimating, setIsAnimating] = useState(false);
+  // Walk-cycle frame index. Flips between 0/1 every WALK_FRAME_MS
+  // while `isAnimating` is true AND the theme provides tokenWalkImgs.
+  // Themes without walk frames just keep showing the rest sprite —
+  // a no-op for the frame-swap path.
+  const [walkFrame, setWalkFrame] = useState(0);
+  useEffect(() => {
+    if (!isAnimating || !theme?.tokenWalkImgs) return;
+    const id = setInterval(() => setWalkFrame((w) => (w === 0 ? 1 : 0)), 170);
+    return () => clearInterval(id);
+  }, [isAnimating, theme?.tokenWalkImgs]);
   // Holds the post-land "cheer" timer so a quick re-launch cancels it
   // cleanly instead of double-flipping the flying state.
   const cheerTimerRef = useRef(null);
@@ -1203,26 +1291,31 @@ export default function BoardGame({
   };
 
   // Replay journey — Reznor's "Start again" button. Snaps the token
-  // back to START, then walks slowly through every completed space
-  // to wherever the canonical position currently is. Pure visual,
+  // back to START, then walks through every completed space to
+  // wherever the canonical position currently is. Pure visual,
   // no data changes, no celebration replay (so it can be re-run
   // without re-firing the treasure pop — that lives on its own gate).
-  const replayJourney = () => {
+  //
+  // mode = "fast" (default tap) → ~280ms/space, capped at 3s. Reznor
+  //                                likes this; it's the original.
+  //        "slow" (long-press / right-click) → ~900ms/space, capped
+  //                                at 9s. Mike wanted a way to ASK
+  //                                for the slow watch when he wants
+  //                                to enjoy the journey.
+  const replayJourney = (mode = "fast") => {
     if (isAnimating) return;
     if (targetIdx === 0) return;
-    // Snap to start.
     tokenIdxRef.current = 0;
     const p0 = positions[0];
     if (p0) setTokenXY({ x: p0.x, y: p0.y });
     juice.haptic("light");
     juice.sfx("swipe");
-    // Then animate slowly. Speed scales with distance so a long
-    // board still finishes in a reasonable time, but each segment
-    // is visible (~300ms per space) rather than the catch-up
-    // sweep's compressed pace.
+    const perSpace = mode === "slow" ? 900 : 280;
+    const cap     = mode === "slow" ? 9000 : 3000;
+    const base    = mode === "slow" ? 900 : 600;
     setTimeout(() => {
       animateAlong(0, targetIdx, {
-        duration: Math.min(3000, 600 + targetIdx * 280),
+        duration: Math.min(cap, base + targetIdx * perSpace),
       });
     }, 280);
   };
@@ -1820,12 +1913,24 @@ export default function BoardGame({
           >
             {theme.tokenRestImg ? (
               <div className="relative w-20 h-20 sm:w-24 sm:h-24">
+                {/* Layered token frames. Z-order top to bottom:
+                    1. Walk-cycle frames (only visible WHILE moving) —
+                       fully replaces rest+fly during animation. Both
+                       frames mount; we toggle opacity so the swap
+                       between them is instant (no transition) — that's
+                       the cadence that sells "running."
+                    2. Rest sprite (idle).
+                    3. Fly/alt sprite (cheer crossfade on tap + on land). */}
                 <img
                   src={theme.tokenRestImg}
                   alt=""
                   draggable={false}
                   className="absolute inset-0 w-full h-full object-contain transition-opacity duration-200 ease-out"
-                  style={{ opacity: flying && theme.tokenFlyImg ? 0 : 1 }}
+                  style={{
+                    opacity: (isAnimating && theme.tokenWalkImgs)
+                      ? 0
+                      : (flying && theme.tokenFlyImg ? 0 : 1),
+                  }}
                 />
                 {theme.tokenFlyImg && (
                   <img
@@ -1833,9 +1938,23 @@ export default function BoardGame({
                     alt=""
                     draggable={false}
                     className="absolute inset-0 w-full h-full object-contain transition-opacity duration-200 ease-out"
-                    style={{ opacity: flying ? 1 : 0 }}
+                    style={{
+                      opacity: (isAnimating && theme.tokenWalkImgs) ? 0 : (flying ? 1 : 0),
+                    }}
                   />
                 )}
+                {theme.tokenWalkImgs && theme.tokenWalkImgs.map((src, i) => (
+                  <img
+                    key={src}
+                    src={src}
+                    alt=""
+                    draggable={false}
+                    className="absolute inset-0 w-full h-full object-contain"
+                    style={{
+                      opacity: isAnimating && walkFrame === i ? 1 : 0,
+                    }}
+                  />
+                ))}
               </div>
             ) : (
               theme.tokenEmoji
@@ -1858,22 +1977,15 @@ export default function BoardGame({
           </div>
         )}
 
-        {/* Start again — Reznor's replay button. Once the catch-up
-            replay has fired and the token is at rest, this surfaces
-            so he can re-watch his journey from START as many times
-            as he wants. Stays out of the way mid-animation. */}
+        {/* Start again — Reznor's replay button.
+              - Tap          → FAST replay (default; Reznor's pick)
+              - Long-press   → SLOW walk replay (hold ≥ 500ms then release)
+              - Right-click  → SLOW walk replay (desktop alternate)
+            The slow mode lets Mike (or anyone) enjoy the journey at
+            stride pace — useful when there's a dino theme with the
+            running animation to watch. */}
         {launched && targetIdx > 0 && !isAnimating && (
-          <div className="absolute bottom-2 left-0 right-0 text-center z-40 pointer-events-none">
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); replayJourney(); }}
-              className="pointer-events-auto inline-flex items-center gap-1 bg-white/95 text-slate-900 text-[11px] font-extrabold px-3 py-1.5 rounded-full shadow-lg active:scale-95"
-              style={{ WebkitTapHighlightColor: "transparent", border: 0 }}
-              aria-label="Replay journey from start"
-            >
-              ▶ Start again
-            </button>
-          </div>
+          <ReplayPill onFast={() => replayJourney("fast")} onSlow={() => replayJourney("slow")} />
         )}
       </div>
 
