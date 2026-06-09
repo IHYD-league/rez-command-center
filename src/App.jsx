@@ -510,6 +510,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
   const [activities, setActivities] = useState(SEED_ACTIVITIES);
   const [celebrate, setCelebrate] = useState(null);
+  // Tap a DONE task anywhere → CompletionDetailSheet opens against
+  // this completion id. Krissie's retro-photo flow + Reznor's "what
+  // did I do today?" inspection use the same sheet.
+  const [openCompletionId, setOpenCompletionId] = useState(null);
   const [submitPop, setSubmitPop] = useState(null);
   useEffect(() => {
     if (!submitPop) return;
@@ -683,6 +687,32 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
 
   const addAward = (a) => setAwards((prev) => [a, ...prev]);
   const removeAward = (id) => setAwards((prev) => prev.filter((a) => a.id !== id));
+  // Patch any field on an existing completion — used by the Completion
+  // Detail sheet to retroactively add photos, edit notes, etc.
+  // Krissie's ask: parents (and Reznor) need a way to drop a photo onto
+  // a chore that was already submitted. updateCompletion routes through
+  // setCompletions so the Supabase sync layer picks it up the same way
+  // it does for submit/decide/undo.
+  const updateCompletion = (completionId, patch) => {
+    setCompletions((prev) => prev.map((c) => (c.id === completionId ? { ...c, ...patch } : c)));
+  };
+  // Append-only helper to add a single photo proof onto a completion.
+  // Keeps existing proof entries (notes, prior photos) intact. Used by
+  // the CompletionDetail sheet's "Add photo" button.
+  const addCompletionPhoto = (completionId, photo) => {
+    setCompletions((prev) => prev.map((c) => {
+      if (c.id !== completionId) return c;
+      const existing = Array.isArray(c.proof) ? c.proof : [];
+      return { ...c, proof: [...existing, { type: "photo", ...photo }] };
+    }));
+  };
+  const removeCompletionPhoto = (completionId, path) => {
+    setCompletions((prev) => prev.map((c) => {
+      if (c.id !== completionId) return c;
+      const existing = Array.isArray(c.proof) ? c.proof : [];
+      return { ...c, proof: existing.filter((p) => p.path !== path) };
+    }));
+  };
   const undoTask = (taskId) => {
     // "Unmark today" — only touch today's completion. Yesterday's row stays
     // in the array so history isn't destroyed.
@@ -1067,6 +1097,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
     submitTask, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest,
+    openCompletionId, setOpenCompletionId, updateCompletion, addCompletionPhoto, removeCompletionPhoto,
     pendingRegistrations, approveRegistration, denyRegistration, currentProfileId,
     kidData,
     familyId,
@@ -1124,6 +1155,29 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
         )}
         {celebrate && <CelebrateOverlay data={celebrate} onClose={() => setCelebrate(null)} />}
         {submitPop && <SubmitCelebrate data={submitPop} onClose={() => setSubmitPop(null)} />}
+        {openCompletionId && (() => {
+          const c = completions.find((x) => x.id === openCompletionId);
+          if (!c) return null;
+          const t = tasks.find((x) => x.id === c.taskId);
+          if (!t) return null;
+          return (
+            <CompletionDetailSheet
+              task={t}
+              completion={c}
+              activities={activities}
+              users={users}
+              streaks={streaks}
+              familyId={familyId}
+              role={user?.role}
+              onClose={() => setOpenCompletionId(null)}
+              onAddPhoto={(photo) => addCompletionPhoto(c.id, photo)}
+              onRemovePhoto={(path) => removeCompletionPhoto(c.id, path)}
+              onUpdateNotes={(notes) => updateCompletion(c.id, { notes })}
+              onUndo={() => undoTask(c.taskId)}
+              onEditTask={(taskId) => setDetailId(taskId)}
+            />
+          );
+        })()}
         {detailId && (() => {
           const t = tasks.find((x) => x.id === detailId);
           if (!t) return null;
@@ -1640,7 +1694,7 @@ function LoginScreen({ users, onPick, onSignOut, sessionEmail }) {
 }
 
 // ===================== KID: MISSIONS =====================
-function KidMissions({ todaysTasks, compByTask, setOpenTask, availableToday, earnedToday, pendingStars, starBank, mode, priorities, users, activities, streaks, subProgress, toggleSub, undoTask }) {
+function KidMissions({ todaysTasks, compByTask, setOpenTask, setOpenCompletionId, availableToday, earnedToday, pendingStars, starBank, mode, priorities, users, activities, streaks, subProgress, toggleSub, undoTask }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved").length;
   const ordered = sortByLevel(todaysTasks, mode, priorities);
   return (
@@ -1664,7 +1718,17 @@ function KidMissions({ todaysTasks, compByTask, setOpenTask, availableToday, ear
       <StreakStrip streaks={streaks} activities={activities} />
 
       <SectionTitle icon={<Trophy size={16} className="text-rose-500" />}>Today's missions <span className="text-[11px] font-normal text-slate-400">· most important first</span></SectionTitle>
-      {ordered.map((t) => <MissionCard key={t.id} task={t} comp={compByTask[t.id]} onOpen={() => setOpenTask(t)} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} undoTask={undoTask} />)}
+      {ordered.map((t) => {
+        const c = compByTask[t.id];
+        // Approved task → tap opens the CompletionDetailSheet (photos
+        // / notes / stats / edit) instead of the submit sheet. Pending
+        // / not-started keep the old submit-sheet behavior.
+        const isApproved = c?.status === "approved";
+        const onOpen = isApproved && c?.id
+          ? () => setOpenCompletionId(c.id)
+          : () => setOpenTask(t);
+        return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} undoTask={undoTask} />;
+      })}
     </div>
   );
 }
@@ -2119,6 +2183,253 @@ function SubmitCelebrate({ data, onClose }) {
         </div>
       )}
       {pieces}
+    </div>
+  );
+}
+
+// Tiny helper: render one photo from a proof.path via the signed-URL
+// hook. Lives outside CompletionDetailSheet so the hook can be called
+// once per photo (hooks-in-loops require their own component).
+function CompletionPhotoTile({ photo, onRemove, canRemove }) {
+  const url = useSignedUrl(photo?.path);
+  return (
+    <div className="relative aspect-square rounded-2xl overflow-hidden bg-slate-100 border border-slate-200">
+      {url ? (
+        <img src={url} alt={photo.name || "proof"} className="w-full h-full object-cover" />
+      ) : (
+        <div className="w-full h-full grid place-items-center text-xs text-slate-400">Loading…</div>
+      )}
+      {canRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/55 text-white grid place-items-center text-xs font-bold active:scale-95"
+          aria-label="Remove photo"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+}
+
+// CompletionDetailSheet — opens when anyone (kid or parent) taps an
+// APPROVED task. Tabs: Photos · Notes · Stats · Edit. Krissie's ask:
+// retroactive photo add for chores Reznor forgot to photograph, plus
+// a one-stop sheet to inspect/adjust a finished task without leaving
+// the day view.
+function CompletionDetailSheet({
+  task, completion, activities, users, streaks,
+  onClose, onAddPhoto, onRemovePhoto, onUpdateNotes,
+  onUndo, onEditTask, familyId, role,
+}) {
+  const [tab, setTab] = useState("photos");
+  const [notes, setNotes] = useState(completion?.notes || "");
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+
+  const activity = (activities || []).find((a) =>
+    a.id === (task.activityId || task.activityType?.toLowerCase().replace(/\s/g, "_"))
+  );
+  const photos = Array.isArray(completion?.proof)
+    ? completion.proof.filter((p) => p?.type === "photo" && p?.path)
+    : [];
+  const submittedByName =
+    users?.find((u) => u.id === completion?.submittedBy)?.name || "—";
+  const approvedByName =
+    users?.find((u) => u.id === completion?.approvedBy)?.name || "—";
+  const streak = (() => {
+    const aid = task.activityId || activity?.id;
+    return aid ? streaks?.[aid] : null;
+  })();
+
+  // Upload + append. Photos can pile up over time — a chore that
+  // happened across the morning might have a "before" and "after"
+  // shot added on different taps. We never replace; we append.
+  const handlePickFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setUploading(true);
+    try {
+      const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
+      onAddPhoto({ name, path });
+    } catch (err) {
+      alert("Photo upload failed: " + (err.message || err));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const saveNotes = () => {
+    if (notes === (completion?.notes || "")) return;
+    onUpdateNotes(notes);
+  };
+
+  // The Edit tab routes a parent to the existing DetailSheet (task
+  // config editor). Kids don't see "Edit task" — they're not the
+  // ones changing required/star-value/etc.
+  const isParent = role === "parent";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ fontFamily: "inherit" }}>
+      <div onClick={onClose} className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" />
+      <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 max-h-[88vh] overflow-y-auto shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start gap-3 mb-4">
+          <div
+            className="w-12 h-12 rounded-2xl grid place-items-center text-2xl shrink-0"
+            style={{ background: (activity?.color || "#64748b") + "22" }}
+          >
+            {activity?.emoji || "⭐"}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold uppercase tracking-wider text-emerald-600">Completed ✓</div>
+            <div className="font-extrabold text-slate-900 leading-tight truncate">{task.title}</div>
+            <div className="text-[11px] text-slate-400">
+              {activity?.name || task.activityType || "Task"} · {task.starValue || 0} ⭐
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 p-1 shrink-0" title="Close" aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="grid grid-cols-4 gap-1 bg-slate-100 rounded-2xl p-1 mb-4">
+          {[
+            { id: "photos", label: "Photos", icon: "📸" },
+            { id: "notes", label: "Notes", icon: "📝" },
+            { id: "stats", label: "Stats", icon: "📊" },
+            { id: "edit", label: "Edit", icon: "✏️" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`py-2 rounded-xl text-xs font-bold transition ${
+                tab === t.id ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"
+              }`}
+            >
+              <div className="text-base leading-none">{t.icon}</div>
+              <div className="mt-0.5">{t.label}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        {tab === "photos" && (
+          <div>
+            {photos.length === 0 && (
+              <div className="text-center py-6 text-sm text-slate-400">
+                No photos yet. Add one if Reznor forgot 📸
+              </div>
+            )}
+            {photos.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {photos.map((p) => (
+                  <CompletionPhotoTile
+                    key={p.path}
+                    photo={p}
+                    canRemove={true}
+                    onRemove={() => onRemovePhoto(p.path)}
+                  />
+                ))}
+              </div>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handlePickFile}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className={`w-full py-3 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 ${
+                uploading ? "bg-slate-200 text-slate-400" : "bg-indigo-600 text-white active:scale-95"
+              }`}
+            >
+              {uploading ? "Uploading…" : "📸 Add a photo"}
+            </button>
+            <div className="text-[11px] text-slate-400 mt-2 text-center">
+              You can add as many as you want — before, after, the whole story.
+            </div>
+          </div>
+        )}
+
+        {tab === "notes" && (
+          <div>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onBlur={saveNotes}
+              placeholder="Anything to remember about this one?"
+              className="w-full min-h-[140px] border border-slate-200 rounded-2xl px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={saveNotes}
+              className="w-full mt-3 py-3 rounded-2xl bg-emerald-500 text-white font-extrabold text-sm active:scale-95"
+            >
+              Save notes
+            </button>
+          </div>
+        )}
+
+        {tab === "stats" && (
+          <div className="space-y-2">
+            <StatRow label="Date" value={completion?.completionDate || "—"} />
+            <StatRow label="Stars earned" value={`${completion?.awardedStars ?? task.starValue ?? 0} ⭐`} />
+            <StatRow label="Submitted by" value={submittedByName} />
+            <StatRow label="Approved by" value={completion?.status === "approved" ? approvedByName : `Status: ${completion?.status || "—"}`} />
+            {streak && (
+              <>
+                <StatRow label="Current streak" value={`${streak.current} day${streak.current === 1 ? "" : "s"} 🔥`} />
+                <StatRow label="Best ever" value={`${streak.longest} days`} />
+              </>
+            )}
+            <StatRow label="Photos" value={`${photos.length} attached`} />
+          </div>
+        )}
+
+        {tab === "edit" && (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => { onUndo(); onClose(); }}
+              className="w-full py-3 rounded-2xl bg-rose-50 text-rose-700 font-extrabold text-sm active:scale-95"
+            >
+              ↺ Un-mark this task (today)
+            </button>
+            {isParent && (
+              <button
+                type="button"
+                onClick={() => { onEditTask?.(task.id); onClose(); }}
+                className="w-full py-3 rounded-2xl bg-indigo-50 text-indigo-700 font-extrabold text-sm active:scale-95"
+              >
+                ✏️ Edit task settings
+              </button>
+            )}
+            <div className="text-[11px] text-slate-400 px-1 mt-2 leading-snug">
+              Un-mark removes only today's completion — yesterday's history stays.
+              {isParent && " Edit task changes the activity, stars, or rules for everyone going forward."}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatRow({ label, value }) {
+  return (
+    <div className="flex items-center justify-between text-sm py-2 px-3 rounded-xl bg-slate-50">
+      <span className="text-slate-500">{label}</span>
+      <span className="font-bold text-slate-800">{value}</span>
     </div>
   );
 }
@@ -3046,7 +3357,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, user, activities, streaks, setDetailId, onEasy, undoTask, setOpenTask, setStatDetailId }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
@@ -3087,7 +3398,12 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
       {todo.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="slate" mode={mode} priorities={priorities} users={users} setPriority={setPriority} clearPriority={clearPriority} activities={activities} onOpenDetail={setDetailId} onMarkDone={setOpenTask} />)}
 
       <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Done ({done.length})</SectionTitle>
-      {done.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} onOpenDetail={setDetailId} undoTask={undoTask} />)}
+      {done.map((t) => {
+        const c = compByTask[t.id];
+        // Done rows: tap → CompletionDetailSheet (photos, notes,
+        // stats, edit). Krissie's flow lives here on the parent side.
+        return <MiniRow key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
+      })}
 
       <SectionTitle icon={<Users size={16} className="text-indigo-500" />}>Handoff notes</SectionTitle>
       {handoff.slice(0, 2).map((h) => {
