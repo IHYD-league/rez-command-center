@@ -18,6 +18,11 @@ export const toApp = {
     permissions: r.permissions ?? {},
     is_child: r.is_child,
     kid_meta: r.kid_meta ?? {},
+    // Admin = "can act as any profile" capability. Set on the
+    // canonical owner of the family (Mike). Trigger enforce_actor_
+    // identity_trg uses the same flag server-side; this client copy
+    // drives the LoginScreen visibility filter.
+    isAdmin: r.is_admin ?? false,
   }),
 
   task: (r) => ({

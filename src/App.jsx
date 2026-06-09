@@ -645,12 +645,20 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     // completedBy is always the kid because stars/streaks/bank are
     // canonically the kid's, regardless of who tapped Submit.
     const activeProfile = users.find((u) => u.id === currentUserId);
+    // Auth profile = the actual signed-in user. We honor THIS for the
+    // auto-approve shortcut, not the acted-as profile. Otherwise a
+    // stale-bundle Sara could pick Mike from a cached LoginScreen and
+    // gain parent powers — even though the DB trigger would reject
+    // the forged submitted_by, the local UX would lie until the round
+    // trip failed. Reading the real auth role keeps the client honest
+    // in lock-step with the server.
+    const authProfile = users.find((u) => u.id === currentProfileId);
     const activeIsKid = activeProfile?.role === "kid";
-    const activeIsParent = activeProfile?.role === "parent";
+    const authIsParentOrAdmin = authProfile?.role === "parent" || !!authProfile?.isAdmin;
     const kid = users.find((u) => u.role === "kid");
     const kidId = kid?.id || currentUserId;
     const submittedBy = activeIsKid ? currentUserId : (currentProfileId || currentUserId);
-    const needsApproval = t.approvalRequired && !activeIsParent;
+    const needsApproval = t.approvalRequired && !authIsParentOrAdmin;
     setCompletions((prev) => {
       // Replace only TODAY's prior submission for this task — yesterday's row
       // (and earlier history) stays in the array so it persists and remains
@@ -1056,7 +1064,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
 
   // ---- login screen ----
   if (!user) {
-    return <LoginScreen users={users} onPick={(id) => { setCurrentUserId(id); setTab("today"); }} onSignOut={signOut} sessionEmail={sessionEmail} />;
+    return <LoginScreen users={users} currentProfileId={currentProfileId} onPick={(id) => { setCurrentUserId(id); setTab("today"); }} onSignOut={signOut} sessionEmail={sessionEmail} />;
   }
 
   // KidGameHome data — built from existing state (no hook; runs after the
@@ -1475,11 +1483,25 @@ function SectionTitle({ icon, children, right }) {
 }
 
 // ===================== LOGIN =====================
-function LoginScreen({ users, onPick, onSignOut, sessionEmail }) {
+function LoginScreen({ users, currentProfileId, onPick, onSignOut, sessionEmail }) {
   const isExpired = (u) =>
     u.accessType === "temporary" &&
     u.accessExpires &&
     new Date(u.accessExpires + "T23:59:59") < today;
+
+  // Admin actor guard: only admins (Mike) see every profile in the
+  // family. Non-admin adults see ONLY themselves + the kid(s). The DB
+  // enforce_actor_identity_trg trigger backs this up — a stale bundle
+  // that ignored this filter would have its forged submitted_by /
+  // approved_by writes rejected at the server. Kid is always
+  // reachable for every adult (kids show in the list regardless).
+  const me = currentProfileId
+    ? users.find((u) => u.id === currentProfileId)
+    : null;
+  const amAdmin = !!me?.isAdmin;
+  const visibleUsers = amAdmin
+    ? users
+    : users.filter((u) => u.id === currentProfileId || u.is_child);
 
   // CSS placeholder starfield. When the painted background art lands at
   // /public/art/login-bg.png, replace the inline `background` on the
@@ -1586,7 +1608,7 @@ function LoginScreen({ users, onPick, onSignOut, sessionEmail }) {
 
         {/* Card grid */}
         <div className="grid grid-cols-2 gap-3 w-full mt-5">
-          {users.map((u) => {
+          {visibleUsers.map((u) => {
             const expired = isExpired(u);
             const blocked = expired || u.active === false;
             const roleLabel =
