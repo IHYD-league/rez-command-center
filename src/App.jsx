@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import SummerQuest from "./SummerQuest.jsx";
+import ParentCompanion from "./summerQuest/ParentCompanion.jsx";
 import { useSummerQuestProgress } from "./summerQuest/useSummerQuestProgress.js";
 import SongLogger from "./SongLogger.jsx";
 import BoardGame, { BOARD_THEMES, DEFAULT_BOARD_THEME } from "./BoardGame.jsx";
@@ -1300,13 +1301,17 @@ function Router(props) {
     if (tab === "rewards") return <RewardsParent {...props} />;
     if (tab === "calendar") return <CalendarView {...props} />;
     if (tab === "more") return <MoreParent {...props} />;
-    if (tab === "school") return <SummerQuestRoute {...props} />;
+    // Parent's "school" tab is COACH MODE — the teaching cheat-sheet
+    // for Reznor's summer arc. Reads the SAME progress row the kid arm
+    // writes; checking a quest off here shows the gem in his app.
+    // To peek at the kid view, switch into Reznor's profile.
+    if (tab === "school") return <CoachModeRoute {...props} />;
     return <ParentTodayHome {...props} />;
   }
-  // helper / grandparent. SummerQuest is exposed to helpers (Krissie /
+  // helper / grandparent. Coach Mode is exposed to helpers (Krissie /
   // Sara support Reznor in the curriculum) but hidden from grandparent
   // — Evie's view stays focused on the today checklist + care notes.
-  if (user.role === "helper" && tab === "school") return <SummerQuestRoute {...props} />;
+  if (user.role === "helper" && tab === "school") return <CoachModeRoute {...props} />;
   if (tab === "notes") return <HelperNotes {...props} />;
   if (tab === "care") return <CareInfo {...props} />;
   return <HelperToday {...props} />;
@@ -1343,6 +1348,37 @@ function SummerQuestRoute(props) {
       child={kid.name || "Reznor"}
       initialMode={mode}
       initialDone={done}
+      onSave={save}
+    />
+  );
+}
+
+// CoachModeRoute — parent + helper view. Renders the same Summer Quest
+// progress row Reznor writes to, but in the teacher cheat-sheet UI
+// (ParentCompanion). Sharing the row is the whole point of v2:
+// checking a quest done here lights the gem in Reznor's kid app, and
+// flipping Home/Road in either flips both. The single useSummerQuestProgress
+// seam guarantees there's no second copy of the data.
+function CoachModeRoute(props) {
+  const kid = (props.users || []).find((u) => u.role === "kid");
+  const { mode, done, save } = useSummerQuestProgress({
+    profileId: kid?.id || null,
+    summerQuest: props.summerQuest,
+    setSummerQuest: props.setSummerQuest,
+  });
+  if (!kid) {
+    return (
+      <div className="px-4 pt-6 text-sm text-slate-500">
+        Coach Mode needs a kid profile in this family. Add one in the
+        People view first.
+      </div>
+    );
+  }
+  return (
+    <ParentCompanion
+      child={kid.name || "Reznor"}
+      mode={mode}
+      done={done}
       onSave={save}
     />
   );
@@ -5295,7 +5331,9 @@ function BottomNav({ user, tab, setTab }) {
       { k: "rewards", icon: Gift, label: "Rewards" },
       { k: "calendar", icon: CalIcon, label: "Calendar" },
       { k: "more", icon: ClipboardList, label: "More" },
-      { k: "school", icon: GraduationCap, label: "School" },
+      // "Coach" → Coach Mode (parent companion). The kid still calls it
+      // Quest in his nav; the parent's nav surfaces the coaching seam.
+      { k: "school", icon: GraduationCap, label: "Coach" },
     ],
     grandparent: [
       { k: "today", icon: ClipboardList, label: "Checklist" },
@@ -5304,7 +5342,9 @@ function BottomNav({ user, tab, setTab }) {
     ],
     helper: [
       { k: "today", icon: ClipboardList, label: "Checklist" },
-      { k: "school", icon: GraduationCap, label: "School" },
+      // Helpers (Krissie / Sara) coach Reznor in the curriculum too —
+      // same Coach Mode the parents get, same shared row.
+      { k: "school", icon: GraduationCap, label: "Coach" },
       { k: "notes", icon: Users, label: "Notes" },
       { k: "care", icon: Heart, label: "Care" },
     ],
