@@ -49,17 +49,18 @@ function normalize(track) {
   };
 }
 
-// Low-level iTunes search. Hits the search endpoint once with the
-// given term and returns normalized candidates. Throws on network /
-// non-2xx so callers can surface the error.
+// Low-level iTunes search. Hits our same-origin Netlify Function proxy
+// instead of itunes.apple.com directly — see netlify/functions/
+// itunes-search.js for why (Safari "Load failed" on direct calls).
+// Same JSON shape comes back; the proxy adds 1h edge cache so popular
+// queries don't re-hit Apple.
 async function searchOnce(term, limit) {
   const params = new URLSearchParams();
   params.set("term", term);
-  params.set("entity", "song");
-  params.set("media", "music");
-  params.set("country", "US"); // pin the catalog region — iTunes' "no country" default has thinner data for some markets
+  // Proxy already defaults entity=song, media=music, country=US,
+  // limit=5 — we only forward what we want to override.
   params.set("limit", String(limit));
-  const url = `https://itunes.apple.com/search?${params.toString()}`;
+  const url = `/api/itunes-search?${params.toString()}`;
   const res = await fetch(url, {
     method: "GET",
     headers: { "Accept": "application/json" },

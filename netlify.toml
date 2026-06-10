@@ -2,6 +2,16 @@
   command = "npm run build"
   publish = "docs"
 
+[functions]
+  directory = "netlify/functions"
+
+# Friendlier URL than /.netlify/functions/itunes-search. Must come
+# BEFORE the SPA catch-all so the function route wins.
+[[redirects]]
+  from = "/api/itunes-search"
+  to = "/.netlify/functions/itunes-search"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
