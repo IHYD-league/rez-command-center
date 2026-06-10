@@ -4121,17 +4121,102 @@ function searchBooks(list, q) {
     .filter((x) => x.m.hit).sort((a, b) => b.m.score - a.m.score).map((x) => x.b);
 }
 
+// Sort options for the Reading Library. Apply within each section
+// (reading now / finished / archive) so the sections themselves stay
+// meaningful — Mike wants to scan "what's actively being read" without
+// it intermixing with finished books.
+const BOOK_SORT_OPTIONS = [
+  { k: "added_newest",   label: "Newest added" },
+  { k: "added_oldest",   label: "Oldest added" },
+  { k: "title_az",       label: "Title A–Z" },
+  { k: "title_za",       label: "Title Z–A" },
+  { k: "author_az",      label: "Author A–Z" },
+  { k: "finished_newest",label: "Finished date" },
+  { k: "rating_high",    label: "Rating ★" },
+];
+
+function sortBooks(list, sort) {
+  const sorted = [...list];
+  const titleOf  = (b) => b.canonicalTitle  || b.title  || "";
+  const authorOf = (b) => b.canonicalAuthor || "";
+  const addedOf  = (b) => b.id || ""; // id is "b_<Date.now()>"; lexicographic sort = chronological
+  switch (sort) {
+    case "added_newest":    sorted.sort((a, b) => addedOf(b).localeCompare(addedOf(a))); break;
+    case "added_oldest":    sorted.sort((a, b) => addedOf(a).localeCompare(addedOf(b))); break;
+    case "title_az":        sorted.sort((a, b) => titleOf(a).localeCompare(titleOf(b))); break;
+    case "title_za":        sorted.sort((a, b) => titleOf(b).localeCompare(titleOf(a))); break;
+    case "author_az":       sorted.sort((a, b) => authorOf(a).localeCompare(authorOf(b)) || titleOf(a).localeCompare(titleOf(b))); break;
+    case "finished_newest": sorted.sort((a, b) => (b.finished || "").localeCompare(a.finished || "") || titleOf(a).localeCompare(titleOf(b))); break;
+    case "rating_high":     sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0) || titleOf(a).localeCompare(titleOf(b))); break;
+    default: break;
+  }
+  return sorted;
+}
+
+// Compact grid tile — cover thumbnail with title beneath. Tapping a
+// tile fires onTap(book) which the parent uses to open a bottom sheet
+// with the full BookRow + edit panel. Keeps the grid uncluttered;
+// editing is one tap away.
+function BookGridTile({ b, onTap, selected = false }) {
+  const customCoverSigned = useSignedUrl(b.customCoverPath || "");
+  const displayCover = customCoverSigned || b.coverUrl || "";
+  const title = b.canonicalTitle || b.title || "(untitled)";
+  return (
+    <button
+      type="button"
+      onClick={() => onTap?.(b)}
+      className={`flex flex-col items-stretch text-left active:scale-[0.97] transition ${selected ? "ring-2 ring-indigo-500 rounded-xl" : ""}`}
+      aria-label={`Open ${title}`}
+    >
+      <div className="aspect-[3/4] rounded-lg overflow-hidden border border-slate-200 bg-slate-100 mb-1 relative">
+        {displayCover ? (
+          <img
+            src={displayCover}
+            alt=""
+            draggable={false}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : (
+          <div className="w-full h-full grid place-items-center text-slate-300">
+            <BookOpen size={24} />
+          </div>
+        )}
+        {b.status === "finished" && (
+          <span className="absolute top-1 right-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500 text-white">
+            ✓
+          </span>
+        )}
+        {b.preTracking && (
+          <span className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">
+            archive
+          </span>
+        )}
+      </div>
+      <div className="text-[11px] font-bold text-slate-800 line-clamp-2 leading-tight">{title}</div>
+      {b.canonicalAuthor && (
+        <div className="text-[10px] text-slate-500 truncate">{b.canonicalAuthor}</div>
+      )}
+    </button>
+  );
+}
+
 function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
   const [adding, setAdding] = useState(false);
   const [addingBacklog, setAddingBacklog] = useState(false);
   const [q, setQ] = useState("");
+  const [viewMode, setViewMode] = useState("list");
+  const [sort, setSort] = useState("added_newest");
+  const [focusedBookId, setFocusedBookId] = useState(null);
   // Filtered views: pre-tracking books live in their own archive
   // section so the "Reading now / Finished" lists stay date-honest.
   const tracked = books.filter((b) => !b.preTracking);
   const archive = books.filter((b) => b.preTracking);
-  const reading = searchBooks(tracked.filter((b) => b.status !== "finished"), q);
-  const finished = searchBooks(tracked.filter((b) => b.status === "finished"), q);
-  const archiveFiltered = searchBooks(archive, q);
+  const reading = sortBooks(searchBooks(tracked.filter((b) => b.status !== "finished"), q), sort);
+  const finished = sortBooks(searchBooks(tracked.filter((b) => b.status === "finished"), q), sort);
+  const archiveFiltered = sortBooks(searchBooks(archive, q), sort);
+  const focusedBook = books.find((b) => b.id === focusedBookId);
   // Count-based stats INCLUDE backlog. They're real books, just no dates.
   const thisMonth = tracked.filter((b) => b.status === "finished" && (b.finished || "").startsWith("2026-06")).length;
   const paces = tracked.filter((b) => b.status === "finished").map((b) => daysBetween(b.started, b.finished)).filter(Boolean);
@@ -4165,6 +4250,37 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
         {q && <button onClick={() => setQ("")} className="text-slate-300"><X size={15} /></button>}
       </div>
 
+      {/* View + sort row. View toggle stays a fixed 2-segment control;
+          sort pills scroll horizontally so we don't crowd small screens. */}
+      <div className="flex items-center gap-2 mb-2">
+        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 shrink-0">
+          {[["list", "List"], ["grid", "Grid"]].map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setViewMode(k)}
+              className={`text-[11px] font-bold px-3 py-1.5 rounded-lg ${
+                viewMode === k ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 flex gap-1.5 overflow-x-auto scrollbar-thin">
+          {BOOK_SORT_OPTIONS.map((o) => (
+            <button
+              key={o.k}
+              onClick={() => setSort(o.k)}
+              className={`shrink-0 text-[11px] font-bold px-2.5 py-1.5 rounded-full whitespace-nowrap ${
+                sort === o.k ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {!adding && !addingBacklog && (
         <div className="grid grid-cols-2 gap-2 mb-3">
           <button onClick={() => setAdding(true)} className="py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> Add a book</button>
@@ -4178,10 +4294,28 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
 
       <SectionTitle icon={<BookOpen size={16} className="text-sky-500" />}>Reading now ({reading.length})</SectionTitle>
       {reading.length === 0 && !q && <p className="text-xs text-slate-400 px-1">Nothing in progress.</p>}
-      {reading.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)}
+      {viewMode === "list"
+        ? reading.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)
+        : (
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {reading.map((b) => (
+              <BookGridTile key={b.id} b={b} onTap={() => setFocusedBookId(b.id)} selected={focusedBookId === b.id} />
+            ))}
+          </div>
+        )
+      }
 
       <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Finished ({finished.length})</SectionTitle>
-      {finished.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)}
+      {viewMode === "list"
+        ? finished.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)
+        : (
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {finished.map((b) => (
+              <BookGridTile key={b.id} b={b} onTap={() => setFocusedBookId(b.id)} selected={focusedBookId === b.id} />
+            ))}
+          </div>
+        )
+      }
 
       {archive.length > 0 && (
         <>
@@ -4197,7 +4331,16 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
               ))}
             </div>
           )}
-          {archiveFiltered.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)}
+          {viewMode === "list"
+            ? archiveFiltered.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)
+            : (
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {archiveFiltered.map((b) => (
+                  <BookGridTile key={b.id} b={b} onTap={() => setFocusedBookId(b.id)} selected={focusedBookId === b.id} />
+                ))}
+              </div>
+            )
+          }
           <div className="text-[11px] text-slate-400 px-1 mt-1 mb-3">
             Backlog books count toward totals + author stats but have no real dates,
             so they don't appear in date-based views (slideshows, "this month," etc.).
@@ -4206,6 +4349,22 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
       )}
 
       <div className="text-[11px] text-slate-400 px-1 mt-3">Search is fuzzy — typos and partial titles still find the book. Logging start & finish dates shows his pace; the level tag shows where he's reading.</div>
+
+      {/* Grid-tile expand: render the full BookRow inline at the bottom
+          so the edit panel comes up without leaving the page. Sticky
+          background + close button on the focused row keeps it obvious
+          which book is being edited. */}
+      {viewMode === "grid" && focusedBook && (
+        <div className="fixed inset-x-0 bottom-0 z-30 max-w-md mx-auto bg-white border-t border-slate-200 shadow-2xl rounded-t-2xl p-3 max-h-[80vh] overflow-y-auto">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Editing</div>
+            <button onClick={() => setFocusedBookId(null)} className="text-slate-400 p-1" aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+          <BookRow b={focusedBook} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />
+        </div>
+      )}
     </>
   );
 }
