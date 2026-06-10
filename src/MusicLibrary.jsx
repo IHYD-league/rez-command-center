@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { Search, X, Music } from "lucide-react";
+import { Search, X, Music, ChevronLeft, ChevronRight, GripHorizontal } from "lucide-react";
 import { EnrichedSongRow } from "./SongRow.jsx";
 import { useSignedUrl } from "./lib/storage.js";
+import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 
 /* =====================================================================
    MusicLibrary — full song catalog with sort + filter.
@@ -63,6 +64,73 @@ function SongGridTile({ s, onTap, selected = false }) {
   );
 }
 
+// Shelf tile — bigger than the grid tile, square cover, designed for
+// "wall of records" feeling. In rearrange mode left/right chevrons
+// overlay so a parent can nudge it one slot at a time without fighting
+// the horizontal scroller (touch-drag-reorder on a horizontally
+// scrolling list is hostile UX; this is reliable everywhere).
+function SongShelfTile({ s, onTap, selected, rearranging, onNudgeLeft, onNudgeRight }) {
+  const customCoverSigned = useSignedUrl(s.customCoverPath || "");
+  const displayCover = customCoverSigned || s.coverUrl || "";
+  const title = s.canonicalTitle || s.title || "(unknown)";
+  const artist = s.canonicalArtist || s.artist || "";
+  return (
+    <div className={`shrink-0 w-32 ${selected ? "ring-2 ring-cyan-500 rounded-xl" : ""}`}>
+      <button
+        type="button"
+        onClick={onTap}
+        disabled={!onTap}
+        className="w-full aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-100 relative active:scale-[0.97] transition disabled:active:scale-100"
+        aria-label={`Open ${title}`}
+      >
+        {displayCover ? (
+          <img
+            src={displayCover}
+            alt=""
+            draggable={false}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : (
+          <div className="w-full h-full grid place-items-center text-slate-300">
+            <Music size={32} />
+          </div>
+        )}
+        {typeof s.count === "number" && s.count > 0 && (
+          <span className="absolute bottom-1 right-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-cyan-600 text-white tabular-nums">
+            {s.count}
+          </span>
+        )}
+      </button>
+      <div className="text-[11px] font-bold text-slate-800 line-clamp-1 leading-tight mt-1.5">{title}</div>
+      {artist && (
+        <div className="text-[10px] text-slate-500 truncate">{artist}</div>
+      )}
+      {rearranging && (
+        <div className="flex gap-1 mt-1.5">
+          <button
+            type="button"
+            onClick={onNudgeLeft}
+            className="flex-1 text-[11px] font-bold py-1 rounded-md bg-amber-100 text-amber-800 border border-amber-200 active:scale-95"
+            aria-label="Move left"
+          >
+            <ChevronLeft size={14} className="inline" />
+          </button>
+          <button
+            type="button"
+            onClick={onNudgeRight}
+            className="flex-1 text-[11px] font-bold py-1 rounded-md bg-amber-100 text-amber-800 border border-amber-200 active:scale-95"
+            aria-label="Move right"
+          >
+            <ChevronRight size={14} className="inline" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const SORT_OPTIONS = [
   { k: "plays",        label: "Most played" },
   { k: "recent",       label: "Recently played" },
@@ -74,11 +142,13 @@ const SORT_OPTIONS = [
   { k: "added_oldest", label: "Oldest added" },
 ];
 
-export default function MusicLibrary({ songs = [], songPlays = [], updateSong, familyId }) {
+export default function MusicLibrary({ songs = [], songPlays = [], updateSong, familyId, libraryOrder = { songs: [], books: [] }, setLibraryOrder }) {
   const [sort, setSort] = useState("plays");
   const [q, setQ] = useState("");
   const [viewMode, setViewMode] = useState("list");
   const [focusedSongId, setFocusedSongId] = useState(null);
+  const [rearranging, setRearranging] = useState(false);
+  const savedOrder = libraryOrder?.songs || [];
 
   // Derive { count, last } per song from the canonical songPlays table.
   // Same shape Insights "Most-played" reads, so a song marked confirmed
@@ -154,6 +224,26 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
     return list;
   }, [filtered, sort]);
 
+  // Shelf view uses the saved curated order. Falls back to the current
+  // sort when no order is saved yet — first time on the shelf shows
+  // sorted-by-plays so it looks reasonable until the parent rearranges.
+  const shelfList = useMemo(() => {
+    const base = savedOrder.length > 0 ? filtered : sorted;
+    return applyCustomOrder(base, savedOrder);
+  }, [filtered, sorted, savedOrder]);
+
+  const nudge = (id, direction) => {
+    if (!setLibraryOrder) return;
+    setLibraryOrder((prev) => {
+      const next = nudgeOrder(prev?.songs || [], shelfList, id, direction);
+      return { ...(prev || {}), songs: next };
+    });
+  };
+  const resetShelfOrder = () => {
+    if (!setLibraryOrder) return;
+    setLibraryOrder((prev) => ({ ...(prev || {}), songs: [] }));
+  };
+
   // Quick stats for the header.
   const totalPlays = enrichedSongs.reduce((s, x) => s + (x.count || 0), 0);
   const artistsTouched = new Set(
@@ -190,7 +280,7 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
 
       <div className="flex items-center gap-2 mb-2">
         <div className="flex gap-1 bg-slate-100 rounded-xl p-1 shrink-0">
-          {[["list", "List"], ["grid", "Grid"]].map(([k, label]) => (
+          {[["list", "List"], ["grid", "Grid"], ["shelf", "Shelf"]].map(([k, label]) => (
             <button
               key={k}
               onClick={() => setViewMode(k)}
@@ -239,7 +329,7 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
             />
           ))}
         </div>
-      ) : (
+      ) : viewMode === "grid" ? (
         <div className="grid grid-cols-3 gap-2 pb-32">
           {sorted.map((s) => (
             <SongGridTile
@@ -250,6 +340,50 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
             />
           ))}
         </div>
+      ) : (
+        // Shelf view — horizontally scrollable row of larger covers,
+        // arranged in the parent's saved order. Toggle Rearrange to nudge
+        // tiles left/right; reset clears the saved order back to default.
+        <>
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              type="button"
+              onClick={() => setRearranging((v) => !v)}
+              className={`text-[11px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1 ${
+                rearranging ? "bg-amber-500 text-white" : "bg-white text-slate-600 border border-slate-200"
+              }`}
+            >
+              <GripHorizontal size={12} /> {rearranging ? "Done arranging" : "Rearrange"}
+            </button>
+            {savedOrder.length > 0 && (
+              <button
+                type="button"
+                onClick={resetShelfOrder}
+                className="text-[11px] font-bold px-3 py-1.5 rounded-full bg-white text-slate-500 border border-slate-200"
+              >
+                Reset shelf order
+              </button>
+            )}
+            <div className="text-[10px] text-slate-400 ml-auto">
+              {savedOrder.length > 0 ? "custom order" : `sorted by ${SORT_OPTIONS.find((o) => o.k === sort)?.label || sort}`}
+            </div>
+          </div>
+          <div className="-mx-4 overflow-x-auto scrollbar-thin pb-32">
+            <div className="flex gap-3 px-4 min-w-min">
+              {shelfList.map((s) => (
+                <SongShelfTile
+                  key={s.id}
+                  s={s}
+                  onTap={rearranging ? undefined : () => setFocusedSongId(s.id)}
+                  selected={focusedSongId === s.id}
+                  rearranging={rearranging}
+                  onNudgeLeft={() => nudge(s.id, -1)}
+                  onNudgeRight={() => nudge(s.id, 1)}
+                />
+              ))}
+            </div>
+          </div>
+        </>
       )}
 
       {/* Grid-tile focused editor — pops up at the bottom with the full

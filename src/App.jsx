@@ -17,6 +17,7 @@ import SongLogger from "./SongLogger.jsx";
 import BoardGame, { BOARD_THEMES, DEFAULT_BOARD_THEME } from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
+import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { supabase } from "./lib/supabase.js";
 import { toApp } from "./data/transform.js";
 import { juice } from "./lib/juice.js";
@@ -550,6 +551,13 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // No cap on length — Top 8 is the default expectation but parents
   // can add ad-hoc items in the editor so the board grows when needed.
   const [topPriorities, setTopPriorities] = familySetting("topPriorities", { weekly: {}, daily: {} });
+  // Library custom shelf order. One key per domain — ordered array of
+  // ids. When the Shelf view is active in MusicLibrary / ReadingLibrary,
+  // items are displayed in this order; items not in the array are
+  // appended at the end so new additions appear without breaking the
+  // saved curation. Reorder writes through the synced setter so both
+  // parents see the same shelf.
+  const [libraryOrder, setLibraryOrder] = familySetting("libraryOrder", { songs: [], books: [] });
   const [tkdDays, setTkdDays] = familySetting("tkdDays", ["Monday"]);
   const [tkdTimes, setTkdTimes] = familySetting(
     "tkdTimes",
@@ -1246,7 +1254,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   const shared = {
-    user, users, tasks, todaysTasks, todaysTopEight, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, rewards, completions, compByTask, events, handoff, redemptions,
+    user, users, tasks, todaysTasks, todaysTopEight, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, libraryOrder, setLibraryOrder, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
@@ -4202,13 +4210,80 @@ function BookGridTile({ b, onTap, selected = false }) {
   );
 }
 
-function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
+// Larger cover tile for the Shelf view — 3:4 portrait (book covers are
+// typically tall). Tap-to-open when not rearranging; ← → buttons when
+// rearranging. Same pattern as SongShelfTile in MusicLibrary.jsx.
+function BookShelfTile({ b, onTap, selected, rearranging, onNudgeLeft, onNudgeRight }) {
+  const customCoverSigned = useSignedUrl(b.customCoverPath || "");
+  const displayCover = customCoverSigned || b.coverUrl || "";
+  const title = b.canonicalTitle || b.title || "(untitled)";
+  return (
+    <div className={`shrink-0 w-28 ${selected ? "ring-2 ring-indigo-500 rounded-xl" : ""}`}>
+      <button
+        type="button"
+        onClick={onTap}
+        disabled={!onTap}
+        className="w-full aspect-[3/4] rounded-lg overflow-hidden border border-slate-200 bg-slate-100 relative active:scale-[0.97] transition disabled:active:scale-100"
+        aria-label={`Open ${title}`}
+      >
+        {displayCover ? (
+          <img
+            src={displayCover}
+            alt=""
+            draggable={false}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : (
+          <div className="w-full h-full grid place-items-center text-slate-300">
+            <BookOpen size={28} />
+          </div>
+        )}
+        {b.status === "finished" && (
+          <span className="absolute top-1 right-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500 text-white">✓</span>
+        )}
+        {b.preTracking && (
+          <span className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">archive</span>
+        )}
+      </button>
+      <div className="text-[11px] font-bold text-slate-800 line-clamp-2 leading-tight mt-1.5">{title}</div>
+      {b.canonicalAuthor && (
+        <div className="text-[10px] text-slate-500 truncate">{b.canonicalAuthor}</div>
+      )}
+      {rearranging && (
+        <div className="flex gap-1 mt-1.5">
+          <button
+            type="button"
+            onClick={onNudgeLeft}
+            className="flex-1 text-[11px] font-bold py-1 rounded-md bg-amber-100 text-amber-800 border border-amber-200 active:scale-95"
+            aria-label="Move left"
+          >
+            ◀
+          </button>
+          <button
+            type="button"
+            onClick={onNudgeRight}
+            className="flex-1 text-[11px] font-bold py-1 rounded-md bg-amber-100 text-amber-800 border border-amber-200 active:scale-95"
+            aria-label="Move right"
+          >
+            ▶
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libraryOrder = { songs: [], books: [] }, setLibraryOrder }) {
   const [adding, setAdding] = useState(false);
   const [addingBacklog, setAddingBacklog] = useState(false);
   const [q, setQ] = useState("");
   const [viewMode, setViewMode] = useState("list");
   const [sort, setSort] = useState("added_newest");
   const [focusedBookId, setFocusedBookId] = useState(null);
+  const [rearranging, setRearranging] = useState(false);
+  const savedOrder = libraryOrder?.books || [];
   // Filtered views: pre-tracking books live in their own archive
   // section so the "Reading now / Finished" lists stay date-honest.
   const tracked = books.filter((b) => !b.preTracking);
@@ -4217,6 +4292,25 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
   const finished = sortBooks(searchBooks(tracked.filter((b) => b.status === "finished"), q), sort);
   const archiveFiltered = sortBooks(searchBooks(archive, q), sort);
   const focusedBook = books.find((b) => b.id === focusedBookId);
+  // Shelf view flattens the three sections into one curated shelf.
+  // "Hold them in your hands" metaphor doesn't map cleanly to three
+  // separate stacks, so the shelf shows everything in one row, with
+  // the parent's saved order applied.
+  const allFiltered = searchBooks(books, q);
+  const shelfList = savedOrder.length > 0
+    ? applyCustomOrder(allFiltered, savedOrder)
+    : sortBooks(allFiltered, sort);
+  const nudge = (id, direction) => {
+    if (!setLibraryOrder) return;
+    setLibraryOrder((prev) => {
+      const next = nudgeOrder(prev?.books || [], shelfList, id, direction);
+      return { ...(prev || {}), books: next };
+    });
+  };
+  const resetShelfOrder = () => {
+    if (!setLibraryOrder) return;
+    setLibraryOrder((prev) => ({ ...(prev || {}), books: [] }));
+  };
   // Count-based stats INCLUDE backlog. They're real books, just no dates.
   const thisMonth = tracked.filter((b) => b.status === "finished" && (b.finished || "").startsWith("2026-06")).length;
   const paces = tracked.filter((b) => b.status === "finished").map((b) => daysBetween(b.started, b.finished)).filter(Boolean);
@@ -4254,7 +4348,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
           sort pills scroll horizontally so we don't crowd small screens. */}
       <div className="flex items-center gap-2 mb-2">
         <div className="flex gap-1 bg-slate-100 rounded-xl p-1 shrink-0">
-          {[["list", "List"], ["grid", "Grid"]].map(([k, label]) => (
+          {[["list", "List"], ["grid", "Grid"], ["shelf", "Shelf"]].map(([k, label]) => (
             <button
               key={k}
               onClick={() => setViewMode(k)}
@@ -4292,6 +4386,52 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
 
       {q && reading.length === 0 && finished.length === 0 && archiveFiltered.length === 0 && <p className="text-sm text-slate-400 px-1">No books match "{q}".</p>}
 
+      {viewMode === "shelf" ? (
+        // Shelf view — flattens all three sections into one curated
+        // shelf so the "hold them in your hands" metaphor works. Tap
+        // a cover to open the editor; toggle Rearrange to nudge.
+        <>
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              type="button"
+              onClick={() => setRearranging((v) => !v)}
+              className={`text-[11px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1 ${
+                rearranging ? "bg-amber-500 text-white" : "bg-white text-slate-600 border border-slate-200"
+              }`}
+            >
+              {rearranging ? "Done arranging" : "Rearrange"}
+            </button>
+            {savedOrder.length > 0 && (
+              <button
+                type="button"
+                onClick={resetShelfOrder}
+                className="text-[11px] font-bold px-3 py-1.5 rounded-full bg-white text-slate-500 border border-slate-200"
+              >
+                Reset shelf order
+              </button>
+            )}
+            <div className="text-[10px] text-slate-400 ml-auto">
+              {savedOrder.length > 0 ? "custom order" : `sorted by ${BOOK_SORT_OPTIONS.find((o) => o.k === sort)?.label || sort}`}
+            </div>
+          </div>
+          <div className="-mx-4 overflow-x-auto scrollbar-thin pb-32">
+            <div className="flex gap-3 px-4 min-w-min">
+              {shelfList.map((b) => (
+                <BookShelfTile
+                  key={b.id}
+                  b={b}
+                  onTap={rearranging ? undefined : () => setFocusedBookId(b.id)}
+                  selected={focusedBookId === b.id}
+                  rearranging={rearranging}
+                  onNudgeLeft={() => nudge(b.id, -1)}
+                  onNudgeRight={() => nudge(b.id, 1)}
+                />
+              ))}
+            </div>
+          </div>
+        </>
+      ) : (
+      <>
       <SectionTitle icon={<BookOpen size={16} className="text-sky-500" />}>Reading now ({reading.length})</SectionTitle>
       {reading.length === 0 && !q && <p className="text-xs text-slate-400 px-1">Nothing in progress.</p>}
       {viewMode === "list"
@@ -4349,12 +4489,12 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
       )}
 
       <div className="text-[11px] text-slate-400 px-1 mt-3">Search is fuzzy — typos and partial titles still find the book. Logging start & finish dates shows his pace; the level tag shows where he's reading.</div>
+      </>
+      )}
 
-      {/* Grid-tile expand: render the full BookRow inline at the bottom
-          so the edit panel comes up without leaving the page. Sticky
-          background + close button on the focused row keeps it obvious
-          which book is being edited. */}
-      {viewMode === "grid" && focusedBook && (
+      {/* Tile-tap expand: same focused editor pattern for Grid and Shelf.
+          BookRow renders the full edit toolkit; close button dismisses. */}
+      {(viewMode === "grid" || viewMode === "shelf") && focusedBook && (
         <div className="fixed inset-x-0 bottom-0 z-30 max-w-md mx-auto bg-white border-t border-slate-200 shadow-2xl rounded-t-2xl p-3 max-h-[80vh] overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
             <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Editing</div>
