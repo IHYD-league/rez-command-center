@@ -1006,6 +1006,7 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
 
 export default function BoardGame({
   todaysTasks,
+  todaysTopEight,
   compByTask,
   completions,
   activities,
@@ -1017,15 +1018,16 @@ export default function BoardGame({
   // Theme resolution: parent picks via familySetting("boardTheme", ...).
   // Unknown id or missing → DEFAULT_BOARD_THEME so the board never blanks.
   const theme = BOARD_THEMES[boardTheme] || BOARD_THEMES[DEFAULT_BOARD_THEME];
-  // Daily cap — parent-controlled via familySetting("boardDailyCap", N).
-  // null / undefined / non-positive = uncapped (all of today's tasks).
-  // When capped, we pick required tasks first (must-do), then extras —
-  // canonical task.required field drives the priority. Already-completed
-  // tasks count toward the cap so the kid sees what was done plus what's
-  // left, totaling N. If completed already exceeds N (parent lowered cap
-  // mid-day), we still show all completed + the cap-capped remaining.
-  const rawTasks = todaysTasks || [];
+  // Source of truth: parent-curated Top 8 in order. Falls back to the
+  // wider todaysTasks only if no Top 8 is set (legacy / brand-new install
+  // before bootstrap), preserving back-compat. When Top 8 is in play,
+  // boardDailyCap is intentionally ignored — the Top 8 list IS the cap,
+  // and it can grow past 8 if parents add ad-hoc items so the soft 8 is
+  // a default expectation, not a hard limit.
+  const hasTopEight = Array.isArray(todaysTopEight) && todaysTopEight.length > 0;
+  const rawTasks = hasTopEight ? todaysTopEight : (todaysTasks || []);
   const safeTasks = (() => {
+    if (hasTopEight) return rawTasks; // Top 8 is already the curated list.
     const cap = Number(boardDailyCap) > 0 ? Math.floor(Number(boardDailyCap)) : null;
     if (!cap || rawTasks.length <= cap) return rawTasks;
     const required = rawTasks.filter((t) => t.required);
