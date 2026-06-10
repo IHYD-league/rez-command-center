@@ -99,6 +99,11 @@ export const toApp = {
     externalId:      r.external_id || "",
     enrichedAt:      r.enriched_at || null,
     matchStatus:     r.match_status || "unmatched",
+    // Books polish: parent-uploaded book cover. Storage path, not URL —
+    // resolved to a signed URL at display time. Takes precedence over
+    // cover_url (Open Library cache) when present. Mirrors the song
+    // customCoverPath shape.
+    customCoverPath: r.custom_cover_path || "",
   }),
 
   award: (r) => ({
@@ -316,6 +321,7 @@ export const toDb = {
     // string when stamping a fresh match, else leave null.
     enriched_at:      o.enrichedAt || null,
     match_status:     o.matchStatus || "unmatched",
+    custom_cover_path: o.customCoverPath || null,
   }),
 
   award: (familyId) => (o) => ({

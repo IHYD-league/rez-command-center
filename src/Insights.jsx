@@ -142,9 +142,16 @@ function EmptyLine({ children }) {
 // Updates persist through updateBook(id, patch) — same synced setter
 // the Reading Library uses, so a single call replicates to Supabase
 // and back into shared state.
-function EnrichedBookRow({ b, updateBook }) {
+function EnrichedBookRow({ b, updateBook, familyId }) {
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+  // Custom cover takes precedence over OL. Hook is called
+  // unconditionally with whatever path we have — empty path = no-op,
+  // returns "". Mirrors EnrichedSongRow's cover-resolution pattern.
+  const customCoverSigned = useSignedUrl(b.customCoverPath || "");
+  const displayCover = customCoverSigned || b.coverUrl || "";
   // Auto-enrich on first render. Idempotent: pickFirstMatch de-dupes
   // concurrent calls, and we guard on match_status so a row only
   // ever fetches once per family-life. Effects don't fire when
@@ -184,16 +191,35 @@ function EnrichedBookRow({ b, updateBook }) {
   const onConfirm = () => updateBook && updateBook(b.id, { matchStatus: "confirmed" });
   const onSkip    = () => updateBook && updateBook(b.id, { matchStatus: "rejected", coverUrl: "" });
 
+  // Parent uploads their own book cover — overrides OL. Library OR
+  // camera (no capture attr) — covers are always after-the-fact.
+  const onUpload = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f || uploading || !updateBook || !familyId) return;
+    setUploading(true);
+    try {
+      const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
+      updateBook(b.id, { customCoverPath: path });
+    } catch (err) {
+      alert("Cover upload failed: " + (err.message || err));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+  const onClearCustom = () => updateBook && updateBook(b.id, { customCoverPath: "" });
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-2">
       <div className="flex items-center gap-2">
-        {b.coverUrl ? (
+        {displayCover ? (
           <img
-            src={b.coverUrl}
+            src={displayCover}
             alt=""
             draggable={false}
             className="w-10 h-14 object-cover rounded-md border border-slate-200 shrink-0 bg-slate-100"
             loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         ) : (
           <div className="w-10 h-14 rounded-md bg-slate-100 border border-slate-200 grid place-items-center shrink-0 text-slate-300">
@@ -240,6 +266,43 @@ function EnrichedBookRow({ b, updateBook }) {
           </button>
         </div>
       )}
+      {/* Cover-override controls — always available when we can write.
+          Tap "Use my cover" to upload a custom image; if a custom cover
+          is in place, "Use OL cover" reverts to the Open Library one. */}
+      {updateBook && familyId && !picking && (
+        <div className="flex gap-1 mt-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            onChange={onUpload}
+            className="hidden"
+            aria-label="Upload book cover"
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className={`flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg flex items-center justify-center gap-1 ${
+              uploading
+                ? "bg-slate-200 text-slate-400"
+                : "bg-white border border-slate-200 text-slate-600 active:scale-95"
+            }`}
+          >
+            <Camera size={12} /> {uploading ? "Uploading…" : b.customCoverPath ? "Replace cover" : "Use my cover"}
+          </button>
+          {b.customCoverPath && (
+            <button
+              type="button"
+              onClick={onClearCustom}
+              className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
+              aria-label="Use the Open Library cover instead"
+            >
+              Use OL cover
+            </button>
+          )}
+        </div>
+      )}
       {picking && (
         <BookMatchPicker
           b={b}
@@ -260,12 +323,21 @@ function EnrichedBookRow({ b, updateBook }) {
 function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
   const [candidates, setCandidates] = useState(null);
   const [error, setError] = useState("");
-  useEffect(() => {
-    let cancelled = false;
+  // Editable refinement inputs — pre-filled with what we have. User can
+  // fix typos in the title and type the author as a disambiguation hint
+  // (kid books / Spanish books OL often misses without an author).
+  // Mirrors SongMatchPicker's title + artist inputs.
+  const [titleQuery, setTitleQuery] = useState(b.title || "");
+  const [authorQuery, setAuthorQuery] = useState(b.canonicalAuthor || "");
+
+  const runSearch = (t, a) => {
     setBusy(true);
+    setError("");
+    setCandidates(null);
+    let cancelled = false;
     (async () => {
       try {
-        const out = await searchOpenLibrary(b.title, b.canonicalAuthor || "", 5);
+        const out = await searchOpenLibrary(t, a, 5);
         if (!cancelled) setCandidates(out);
       } catch (e) {
         if (!cancelled) setError(e?.message || "search failed");
@@ -274,7 +346,20 @@ function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [b.title]);
+  };
+
+  useEffect(() => {
+    const cancel = runSearch(b.title || "", b.canonicalAuthor || "");
+    return cancel;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [b.id]);
+
+  const onSubmit = (e) => {
+    e.preventDefault();
+    if (busy) return;
+    if (!titleQuery.trim()) return;
+    runSearch(titleQuery, authorQuery);
+  };
 
   const pick = (c) => {
     if (!updateBook) return;
@@ -300,10 +385,61 @@ function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
           <X size={14} />
         </button>
       </div>
-      {busy && <div className="text-[12px] text-slate-400">Searching Open Library…</div>}
-      {error && <div className="text-[12px] text-rose-500">Search failed: {error}</div>}
-      {candidates && candidates.length === 0 && (
-        <div className="text-[12px] text-slate-400">No matches found.</div>
+      <form onSubmit={onSubmit} className="flex flex-col gap-1.5 mb-2">
+        <div className="grid grid-cols-2 gap-1.5">
+          <input
+            type="text"
+            value={titleQuery}
+            onChange={(e) => setTitleQuery(e.target.value)}
+            placeholder="Book title"
+            className="text-[12px] px-2 py-1.5 rounded-md border border-slate-200 bg-white"
+            aria-label="Book title"
+          />
+          <input
+            type="text"
+            value={authorQuery}
+            onChange={(e) => setAuthorQuery(e.target.value)}
+            placeholder="Author (helps disambiguate)"
+            className="text-[12px] px-2 py-1.5 rounded-md border border-slate-200 bg-white"
+            aria-label="Author"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={busy || !titleQuery.trim()}
+          className={`text-[11px] font-bold px-2 py-1.5 rounded-md flex items-center justify-center gap-1 ${
+            busy || !titleQuery.trim()
+              ? "bg-slate-200 text-slate-400"
+              : "bg-amber-600 text-white active:scale-95"
+          }`}
+        >
+          {busy ? "Searching…" : "Search Open Library"}
+        </button>
+      </form>
+      {error && <div className="text-[12px] text-rose-500 mb-1">Search failed: {error}</div>}
+      {candidates && candidates.length === 0 && !busy && (
+        <div className="text-[12px] text-slate-400 mb-1">No matches — try the author above, or save the values as-is below.</div>
+      )}
+      {/* Manual override — save the typed title + author as canonical
+          without any OL result. For books OL doesn't have (Spanish kids'
+          books, niche titles), or when the parent already knows the right
+          values. Mirrors SongMatchPicker's "Save '...' by ..." button. */}
+      {updateBook && titleQuery.trim() && (
+        <button
+          type="button"
+          onClick={() => {
+            updateBook(b.id, {
+              canonicalTitle:  titleQuery.trim(),
+              canonicalAuthor: authorQuery.trim(),
+              matchStatus:     "confirmed",
+              enrichedAt:      new Date().toISOString(),
+            });
+            onClose();
+          }}
+          className="w-full text-[11px] font-bold px-2 py-1.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 active:scale-95 flex items-center justify-center gap-1 mb-2"
+        >
+          <Save size={12} /> Save "{titleQuery.trim()}"{authorQuery.trim() ? ` by ${authorQuery.trim()}` : ""}
+        </button>
       )}
       {candidates && candidates.length > 0 && (
         <div className="space-y-1">
@@ -947,7 +1083,7 @@ export default function Insights({
                 <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Recent (tracked)</div>
                 <div className="space-y-2 mb-3">
                   {booksStats.recent.map((b) => (
-                    <EnrichedBookRow key={b.id} b={b} updateBook={updateBook} />
+                    <EnrichedBookRow key={b.id} b={b} updateBook={updateBook} familyId={familyId} />
                   ))}
                 </div>
                 {booksStats.recent.some((b) => b.matchStatus === "auto") && (
