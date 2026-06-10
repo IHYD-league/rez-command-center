@@ -3,6 +3,7 @@ import { Search, X, Music, ChevronLeft, ChevronRight, GripHorizontal } from "luc
 import { EnrichedSongRow } from "./SongRow.jsx";
 import { useSignedUrl } from "./lib/storage.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
+import { buildAlbumCoverMap, resolveSongCover } from "./lib/albumCover.js";
 
 /* =====================================================================
    MusicLibrary — full song catalog with sort + filter.
@@ -196,9 +197,15 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
       if (date && (!c.last || date > c.last)) c.last = date;
       counts.set(sid, c);
     }
+    // Album-cover dedup: pre-resolve coverUrl + customCoverPath so any
+    // song sharing (canonical_artist, canonical_album) with a peer that
+    // has a cover inherits it for display. The DB stays per-song; only
+    // the display layer borrows from album peers. See src/lib/albumCover.js.
+    const albumMap = buildAlbumCoverMap(songs || []);
     return (songs || []).map((s) => {
       const c = counts.get(s.id) || { count: 0, last: null };
-      return { ...s, count: c.count, last: c.last };
+      const resolved = resolveSongCover(s, albumMap);
+      return { ...resolved, count: c.count, last: c.last };
     });
   }, [songs, songPlays]);
 

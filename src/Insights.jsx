@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { Drum, Music, BookOpen, Image as ImageIcon, Heart, TrendingUp, Sparkles, Check, X, RotateCcw, Camera, Save } from "lucide-react";
 import { searchOpenLibrary, pickFirstMatch as pickBookMatch } from "./lib/enrichBook.js";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
+import { buildAlbumCoverMap, resolveSongCover } from "./lib/albumCover.js";
 import { EnrichedSongRow, SongMatchPicker } from "./SongRow.jsx";
 
 /* =====================================================================
@@ -525,20 +526,25 @@ export default function Insights({
       counts.set(sid, c);
       if (date && (!earliest || date < earliest)) earliest = date;
     }
+    // Album-cover dedup: a custom upload on any Toxicity song shows on
+    // every Toxicity song in this list too. See src/lib/albumCover.js.
+    const albumMap = buildAlbumCoverMap(songs || []);
     const out = [...counts.entries()]
       .map(([sid, v]) => {
         const song = (songs || []).find((s) => s.id === sid);
+        const resolved = song ? resolveSongCover(song, albumMap) : null;
         return {
           id: sid,
-          title: song?.title || "(unknown)",
-          artist: song?.artist || "",
+          title: resolved?.title || song?.title || "(unknown)",
+          artist: resolved?.artist || song?.artist || "",
           // Phase 6b: carry enrichment fields so EnrichedSongRow can
           // render covers and fire auto-enrich without re-reading songs.
-          coverUrl:        song?.coverUrl || "",
-          canonicalTitle:  song?.canonicalTitle || "",
-          canonicalArtist: song?.canonicalArtist || "",
-          matchStatus:     song?.matchStatus || "unmatched",
-          customCoverPath: song?.customCoverPath || "",
+          coverUrl:        resolved?.coverUrl || "",
+          canonicalTitle:  resolved?.canonicalTitle || "",
+          canonicalArtist: resolved?.canonicalArtist || "",
+          canonicalAlbum:  resolved?.canonicalAlbum || "",
+          matchStatus:     resolved?.matchStatus || "unmatched",
+          customCoverPath: resolved?.customCoverPath || "",
           count: v.count,
           last: v.last,
         };
