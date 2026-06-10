@@ -981,6 +981,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     setSongPlays((prev) => prev.filter((p) => p.songId !== id));
   };
   const removeSongPlay = (id) => setSongPlays((prev) => prev.filter((p) => p.id !== id));
+  // Phase 6b: shallow patcher for enrichment fields (cover_url,
+  // canonical_*, match_status). Mirrors updateBook's contract.
+  const updateSong = (id, patch) =>
+    setSongs((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
   // BOARD-GAME.md §Data model — board_state is purely UI memory:
   // "where was the token last drawn for this profile?" / "did we already
@@ -1177,7 +1181,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     pendingRegistrations, approveRegistration, denyRegistration, currentProfileId, setCurrentUserId,
     kidData,
     familyId,
-    songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay,
+    songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay, updateSong,
     setStatDetailId,
     earnedAllTime,
     boardState, setBoardLastPosition, setTreasureClaimed,

@@ -155,6 +155,21 @@ export const toApp = {
     artist: r.artist,
     difficulty: r.difficulty,
     createdAt: r.created_at,
+    // Phase 6b: MusicBrainz + Cover Art Archive enrichment cache.
+    // NULL on existing rows until the first auto-match writes them.
+    // matchStatus = "unmatched" by DB default so the auto-enrich
+    // effect picks them up.
+    coverUrl:        r.cover_url || "",
+    canonicalTitle:  r.canonical_title || "",
+    canonicalArtist: r.canonical_artist || "",
+    externalSource:  r.external_source || "",
+    externalId:      r.external_id || "",
+    enrichedAt:      r.enriched_at || null,
+    matchStatus:     r.match_status || "unmatched",
+    // Phase 6b polish: parent-uploaded album cover. Storage path, not
+    // URL — resolved to a signed URL at display time. Takes precedence
+    // over cover_url (MB/CAA cache) when present.
+    customCoverPath: r.custom_cover_path || "",
   }),
 
   songPlay: (r) => ({
@@ -364,6 +379,14 @@ export const toDb = {
     title: o.title,
     artist: o.artist ?? null,
     difficulty: o.difficulty ?? null,
+    cover_url:        o.coverUrl || null,
+    canonical_title:  o.canonicalTitle || null,
+    canonical_artist: o.canonicalArtist || null,
+    external_source:  o.externalSource || null,
+    external_id:      o.externalId || null,
+    enriched_at:      o.enrichedAt || null,
+    match_status:     o.matchStatus || "unmatched",
+    custom_cover_path: o.customCoverPath || null,
   }),
 
   songPlay: (familyId) => (o) => ({
