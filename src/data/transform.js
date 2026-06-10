@@ -349,9 +349,13 @@ export const toDb = {
     caption: o.caption ?? null,
     taken_at: o.takenAt || null,
     activity_id: o.activityId ?? null,
-    // created_at is server-defaulted; only set when echoing a known
-    // value back so a sync round-trip doesn't shift it.
-    ...(o.createdAt ? { created_at: o.createdAt } : {}),
+    // created_at must be in the payload for EVERY row in the batch.
+    // PostgREST normalizes the column set across an upsert batch: if
+    // any other row in the batch has created_at, missing rows are
+    // padded with NULL, which trips the NOT NULL constraint even
+    // though the DB has a default of now(). Always provide it —
+    // echo the loaded value for existing rows, stamp now() for new ones.
+    created_at: o.createdAt || new Date().toISOString(),
   }),
 
   redemption: (familyId) => (o) => ({
