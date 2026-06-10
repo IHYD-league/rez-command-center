@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Music, Check, X, RotateCcw, Camera, Save } from "lucide-react";
-import { searchMusicBrainz, pickFirstMatch as pickSongMatch } from "./lib/enrichSong.js";
+import { searchSongs, pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
@@ -199,7 +199,7 @@ export function EnrichedSongRow({ s, rank, maxCount, updateSong, familyId }) {
                   className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
                   aria-label="Use the auto-matched cover instead"
                 >
-                  Use MB cover
+                  Use iTunes cover
                 </button>
               )}
             </>
@@ -233,7 +233,7 @@ export function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
     let cancelled = false;
     (async () => {
       try {
-        const out = await searchMusicBrainz(t, a, 5);
+        const out = await searchSongs(t, a, 5);
         if (!cancelled) setCandidates(out);
       } catch (e) {
         if (!cancelled) setError(e?.message || "search failed");
@@ -318,7 +318,7 @@ export function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
               : "bg-cyan-600 text-white active:scale-95"
           }`}
         >
-          {busy ? "Searching…" : "Search MusicBrainz"}
+          {busy ? "Searching…" : "Search iTunes"}
         </button>
       </form>
       {error && <div className="text-[12px] text-rose-500 mb-1">Search failed: {error}</div>}
