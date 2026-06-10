@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Search, X, Music } from "lucide-react";
 import { EnrichedSongRow } from "./SongRow.jsx";
+import { useSignedUrl } from "./lib/storage.js";
 
 /* =====================================================================
    MusicLibrary — full song catalog with sort + filter.
@@ -18,6 +19,50 @@ import { EnrichedSongRow } from "./SongRow.jsx";
    upload, MB cover revert. No duplication of the edit UI here.
    ===================================================================== */
 
+// Compact grid tile — square cover with title + artist beneath. Tap
+// opens the focused-song editor at the bottom of the page (same
+// pattern Reading Library uses). Keeps the wall-of-music view clean.
+function SongGridTile({ s, onTap, selected = false }) {
+  const customCoverSigned = useSignedUrl(s.customCoverPath || "");
+  const displayCover = customCoverSigned || s.coverUrl || "";
+  const title = s.canonicalTitle || s.title || "(unknown)";
+  const artist = s.canonicalArtist || s.artist || "";
+  return (
+    <button
+      type="button"
+      onClick={() => onTap?.(s)}
+      className={`flex flex-col items-stretch text-left active:scale-[0.97] transition ${selected ? "ring-2 ring-cyan-500 rounded-xl" : ""}`}
+      aria-label={`Open ${title}`}
+    >
+      <div className="aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-100 mb-1 relative">
+        {displayCover ? (
+          <img
+            src={displayCover}
+            alt=""
+            draggable={false}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : (
+          <div className="w-full h-full grid place-items-center text-slate-300">
+            <Music size={24} />
+          </div>
+        )}
+        {typeof s.count === "number" && s.count > 0 && (
+          <span className="absolute bottom-1 right-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-cyan-600 text-white tabular-nums">
+            {s.count}
+          </span>
+        )}
+      </div>
+      <div className="text-[11px] font-bold text-slate-800 line-clamp-1 leading-tight">{title}</div>
+      {artist && (
+        <div className="text-[10px] text-slate-500 truncate">{artist}</div>
+      )}
+    </button>
+  );
+}
+
 const SORT_OPTIONS = [
   { k: "plays",        label: "Most played" },
   { k: "recent",       label: "Recently played" },
@@ -32,6 +77,8 @@ const SORT_OPTIONS = [
 export default function MusicLibrary({ songs = [], songPlays = [], updateSong, familyId }) {
   const [sort, setSort] = useState("plays");
   const [q, setQ] = useState("");
+  const [viewMode, setViewMode] = useState("list");
+  const [focusedSongId, setFocusedSongId] = useState(null);
 
   // Derive { count, last } per song from the canonical songPlays table.
   // Same shape Insights "Most-played" reads, so a song marked confirmed
@@ -141,18 +188,33 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
         {q && <button onClick={() => setQ("")} className="text-slate-300"><X size={15} /></button>}
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-2 mb-2 scrollbar-thin">
-        {SORT_OPTIONS.map((o) => (
-          <button
-            key={o.k}
-            onClick={() => setSort(o.k)}
-            className={`shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full whitespace-nowrap ${
-              sort === o.k ? "bg-cyan-600 text-white" : "bg-white text-slate-500 border border-slate-200"
-            }`}
-          >
-            {o.label}
-          </button>
-        ))}
+      <div className="flex items-center gap-2 mb-2">
+        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 shrink-0">
+          {[["list", "List"], ["grid", "Grid"]].map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setViewMode(k)}
+              className={`text-[11px] font-bold px-3 py-1.5 rounded-lg ${
+                viewMode === k ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 flex gap-1.5 overflow-x-auto scrollbar-thin">
+          {SORT_OPTIONS.map((o) => (
+            <button
+              key={o.k}
+              onClick={() => setSort(o.k)}
+              className={`shrink-0 text-[11px] font-bold px-2.5 py-1.5 rounded-full whitespace-nowrap ${
+                sort === o.k ? "bg-cyan-600 text-white" : "bg-white text-slate-500 border border-slate-200"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="text-[11px] text-slate-400 px-1 mb-2">
@@ -166,7 +228,7 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
             {q ? "No songs match that search." : "No songs logged yet — add some via the Drums task sheet."}
           </div>
         </div>
-      ) : (
+      ) : viewMode === "list" ? (
         <div className="space-y-2">
           {sorted.map((s) => (
             <EnrichedSongRow
@@ -177,7 +239,37 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
             />
           ))}
         </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2 pb-32">
+          {sorted.map((s) => (
+            <SongGridTile
+              key={s.id}
+              s={s}
+              onTap={() => setFocusedSongId(s.id)}
+              selected={focusedSongId === s.id}
+            />
+          ))}
+        </div>
       )}
+
+      {/* Grid-tile focused editor — pops up at the bottom with the full
+          EnrichedSongRow + edit toolkit. Same close pattern as Reading
+          Library. */}
+      {viewMode === "grid" && focusedSongId && (() => {
+        const fs = sorted.find((s) => s.id === focusedSongId);
+        if (!fs) return null;
+        return (
+          <div className="fixed inset-x-0 bottom-0 z-30 max-w-md mx-auto bg-white border-t border-slate-200 shadow-2xl rounded-t-2xl p-3 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Editing</div>
+              <button onClick={() => setFocusedSongId(null)} className="text-slate-400 p-1" aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+            <EnrichedSongRow s={fs} updateSong={updateSong} familyId={familyId} />
+          </div>
+        );
+      })()}
     </div>
   );
 }
