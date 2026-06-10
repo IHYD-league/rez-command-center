@@ -501,6 +501,7 @@ function EnrichedSongRow({ s, rank, maxCount, updateSong, familyId }) {
         coverUrl:        match.coverUrl,
         canonicalTitle:  match.title,
         canonicalArtist: match.artist,
+        canonicalAlbum:  match.releaseTitle || "",
         externalSource:  match.externalSource,
         externalId:      match.externalId,
         enrichedAt:      new Date().toISOString(),
@@ -558,9 +559,12 @@ function EnrichedSongRow({ s, rank, maxCount, updateSong, familyId }) {
           <div className="text-sm font-bold text-slate-800 truncate">{displayTitle}</div>
           <div className="text-[11px] text-slate-500 truncate">
             {displayArtist}
-            {displayArtist && s.last ? " · " : ""}
-            {s.last ? `last ${fmtShort(s.last)}` : ""}
+            {displayArtist && s.canonicalAlbum ? " · " : ""}
+            {s.canonicalAlbum && <span className="italic">{s.canonicalAlbum}</span>}
           </div>
+          {s.last && (
+            <div className="text-[10px] text-slate-400 truncate">last {fmtShort(s.last)}</div>
+          )}
         </div>
         <span className="relative w-16 h-2 bg-slate-100 rounded-full overflow-hidden shrink-0">
           <span
@@ -598,40 +602,53 @@ function EnrichedSongRow({ s, rank, maxCount, updateSong, familyId }) {
           </button>
         </div>
       )}
-      {/* Cover-override controls — always available when we can write.
-          Tap "Replace cover" to upload a custom image; if a custom cover
-          is in place, "Use MB cover" reverts to the auto-matched one. */}
-      {updateSong && familyId && !picking && (
+      {/* Edit + cover-override controls — always available when we can
+          write. "Edit info" opens the picker for ANY matchStatus (was
+          previously only reachable on auto-matched rows, leaving older
+          confirmed rows uneditable). "Use my cover" uploads a custom
+          image; "Use MB cover" reverts when a custom is in place. */}
+      {updateSong && !picking && (
         <div className="flex gap-1 mt-2">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            onChange={onUpload}
-            className="hidden"
-            aria-label="Upload album cover"
-          />
           <button
             type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className={`flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg flex items-center justify-center gap-1 ${
-              uploading
-                ? "bg-slate-200 text-slate-400"
-                : "bg-white border border-slate-200 text-slate-600 active:scale-95"
-            }`}
+            onClick={() => setPicking(true)}
+            className="flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 active:scale-95 flex items-center justify-center gap-1"
           >
-            <Camera size={12} /> {uploading ? "Uploading…" : s.customCoverPath ? "Replace cover" : "Use my cover"}
+            <RotateCcw size={12} /> Edit info
           </button>
-          {s.customCoverPath && (
-            <button
-              type="button"
-              onClick={onClearCustom}
-              className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
-              aria-label="Use the auto-matched cover instead"
-            >
-              Use MB cover
-            </button>
+          {familyId && (
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                onChange={onUpload}
+                className="hidden"
+                aria-label="Upload album cover"
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className={`flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg flex items-center justify-center gap-1 ${
+                  uploading
+                    ? "bg-slate-200 text-slate-400"
+                    : "bg-white border border-slate-200 text-slate-600 active:scale-95"
+                }`}
+              >
+                <Camera size={12} /> {uploading ? "Uploading…" : s.customCoverPath ? "Replace cover" : "Use my cover"}
+              </button>
+              {s.customCoverPath && (
+                <button
+                  type="button"
+                  onClick={onClearCustom}
+                  className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
+                  aria-label="Use the auto-matched cover instead"
+                >
+                  Use MB cover
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
@@ -659,8 +676,9 @@ function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
   // user-typed) artist as a starting point. User can fix typos
   // ("Ariels" → "Aerials") and type the band ("System of a Down") so
   // famous songs disambiguate from random covers.
-  const [titleQuery, setTitleQuery] = useState(s.title || "");
+  const [titleQuery, setTitleQuery] = useState(s.canonicalTitle || s.title || "");
   const [artistQuery, setArtistQuery] = useState(s.canonicalArtist || s.artist || "");
+  const [albumQuery, setAlbumQuery]   = useState(s.canonicalAlbum || "");
 
   const runSearch = (t, a) => {
     setBusy(true);
@@ -700,6 +718,7 @@ function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
       coverUrl:        c.coverUrl,
       canonicalTitle:  c.title,
       canonicalArtist: c.artist,
+      canonicalAlbum:  c.releaseTitle || "",
       externalSource:  c.externalSource,
       externalId:      c.externalId,
       enrichedAt:      new Date().toISOString(),
@@ -737,6 +756,14 @@ function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
             aria-label="Artist or band"
           />
         </div>
+        <input
+          type="text"
+          value={albumQuery}
+          onChange={(e) => setAlbumQuery(e.target.value)}
+          placeholder="Album (optional — saved with manual save below)"
+          className="text-[12px] px-2 py-1.5 rounded-md border border-slate-200 bg-white"
+          aria-label="Album"
+        />
         <button
           type="submit"
           disabled={busy || !titleQuery.trim()}
@@ -763,6 +790,7 @@ function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
             updateSong(s.id, {
               canonicalTitle:  titleQuery.trim(),
               canonicalArtist: artistQuery.trim(),
+              canonicalAlbum:  albumQuery.trim(),
               matchStatus:     "confirmed",
               enrichedAt:      new Date().toISOString(),
             });
@@ -770,7 +798,7 @@ function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
           }}
           className="w-full text-[11px] font-bold px-2 py-1.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 active:scale-95 flex items-center justify-center gap-1 mb-2"
         >
-          <Save size={12} /> Save "{titleQuery.trim()}"{artistQuery.trim() ? ` by ${artistQuery.trim()}` : ""}
+          <Save size={12} /> Save "{titleQuery.trim()}"{artistQuery.trim() ? ` by ${artistQuery.trim()}` : ""}{albumQuery.trim() ? ` · ${albumQuery.trim()}` : ""}
         </button>
       )}
       {candidates && candidates.length > 0 && (
