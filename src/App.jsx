@@ -4120,7 +4120,7 @@ function searchBooks(list, q) {
     .filter((x) => x.m.hit).sort((a, b) => b.m.score - a.m.score).map((x) => x.b);
 }
 
-function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
+function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId }) {
   const [adding, setAdding] = useState(false);
   const [addingBacklog, setAddingBacklog] = useState(false);
   const [q, setQ] = useState("");
@@ -4177,10 +4177,10 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
 
       <SectionTitle icon={<BookOpen size={16} className="text-sky-500" />}>Reading now ({reading.length})</SectionTitle>
       {reading.length === 0 && !q && <p className="text-xs text-slate-400 px-1">Nothing in progress.</p>}
-      {reading.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} />)}
+      {reading.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)}
 
       <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Finished ({finished.length})</SectionTitle>
-      {finished.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} />)}
+      {finished.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)}
 
       {archive.length > 0 && (
         <>
@@ -4196,7 +4196,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
               ))}
             </div>
           )}
-          {archiveFiltered.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} />)}
+          {archiveFiltered.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)}
           <div className="text-[11px] text-slate-400 px-1 mt-1 mb-3">
             Backlog books count toward totals + author stats but have no real dates,
             so they don't appear in date-based views (slideshows, "this month," etc.).
@@ -4209,13 +4209,47 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook }) {
   );
 }
 
-function BookRow({ b, updateBook, removeBook }) {
+function BookRow({ b, updateBook, removeBook, familyId }) {
   const [edit, setEdit] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
   const pace = daysBetween(b.started, b.finished);
+  // Custom cover takes precedence over OL. Mirrors EnrichedBookRow's
+  // pattern so the same book has a consistent cover everywhere it
+  // renders (Reading Library + Insights "Recent (tracked)").
+  const customCoverSigned = useSignedUrl(b.customCoverPath || "");
+  const displayCover = customCoverSigned || b.coverUrl || "";
+
+  const onUpload = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f || uploading || !updateBook || !familyId) return;
+    setUploading(true);
+    try {
+      const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
+      updateBook(b.id, { customCoverPath: path });
+    } catch (err) {
+      alert("Cover upload failed: " + (err.message || err));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
   return (
     <Card className="p-3 mb-2">
       <div className="flex items-start gap-2">
-        <div className="text-xl">{b.lang === "Spanish" ? "🇪🇸" : "📘"}</div>
+        {displayCover ? (
+          <img
+            src={displayCover}
+            alt=""
+            draggable={false}
+            className="w-10 h-14 object-cover rounded-md border border-slate-200 shrink-0 bg-slate-100"
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : (
+          <div className="text-xl pt-0.5">{b.lang === "Spanish" ? "🇪🇸" : "📘"}</div>
+        )}
         <div className="flex-1 min-w-0">
           <div className="font-bold text-sm leading-tight">{b.title}</div>
           <div className="flex items-center gap-1.5 flex-wrap mt-1">
@@ -4232,9 +4266,30 @@ function BookRow({ b, updateBook, removeBook }) {
           </div>
           {b.notes && <div className="text-[11px] text-slate-400 mt-1">{b.notes}</div>}
         </div>
+        {updateBook && familyId && (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              onChange={onUpload}
+              className="hidden"
+              aria-label="Upload book cover"
+            />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className={`p-1 ${uploading ? "text-slate-300" : "text-slate-400 active:scale-90"}`}
+              aria-label={b.customCoverPath ? "Replace cover" : "Use my cover"}
+              title={uploading ? "Uploading…" : b.customCoverPath ? "Replace cover" : "Use my cover"}
+            >
+              <Camera size={15} />
+            </button>
+          </>
+        )}
         <button onClick={() => setEdit((v) => !v)} className="p-1 text-slate-400" aria-label="Edit"><Pencil size={15} /></button>
       </div>
-      {edit && <BookEditPanel b={b} updateBook={updateBook} removeBook={removeBook} onClose={() => setEdit(false)} />}
+      {edit && <BookEditPanel b={b} updateBook={updateBook} removeBook={removeBook} onClose={() => setEdit(false)} familyId={familyId} />}
     </Card>
   );
 }
@@ -4248,7 +4303,7 @@ function BookRow({ b, updateBook, removeBook }) {
 // Per the recon: no tracked ↔ backlog toggle in this panel. If the
 // parent realizes a book is in the wrong bucket, they remove and
 // re-add via the right button. Keeps the data honest.
-function BookEditPanel({ b, updateBook, removeBook, onClose }) {
+function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
   const isBacklog = !!b.preTracking;
   const [title, setTitle]   = useState(b.title || "");
   const [lang, setLang]     = useState(b.lang || "English");
@@ -4258,6 +4313,35 @@ function BookEditPanel({ b, updateBook, removeBook, onClose }) {
   const [finished, setFinished] = useState(b.finished || "");
   const [rating, setRating] = useState(b.rating || 0);
   const [notes, setNotes]   = useState(b.notes || "");
+  // Canonical title/author — the enrichment-layer values. Editable
+  // here so a parent can override Open Library's wrong / missing
+  // answer without going through the Insights picker. Saving with a
+  // non-empty canonical value locks matchStatus to "confirmed".
+  const [canonicalTitle, setCanonicalTitle]   = useState(b.canonicalTitle || "");
+  const [canonicalAuthor, setCanonicalAuthor] = useState(b.canonicalAuthor || "");
+  // Cover management — uses the same custom_cover_path column the
+  // Insights row writes. Upload + revert apply IMMEDIATELY (don't wait
+  // for the main Save button) so a parent can preview the new cover
+  // before saving the rest. Mirrors the BookRow / EnrichedBookRow pattern.
+  const [uploading, setUploading] = useState(false);
+  const coverFileRef = useRef(null);
+  const customCoverSigned = useSignedUrl(b.customCoverPath || "");
+  const displayCover = customCoverSigned || b.coverUrl || "";
+  const onCoverUpload = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f || uploading || !updateBook || !familyId) return;
+    setUploading(true);
+    try {
+      const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
+      updateBook(b.id, { customCoverPath: path });
+    } catch (err) {
+      alert("Cover upload failed: " + (err.message || err));
+    } finally {
+      setUploading(false);
+      if (coverFileRef.current) coverFileRef.current.value = "";
+    }
+  };
+  const onClearCustomCover = () => updateBook?.(b.id, { customCoverPath: "" });
   // Backlog-only: era_label with preset pills + custom freeform.
   const presetMatch = isBacklog && (ERA_PRESETS.includes(b.eraLabel) ? b.eraLabel : (b.eraLabel ? "Custom" : ERA_PRESETS[0]));
   const [eraChoice, setEraChoice] = useState(presetMatch || ERA_PRESETS[0]);
@@ -4275,6 +4359,22 @@ function BookEditPanel({ b, updateBook, removeBook, onClose }) {
       rating,
       notes: notes.trim(),
     };
+    // Canonical fields: only patch if the user actually typed something
+    // or changed an existing value. Setting either locks matchStatus to
+    // "confirmed" so the auto-enrich effect leaves the row alone.
+    const newCanonicalTitle = canonicalTitle.trim();
+    const newCanonicalAuthor = canonicalAuthor.trim();
+    const canonicalChanged =
+      newCanonicalTitle !== (b.canonicalTitle || "") ||
+      newCanonicalAuthor !== (b.canonicalAuthor || "");
+    if (canonicalChanged) {
+      patch.canonicalTitle = newCanonicalTitle;
+      patch.canonicalAuthor = newCanonicalAuthor;
+      if (newCanonicalTitle || newCanonicalAuthor) {
+        patch.matchStatus = "confirmed";
+        patch.enrichedAt = new Date().toISOString();
+      }
+    }
     if (isBacklog) {
       // Backlog rows: era_label drives the "when," dates stay null.
       patch.eraLabel = eraLabel;
@@ -4296,6 +4396,63 @@ function BookEditPanel({ b, updateBook, removeBook, onClose }) {
       <div className={`text-[10px] uppercase tracking-wider font-bold mb-2 ${isBacklog ? "text-amber-700" : "text-slate-500"}`}>
         Editing {isBacklog ? "backlog entry" : "book"}
       </div>
+
+      {/* Cover management — upload + revert apply IMMEDIATELY (writes to
+          customCoverPath on tap). Survives panel cancel; lives independent
+          of the main Save button. Library OR camera (no capture attr) —
+          covers are always after-the-fact. */}
+      {updateBook && familyId && (
+        <div className="flex items-start gap-2 mb-3 p-2 rounded-xl bg-slate-50 border border-slate-200">
+          {displayCover ? (
+            <img
+              src={displayCover}
+              alt=""
+              draggable={false}
+              className="w-12 h-16 object-cover rounded-md border border-slate-200 shrink-0 bg-slate-100"
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
+          ) : (
+            <div className="w-12 h-16 rounded-md bg-slate-100 border border-slate-200 grid place-items-center shrink-0 text-slate-300">
+              <BookOpen size={18} />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
+              Cover {b.customCoverPath ? "· custom" : (b.coverUrl ? "· Open Library" : "· none")}
+            </div>
+            <input
+              ref={coverFileRef}
+              type="file"
+              accept="image/*"
+              onChange={onCoverUpload}
+              className="hidden"
+              aria-label="Upload book cover"
+            />
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => coverFileRef.current?.click()}
+                disabled={uploading}
+                className={`flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg flex items-center justify-center gap-1 ${
+                  uploading ? "bg-slate-200 text-slate-400" : "bg-white border border-slate-200 text-slate-600 active:scale-95"
+                }`}
+              >
+                <Camera size={12} /> {uploading ? "Uploading…" : b.customCoverPath ? "Replace cover" : "Use my cover"}
+              </button>
+              {b.customCoverPath && (
+                <button
+                  type="button"
+                  onClick={onClearCustomCover}
+                  className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
+                  aria-label="Use the Open Library cover instead"
+                >
+                  Use OL cover
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <input
         value={title}
@@ -4323,6 +4480,31 @@ function BookEditPanel({ b, updateBook, removeBook, onClose }) {
         placeholder="Reading level (e.g. ~2nd grade)"
         className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
       />
+
+      {/* Canonical title + author — overrides Open Library's match.
+          For books OL doesn't have (Spanish kids' books, niche titles),
+          or when the parent already knows the right values. Saving with
+          either field non-empty locks matchStatus to "confirmed" so
+          auto-enrich won't overwrite. */}
+      <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
+        Canonical title & author <span className="text-slate-400 normal-case font-normal">(overrides Open Library)</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <input
+          value={canonicalTitle}
+          onChange={(e) => setCanonicalTitle(e.target.value)}
+          placeholder="Canonical title"
+          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white"
+          aria-label="Canonical title"
+        />
+        <input
+          value={canonicalAuthor}
+          onChange={(e) => setCanonicalAuthor(e.target.value)}
+          placeholder="Author"
+          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white"
+          aria-label="Canonical author"
+        />
+      </div>
 
       {/* Status pill row */}
       <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Status</label>
