@@ -5,21 +5,103 @@ import { supabase } from "./supabase.js";
 // RLS scopes each user to the first folder segment === their family_id.
 export const PHOTOS_BUCKET = "family-photos";
 
+// Client-side image compression — per docs/IMAGE-PIPELINE.md.
+// Per-kind targets balance "good enough to look at" against "small
+// enough to ship and store cheaply." Quality is the JPEG quality
+// passed to canvas.toBlob (0..1). maxEdge clamps the longest side.
+const COMPRESSION_CONFIG = {
+  proof:  { maxEdge: 1600, quality: 0.82 },
+  album:  { maxEdge: 2000, quality: 0.85 },
+  avatar: { maxEdge: 512,  quality: 0.85 },
+  award:  { maxEdge: 1600, quality: 0.85 },
+  cover:  { maxEdge: 1200, quality: 0.85 },
+};
+const HARD_CAP_BYTES = 8 * 1024 * 1024;
+
+async function canvasToBlob(canvas, quality) {
+  if (canvas.convertToBlob) {
+    return canvas.convertToBlob({ type: "image/jpeg", quality });
+  }
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))),
+      "image/jpeg",
+      quality
+    );
+  });
+}
+
+// Compress an image File to a JPEG with per-kind size/quality settings.
+// Returns a File ready to upload. Safety rails:
+//   - non-image files (PDF etc.) pass through unchanged
+//   - if decode or encode fails, return original (never lose a photo)
+//   - if the encoded output is bigger than the input, return original
+//   - if encoded output exceeds HARD_CAP_BYTES, retry once with quality - 0.05
+// EXIF is stripped as a side effect of canvas re-encode — taken_at and
+// caption already carry the human-meaningful metadata so this is fine.
+export async function compressImage(file, kind = "proof") {
+  if (!file?.type?.startsWith("image/")) return file;
+  const config = COMPRESSION_CONFIG[kind] || COMPRESSION_CONFIG.proof;
+
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch (e) {
+    console.warn("compressImage: decode failed, uploading original:", e?.message || e);
+    return file;
+  }
+
+  try {
+    const longest = Math.max(bitmap.width, bitmap.height);
+    const scale = longest > config.maxEdge ? config.maxEdge / longest : 1;
+    const targetW = Math.max(1, Math.round(bitmap.width * scale));
+    const targetH = Math.max(1, Math.round(bitmap.height * scale));
+
+    const useOffscreen = typeof OffscreenCanvas !== "undefined";
+    const canvas = useOffscreen
+      ? new OffscreenCanvas(targetW, targetH)
+      : Object.assign(document.createElement("canvas"), { width: targetW, height: targetH });
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, targetW, targetH);
+    bitmap.close?.();
+
+    let quality = config.quality;
+    let blob = await canvasToBlob(canvas, quality);
+
+    if (blob.size > HARD_CAP_BYTES) {
+      quality = Math.max(0.5, quality - 0.05);
+      blob = await canvasToBlob(canvas, quality);
+    }
+
+    if (blob.size >= file.size) return file;
+
+    const baseName = (file.name || "upload").replace(/\.[a-z0-9]+$/i, "");
+    return new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: Date.now() });
+  } catch (e) {
+    console.warn("compressImage: encode failed, uploading original:", e?.message || e);
+    return file;
+  }
+}
+
 // Upload a file under <familyId>/<kind>/<timestamp>-<random>.<ext>.
 // Returns { path, name } — `path` is what we persist; `name` is the
-// original filename for display purposes.
+// original filename for display purposes. Images are compressed via
+// compressImage before upload; non-images pass through.
 export async function uploadFamilyPhoto({ file, familyId, kind = "proof" }) {
   if (!supabase) throw new Error("Supabase client not configured");
   if (!file) throw new Error("uploadFamilyPhoto: missing file");
   if (!familyId) throw new Error("uploadFamilyPhoto: missing familyId");
+  const compressed = await compressImage(file, kind);
   const safeKind = String(kind).replace(/[^a-z0-9_-]/gi, "").slice(0, 32) || "misc";
-  const rawExt = (file.name?.split(".").pop() || "").toLowerCase();
+  const rawExt = (compressed.name?.split(".").pop() || "").toLowerCase();
   const ext = rawExt.replace(/[^a-z0-9]/g, "").slice(0, 6) || "bin";
   const random = Math.random().toString(36).slice(2, 10);
   const path = `${familyId}/${safeKind}/${Date.now()}-${random}.${ext}`;
   const { error } = await supabase.storage
     .from(PHOTOS_BUCKET)
-    .upload(path, file, { upsert: false, contentType: file.type || undefined });
+    .upload(path, compressed, { upsert: false, contentType: compressed.type || undefined });
   if (error) throw error;
   return { path, name: file.name || path.split("/").pop() };
 }
