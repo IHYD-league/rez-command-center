@@ -49,25 +49,15 @@ function normalize(track) {
   };
 }
 
-// Search the iTunes catalog for songs matching title + optional
-// artist. Returns the top N normalized candidates. Throws on
-// network / non-2xx so callers can surface the error.
-//
-// The exported name is `searchSongs` (provider-agnostic) so a future
-// swap to Spotify can land without changing callers.
-export async function searchSongs(title, artist = "", limit = 5) {
-  const trimTitle = (title || "").trim();
-  if (!trimTitle) return [];
-  // iTunes uses a single `term` parameter. Concatenating title + artist
-  // with a space gives much better disambiguation than title alone for
-  // famous bands (the artist name effectively weights the search).
-  const term = artist && artist.trim()
-    ? `${trimTitle} ${artist.trim()}`
-    : trimTitle;
+// Low-level iTunes search. Hits the search endpoint once with the
+// given term and returns normalized candidates. Throws on network /
+// non-2xx so callers can surface the error.
+async function searchOnce(term, limit) {
   const params = new URLSearchParams();
   params.set("term", term);
   params.set("entity", "song");
   params.set("media", "music");
+  params.set("country", "US"); // pin the catalog region — iTunes' "no country" default has thinner data for some markets
   params.set("limit", String(limit));
   const url = `https://itunes.apple.com/search?${params.toString()}`;
   const res = await fetch(url, {
@@ -77,7 +67,33 @@ export async function searchSongs(title, artist = "", limit = 5) {
   if (!res.ok) throw new Error(`itunes: ${res.status}`);
   const json = await res.json();
   const arr = Array.isArray(json?.results) ? json.results : [];
-  return arr.slice(0, limit).map(normalize);
+  return { results: arr.slice(0, limit).map(normalize), url };
+}
+
+// Search the iTunes catalog with progressive fallback: try title +
+// artist first (best disambiguation when both are present), then
+// title alone (Apple's ranking surfaces the canonical hit even
+// without artist help). Logs the queried URL when zero results come
+// back so we can see what was actually asked.
+export async function searchSongs(title, artist = "", limit = 5) {
+  const trimTitle = (title || "").trim();
+  if (!trimTitle) return [];
+  const trimArtist = (artist || "").trim();
+
+  // 1) title + artist (when artist present). Concatenated with a space —
+  //    iTunes' fuzzy match handles it well for famous bands.
+  if (trimArtist) {
+    const { results, url } = await searchOnce(`${trimTitle} ${trimArtist}`, limit);
+    if (results.length > 0) return results;
+    console.warn(`enrichSongITunes: zero results for combined query, falling back to title-only. URL was: ${url}`);
+  }
+
+  // 2) title alone — iTunes ranks famous tracks well even without artist.
+  const { results, url } = await searchOnce(trimTitle, limit);
+  if (results.length === 0) {
+    console.warn(`enrichSongITunes: zero results for title-only query. URL was: ${url}`);
+  }
+  return results;
 }
 
 // Cached top-result picker for auto-enrich. In-flight Map de-dupes
