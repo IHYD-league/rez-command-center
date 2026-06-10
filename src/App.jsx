@@ -237,6 +237,34 @@ const SEED_PRIORITIES = {
   t_move:  { level: "today", scope: "week",  by: "u_mike" },
   t_art:   { level: "extra", scope: "always", by: "u_mike" },
 };
+
+// Parent-curated Top 8 — the board's source of truth.
+// The 7 daily-core items every weekday defaults to. Day-of-week
+// scheduled classes (Hip Hop, Swim, Church) layer in via task.days
+// when the weekly default is bootstrapped — see bootstrapWeeklyTopEight.
+const DEFAULT_DAILY_CORE_IDS = [
+  "t_drums", "t_eng", "t_spa_read", "t_duo", "t_write", "t_math", "t_bed",
+];
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+// Bootstrap the weekly Top 8 default from the current task catalog.
+// Each weekday's default = the 7 daily-core IDs that exist + active +
+// any task whose days field includes that weekday (Hip Hop Mon, Swim
+// Tue/Thu, Church Sun in current data). This only runs when the parent
+// hasn't yet set their own weekly plan; once they edit, their saved
+// value wins.
+function bootstrapWeeklyTopEight(tasks) {
+  const byDay = {};
+  const alive = (id) => (tasks || []).some((t) => t.id === id && t.active !== false);
+  for (const day of WEEKDAYS) {
+    const core = DEFAULT_DAILY_CORE_IDS.filter(alive);
+    const scheduled = (tasks || [])
+      .filter((t) => Array.isArray(t.days) && t.days.includes(day) && t.active !== false)
+      .map((t) => t.id);
+    byDay[day] = [...core, ...scheduled];
+  }
+  return byDay;
+}
 // Parent/family notes attached to a task, shown in its detail view.
 const SEED_TASK_NOTES = {
   t_drums: [{ text: "Working on double-bass control for the recital. Sounding great!", by: "u_mike", time: "Jun 4" }],
@@ -513,6 +541,14 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
   const [mode, setMode] = familySetting("mode", "summer");
   const [priorities, setPriorities] = familySetting("priorities", SEED_PRIORITIES);
+  // Parent-curated Top 8 — drives the board, kid missions tab, and
+  // kid home main/side quests. Two layers:
+  //   weekly[DayOfWeek] — the standing plan parents tweak rarely
+  //   daily[YYYY-MM-DD] — per-date overrides for "today's different"
+  // Resolution: daily[today] || weekly[<weekday>] || bootstrap[<weekday>].
+  // No cap on length — Top 8 is the default expectation but parents
+  // can add ad-hoc items in the editor so the board grows when needed.
+  const [topPriorities, setTopPriorities] = familySetting("topPriorities", { weekly: {}, daily: {} });
   const [tkdDays, setTkdDays] = familySetting("tkdDays", ["Monday"]);
   const [tkdTimes, setTkdTimes] = familySetting(
     "tkdTimes",
@@ -597,6 +633,43 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     () => tasks.filter((t) => (t.mode === "both" || t.mode === mode) && (!t.days || t.days.includes(WEEKDAY)) && t.active !== false),
     [tasks, mode]
   );
+  // The parent-curated Top 8 in canonical task-object form. Source of
+  // truth for the board, kid missions, kid home quests. Sparse entries
+  // (deleted tasks, inactive tasks) are dropped silently so the board
+  // can never strand the kid on something that doesn't exist anymore.
+  const todaysTopEight = useMemo(() => {
+    const bootstrap = bootstrapWeeklyTopEight(tasks);
+    const dailyOverride = topPriorities?.daily?.[TODAY_ISO];
+    const weeklyPlan = topPriorities?.weekly?.[WEEKDAY];
+    const ids = Array.isArray(dailyOverride)
+      ? dailyOverride
+      : (Array.isArray(weeklyPlan) ? weeklyPlan : bootstrap[WEEKDAY]);
+    return (ids || [])
+      .map((id) => tasks.find((t) => t.id === id))
+      .filter((t) => t && t.active !== false);
+  }, [tasks, topPriorities]);
+  // Imperative helpers — write directly to the topPriorities jsonb.
+  // setDailyTopEight pins a per-date override; resetDailyTopEight drops
+  // it back to the weekly default; setWeeklyTopEight updates the
+  // standing plan for a weekday.
+  const setDailyTopEight = (dateIso, taskIds) =>
+    setTopPriorities((prev) => ({
+      ...(prev || {}),
+      weekly: (prev?.weekly) || {},
+      daily: { ...((prev?.daily) || {}), [dateIso]: taskIds },
+    }));
+  const resetDailyTopEight = (dateIso) =>
+    setTopPriorities((prev) => {
+      const next = { ...((prev?.daily) || {}) };
+      delete next[dateIso];
+      return { ...(prev || {}), weekly: (prev?.weekly) || {}, daily: next };
+    });
+  const setWeeklyTopEight = (weekday, taskIds) =>
+    setTopPriorities((prev) => ({
+      ...(prev || {}),
+      weekly: { ...((prev?.weekly) || {}), [weekday]: taskIds },
+      daily: (prev?.daily) || {},
+    }));
   // compByTask is "what's the status of each task TODAY". Older completions
   // (yesterday's drums, last week's writing) stay in the completions array
   // so Approvals tab + history reads work, but they do NOT count toward
@@ -1143,8 +1216,8 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       goal: _nextBadge.goal,
       pct: Math.min(100, (_nextBadgeValue / _nextBadge.goal) * 100),
     },
-    mainQuests: todaysTasks.filter((t) => t.required).map(_questFromTask),
-    sideQuests: todaysTasks.filter((t) => !t.required).map(_questFromTask),
+    mainQuests: todaysTopEight.filter((t) => t.required).map(_questFromTask),
+    sideQuests: todaysTopEight.filter((t) => !t.required).map(_questFromTask),
     stats: [
       { label: "Drum streak", value: _drumCurrent ? `${_drumCurrent}d` : "—" },
       { label: "Books finished", value: _booksFinished || "—" },
@@ -1172,7 +1245,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   const shared = {
-    user, users, tasks, todaysTasks, rewards, completions, compByTask, events, handoff, redemptions,
+    user, users, tasks, todaysTasks, todaysTopEight, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
@@ -1830,9 +1903,13 @@ function LoginScreen({ users, currentProfileId, onPick, onSignOut, sessionEmail 
 }
 
 // ===================== KID: MISSIONS =====================
-function KidMissions({ todaysTasks, compByTask, setOpenTask, setOpenCompletionId, availableToday, earnedToday, pendingStars, starBank, mode, priorities, users, activities, streaks, subProgress, toggleSub, undoTask }) {
-  const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved").length;
-  const ordered = sortByLevel(todaysTasks, mode, priorities);
+function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, setOpenCompletionId, availableToday, earnedToday, pendingStars, starBank, mode, priorities, users, activities, streaks, subProgress, toggleSub, undoTask }) {
+  // Read from the parent-curated Top 8 so the kid's missions tab,
+  // home quests, and the board all show the same list. Fall back to
+  // the broader todaysTasks only if Top 8 is somehow empty.
+  const sourceList = (todaysTopEight && todaysTopEight.length > 0) ? todaysTopEight : todaysTasks;
+  const done = sourceList.filter((t) => compByTask[t.id]?.status === "approved").length;
+  const ordered = sortByLevel(sourceList, mode, priorities);
   return (
     <div className="px-4 pt-4">
       <div className="rounded-3xl p-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(135deg,#f59e0b,#ef4444)" }}>
@@ -1845,9 +1922,9 @@ function KidMissions({ todaysTasks, compByTask, setOpenTask, setOpenCompletionId
           <KidStat label="Can earn" value={availableToday} icon={<Trophy size={14} />} />
         </div>
         <div className="mt-4 bg-white/20 rounded-full h-3 overflow-hidden">
-          <div className="h-full bg-white rounded-full transition-all" style={{ width: `${todaysTasks.length ? (done / todaysTasks.length) * 100 : 0}%` }} />
+          <div className="h-full bg-white rounded-full transition-all" style={{ width: `${sourceList.length ? (done / sourceList.length) * 100 : 0}%` }} />
         </div>
-        <div className="text-[11px] mt-1 opacity-90">{done} of {todaysTasks.length} missions complete</div>
+        <div className="text-[11px] mt-1 opacity-90">{done} of {sourceList.length} missions complete</div>
       </div>
 
       <div className="mt-3"><PiggyBank stars={starBank} /></div>
@@ -4673,6 +4750,343 @@ function ParentRecap(props) {
   );
 }
 
+// ===================== DAILY ADVENTURE BOARD · PLAN =====================
+// Parent-curated Top 8 editor. Three tabs:
+//   "today"  — edit the per-date override for a specific date
+//   "weekly" — edit the standing weekday default
+//   "log"    — quick à la carte completion for tasks Reznor did off-board
+//
+// All writes are additive — completions go through the existing
+// submitTask flow (star economy, approval triggers, RLS all unchanged).
+// Top 8 reads/writes operate entirely on the new familySettings.topPriorities
+// jsonb key.
+function DailyAdventureBoardPlan(props) {
+  const {
+    tasks = [],
+    topPriorities = { weekly: {}, daily: {} },
+    setDailyTopEight,
+    resetDailyTopEight,
+    setWeeklyTopEight,
+    submitTask,
+    activities = [],
+  } = props;
+  const [tab, setTab] = useState("today");
+  const [editingDate, setEditingDate] = useState(TODAY_ISO);
+  const [editingWeekday, setEditingWeekday] = useState(WEEKDAY);
+
+  const weekdayOf = (iso) => {
+    const d = new Date(iso + "T12:00");
+    return d.toLocaleDateString("en-US", { weekday: "long" });
+  };
+  const shiftDate = (iso, delta) => {
+    const d = new Date(iso + "T12:00");
+    d.setDate(d.getDate() + delta);
+    return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
+  };
+  const fmtDate = (iso) => {
+    const d = new Date(iso + "T12:00");
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  };
+
+  const bootstrap = useMemo(() => bootstrapWeeklyTopEight(tasks), [tasks]);
+
+  // Resolve current ids list for whichever tab is active.
+  const currentIds = useMemo(() => {
+    if (tab === "today") {
+      const dailyOv = topPriorities?.daily?.[editingDate];
+      if (Array.isArray(dailyOv)) return dailyOv;
+      const wk = weekdayOf(editingDate);
+      return topPriorities?.weekly?.[wk] || bootstrap[wk] || [];
+    }
+    if (tab === "weekly") {
+      return topPriorities?.weekly?.[editingWeekday] || bootstrap[editingWeekday] || [];
+    }
+    return [];
+  }, [tab, editingDate, editingWeekday, topPriorities, bootstrap]);
+
+  const pickedTasks = currentIds
+    .map((id) => tasks.find((t) => t.id === id))
+    .filter(Boolean);
+  const availableTasks = tasks
+    .filter((t) => t.active !== false && !currentIds.includes(t.id))
+    .sort((a, b) => (a.required === b.required ? 0 : a.required ? -1 : 1));
+
+  const writeIds = (ids) => {
+    if (tab === "today") setDailyTopEight?.(editingDate, ids);
+    else if (tab === "weekly") setWeeklyTopEight?.(editingWeekday, ids);
+  };
+  const move = (idx, delta) => {
+    const next = [...currentIds];
+    const target = idx + delta;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    writeIds(next);
+  };
+  const removeAt = (idx) => writeIds(currentIds.filter((_, i) => i !== idx));
+  const add = (taskId) => writeIds([...currentIds, taskId]);
+  const resetTab = () => {
+    if (tab === "today") resetDailyTopEight?.(editingDate);
+    else if (tab === "weekly") setWeeklyTopEight?.(editingWeekday, bootstrap[editingWeekday] || []);
+  };
+
+  const isCustomizedToday = Array.isArray(topPriorities?.daily?.[editingDate]);
+  const isCustomizedWeekly = Array.isArray(topPriorities?.weekly?.[editingWeekday]);
+
+  const actEmoji = (t) => {
+    const a = (activities || []).find((x) => x.id === (t.activityId || (TYPE_TO_ACT_MAP[t.activityType] || "")));
+    return a?.emoji || "•";
+  };
+
+  return (
+    <div className="px-4 pt-3 pb-24">
+      <div className="flex gap-1 bg-slate-100 rounded-2xl p-1 mb-3">
+        {[
+          ["today",  "Today's Plan"],
+          ["weekly", "Weekly Plan"],
+          ["log",    "Log a Completion"],
+        ].map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            className={`flex-1 text-[12px] font-bold py-2 rounded-xl ${
+              tab === k ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "today" && (
+        <>
+          <div className="flex items-center justify-between gap-2 mb-3 bg-white border border-slate-200 rounded-2xl p-2">
+            <button onClick={() => setEditingDate(shiftDate(editingDate, -1))} className="p-2 rounded-lg bg-slate-100 text-slate-600 font-bold">◀</button>
+            <div className="text-center">
+              <div className="text-sm font-extrabold text-slate-800">{fmtDate(editingDate)}</div>
+              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
+                {editingDate === TODAY_ISO ? "Today" : (isCustomizedToday ? "custom plan" : `defaults from ${weekdayOf(editingDate)} weekly`)}
+              </div>
+            </div>
+            <button onClick={() => setEditingDate(shiftDate(editingDate, 1))} className="p-2 rounded-lg bg-slate-100 text-slate-600 font-bold">▶</button>
+          </div>
+        </>
+      )}
+
+      {tab === "weekly" && (
+        <div className="flex gap-1 mb-3">
+          {WEEKDAYS.map((d) => (
+            <button
+              key={d}
+              onClick={() => setEditingWeekday(d)}
+              className={`flex-1 text-[11px] font-bold py-2 rounded-lg ${
+                editingWeekday === d ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"
+              }`}
+            >
+              {d.slice(0, 3)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === "log" ? (
+        <LogACompletion
+          tasks={tasks}
+          currentTopEightIds={topPriorities?.daily?.[TODAY_ISO] || topPriorities?.weekly?.[WEEKDAY] || bootstrap[WEEKDAY] || []}
+          submitTask={submitTask}
+          setDailyTopEight={setDailyTopEight}
+          actEmoji={actEmoji}
+        />
+      ) : (
+        <>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2 px-1">
+            Picked ({pickedTasks.length})
+          </div>
+          {pickedTasks.length === 0 && (
+            <div className="text-[12px] text-slate-400 italic mb-3 px-1">
+              Nothing on this plan yet — tap from "Available" below to add.
+            </div>
+          )}
+          <div className="space-y-1.5 mb-4">
+            {pickedTasks.map((t, i) => (
+              <div key={t.id} className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-2">
+                <span className="w-6 text-right text-[11px] font-bold text-slate-400 shrink-0">{i + 1}.</span>
+                <span className="text-base shrink-0">{actEmoji(t)}</span>
+                <span className="flex-1 text-sm font-bold text-slate-800 truncate">{t.title}</span>
+                <button
+                  onClick={() => move(i, -1)}
+                  disabled={i === 0}
+                  className={`w-7 h-7 rounded-md text-xs font-bold ${i === 0 ? "bg-slate-50 text-slate-300" : "bg-slate-100 text-slate-600 active:scale-95"}`}
+                  aria-label="Move up"
+                >▲</button>
+                <button
+                  onClick={() => move(i, 1)}
+                  disabled={i === pickedTasks.length - 1}
+                  className={`w-7 h-7 rounded-md text-xs font-bold ${i === pickedTasks.length - 1 ? "bg-slate-50 text-slate-300" : "bg-slate-100 text-slate-600 active:scale-95"}`}
+                  aria-label="Move down"
+                >▼</button>
+                <button
+                  onClick={() => removeAt(i)}
+                  className="w-7 h-7 rounded-md bg-rose-50 text-rose-500 text-xs font-bold active:scale-95"
+                  aria-label="Remove"
+                >×</button>
+              </div>
+            ))}
+          </div>
+
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2 px-1">
+            Available — tap to add
+          </div>
+          <div className="space-y-1 mb-4">
+            {availableTasks.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => add(t.id)}
+                className="w-full flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-2 active:scale-[0.99] text-left"
+              >
+                <span className="text-base shrink-0">{actEmoji(t)}</span>
+                <span className="flex-1 text-sm text-slate-700 truncate">{t.title}</span>
+                {t.required && <span className="text-[9px] font-bold uppercase tracking-wider text-rose-500">required</span>}
+                <span className="text-indigo-600 font-bold">+</span>
+              </button>
+            ))}
+            {availableTasks.length === 0 && (
+              <div className="text-[12px] text-slate-400 italic px-1">Every active task is already on this plan.</div>
+            )}
+          </div>
+
+          {((tab === "today" && isCustomizedToday) || (tab === "weekly" && isCustomizedWeekly)) && (
+            <button
+              onClick={resetTab}
+              className="w-full py-2.5 rounded-2xl bg-slate-100 text-slate-600 font-bold text-sm"
+            >
+              {tab === "today" ? "↺ Reset to weekly default" : "↺ Reset to bootstrap default"}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Look-up that mirrors TYPE_TO_ACT inside Insights — task.activityType
+// → activity id when the task doesn't carry activityId directly. Used
+// to fish a friendly emoji out of the activities catalog for editor rows.
+const TYPE_TO_ACT_MAP = {
+  Drums: "a_drums",
+  "English reading": "a_eng_read",
+  "Spanish reading": "a_spa_read",
+  "Spanish practice": "a_spanish",
+  Duolingo: "a_duo",
+  Writing: "a_write",
+  Math: "a_math",
+  Art: "a_art",
+  Movement: "a_move",
+  Swim: "a_swim",
+  Taekwondo: "a_tkd",
+  "Hip Hop Dance": "a_dance",
+  Chores: "a_chores",
+  "Field trips": "a_field",
+  Church: "a_church",
+  Basketball: "a_bball",
+};
+
+// "Log a Completion" — fast à la carte. Submits a completion through
+// the existing submitTask flow (so the star/approval machinery still
+// runs); then offers "Add to today's board" as an explicit follow-up
+// per Mike's brief — off-board by default.
+function LogACompletion({ tasks, currentTopEightIds, submitTask, setDailyTopEight, actEmoji }) {
+  const [justLogged, setJustLogged] = useState(null);
+  const offBoard = tasks
+    .filter((t) => t.active !== false && !currentTopEightIds.includes(t.id))
+    .sort((a, b) => (a.required === b.required ? 0 : a.required ? -1 : 1));
+
+  const log = (t) => {
+    if (!submitTask) return;
+    submitTask(t.id, {});
+    setJustLogged(t);
+  };
+  const promoteToBoard = (mode, replaceId) => {
+    if (!justLogged || !setDailyTopEight) return;
+    if (mode === "append") {
+      setDailyTopEight(TODAY_ISO, [...currentTopEightIds, justLogged.id]);
+    } else if (mode === "replace" && replaceId) {
+      const next = currentTopEightIds.map((id) => (id === replaceId ? justLogged.id : id));
+      setDailyTopEight(TODAY_ISO, next);
+    }
+    setJustLogged(null);
+  };
+
+  return (
+    <>
+      <div className="text-[11px] text-slate-500 mb-2 px-1 leading-snug">
+        Logs a completion for the kid you're acting as. Stars + approval flow run
+        as usual. The completion is <span className="font-bold">not</span> added
+        to today's board unless you explicitly promote it.
+      </div>
+      {justLogged && (
+        <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-3 mb-3">
+          <div className="text-sm font-bold text-emerald-800 mb-2">
+            ✓ Logged "{justLogged.title}". Add to today's board?
+          </div>
+          <div className="flex gap-2 mb-2">
+            <button
+              onClick={() => promoteToBoard("append")}
+              className="flex-1 text-[12px] font-bold px-2 py-2 rounded-xl bg-emerald-500 text-white active:scale-95"
+            >
+              + Append
+            </button>
+            <button
+              onClick={() => setJustLogged(null)}
+              className="flex-1 text-[12px] font-bold px-2 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 active:scale-95"
+            >
+              No, just keep the credit
+            </button>
+          </div>
+          <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 mb-1">
+            Or replace a current item:
+          </div>
+          <div className="space-y-1">
+            {currentTopEightIds.map((id) => {
+              const t = tasks.find((x) => x.id === id);
+              if (!t) return null;
+              return (
+                <button
+                  key={id}
+                  onClick={() => promoteToBoard("replace", id)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white border border-emerald-200 text-left active:scale-[0.99]"
+                >
+                  <span className="text-[11px] text-slate-500 shrink-0">drop →</span>
+                  <span className="text-sm shrink-0">{actEmoji(t)}</span>
+                  <span className="flex-1 text-[12px] font-semibold text-slate-700 truncate">{t.title}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2 px-1">
+        Tasks not on today's board
+      </div>
+      <div className="space-y-1">
+        {offBoard.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => log(t)}
+            className="w-full flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-2 active:scale-[0.99] text-left"
+          >
+            <span className="text-base shrink-0">{actEmoji(t)}</span>
+            <span className="flex-1 text-sm text-slate-700 truncate">{t.title}</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Log done</span>
+          </button>
+        ))}
+        {offBoard.length === 0 && (
+          <div className="text-[12px] text-slate-400 italic px-1">Everything's already on today's board.</div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function MoreParent(props) {
   const [sub, setSub] = useState("menu");
   if (sub === "portfolio") return <BackWrap title="Progress Portfolio" onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
@@ -4687,6 +5101,7 @@ function MoreParent(props) {
   if (sub === "recap") return <BackWrap title="Recap & Memories" onBack={() => setSub("menu")}><ParentRecap {...props} /></BackWrap>;
   if (sub === "awards") return <BackWrap title="Accomplishments" onBack={() => setSub("menu")}><Accomplishments {...props} /></BackWrap>;
   if (sub === "board_theme") return <BackWrap title="Adventure Board" onBack={() => setSub("menu")}><AdventureBoardSettings {...props} /></BackWrap>;
+  if (sub === "board_plan") return <BackWrap title="Daily Adventure Board · Plan" onBack={() => setSub("menu")}><DailyAdventureBoardPlan {...props} /></BackWrap>;
   if (sub === "gallery") return <BackWrap title="Photo Gallery" onBack={() => setSub("menu")}><PhotoGallery {...props} /></BackWrap>;
   if (sub === "insights") return <BackWrap title="Insights" onBack={() => setSub("menu")}><Insights {...props} /></BackWrap>;
   if (sub === "export") return <BackWrap title="Export Data" onBack={() => setSub("menu")}><DataExport {...props} /></BackWrap>;
@@ -4703,6 +5118,7 @@ function MoreParent(props) {
     { k: "grades", icon: <Trophy size={18} />, label: "Grade Goals", sub: "Grades 1–6 · world's best standards" },
     { k: "recap", icon: <Share2 size={18} />, label: "Recap & Memories", sub: "Weekly/monthly export · anniversaries" },
     { k: "awards", icon: <Medal size={18} />, label: "Accomplishments", sub: "Report cards · belts · certificates" },
+    { k: "board_plan", icon: <ClipboardList size={18} />, label: "Daily Adventure Board · Plan", sub: "Today's Top 8 · weekly default · à la carte" },
     { k: "board_theme", icon: <MapIcon size={18} />, label: "Adventure Board", sub: "Daily target · theme · controls" },
     { k: "gallery", icon: <Camera size={18} />, label: "Photo Gallery", sub: "Every photo · sort by date · filter by activity" },
     { k: "insights", icon: <TrendingUp size={18} />, label: "Insights", sub: "Practice time · songs · books · counts" },
