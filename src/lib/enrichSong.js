@@ -64,7 +64,7 @@ function normalize(rec) {
     (rec["artist-credit"] && rec["artist-credit"][0]?.name) ||
     (rec["artist-credit"] && rec["artist-credit"][0]?.artist?.name) ||
     "";
-  const release = (rec.releases && rec.releases[0]) || null;
+  const release = pickCanonicalRelease(rec.releases) || (rec.releases && rec.releases[0]) || null;
   const releaseMbid = release?.id || "";
   return {
     title: rec.title || "",
@@ -76,6 +76,50 @@ function normalize(rec) {
     externalId: releaseMbid,
     externalSource: "musicbrainz",
   };
+}
+
+// Pick the canonical studio-album release from a recording's releases
+// list. MB's `releases` array on a recording search hit is in arbitrary
+// order — taking [0] sometimes lands a compilation, a soundtrack, a
+// reissue boxset, or even a live recording instead of the original
+// album. For Mike's example "Fade to Black": MB's first release was
+// the Master of Puppets reissue compilation, not Ride the Lightning
+// (1984, the actual album the track lives on).
+//
+// Filter rules, applied in order:
+//   1. Keep only releases whose release-group.primary-type === "Album"
+//   2. Drop any whose release-group.secondary-types include
+//      Compilation, Live, Soundtrack, Remix, Spokenword, Interview,
+//      Audiobook, Demo, Mixtape/Street, DJ-mix
+//   3. Of what's left, take the one with the earliest `date` (string
+//      compare on YYYY-MM-DD works for our purposes; partial dates
+//      like "1984" sort before "1984-07")
+//   4. If nothing survives the filter, return null so the caller
+//      falls back to releases[0] (graceful degrade — better a
+//      compilation cover than no cover)
+function pickCanonicalRelease(releases) {
+  if (!Array.isArray(releases) || releases.length === 0) return null;
+  const EXCLUDED_SECONDARY = new Set([
+    "Compilation", "Live", "Soundtrack", "Remix",
+    "Spokenword", "Interview", "Audiobook",
+    "Demo", "Mixtape/Street", "DJ-mix",
+  ]);
+  const isAlbum = (r) => {
+    const rg = r["release-group"] || {};
+    if (rg["primary-type"] !== "Album") return false;
+    const secondary = rg["secondary-types"] || [];
+    return !secondary.some((s) => EXCLUDED_SECONDARY.has(s));
+  };
+  const candidates = releases.filter(isAlbum);
+  if (candidates.length === 0) return null;
+  // Sort by date ascending. Releases without a date sort last so a
+  // dated original beats an undated reissue.
+  candidates.sort((a, b) => {
+    const da = a.date || "9999";
+    const db = b.date || "9999";
+    return da.localeCompare(db);
+  });
+  return candidates[0];
 }
 
 // Search MusicBrainz recordings and return the top N normalized
