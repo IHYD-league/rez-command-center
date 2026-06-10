@@ -4692,12 +4692,27 @@ function AddAwardForm({ activities, onAdd, onCancel, familyId }) {
 
 // ===================== PARENT: RECAP, EXPORT & MEMORIES =====================
 function ParentRecap(props) {
-  const { completions, activities, streaks, books, gifted } = props;
+  const { completions, activities, streaks, books, gifted, albumPhotos = [] } = props;
   const [period, setPeriod] = useState("week");
   const [copied, setCopied] = useState(false);
   const approved = completions.filter((c) => c.status === "approved");
   const starsEarned = approved.reduce((s, c) => s + (c.awardedStars || 0), 0) + (gifted || []).reduce((s, g) => s + (g.stars || 0), 0);
-  const photos = completions.flatMap((c) => (c.proof || []).filter((p) => p.type === "photo" && (p.path || p.url)).map((p) => ({ ...p, taskId: c.taskId })));
+  // Recap photos = both proof photos attached to completions AND memory
+  // photos parents uploaded via "Add a memory" in the gallery. The memory
+  // ones live in album_photos with a path + takenAt; same StoredPhoto
+  // renderer works for both. Sorted newest-first so the most recent
+  // uploads sit at the top of the grid.
+  const proofPhotos = completions.flatMap((c) =>
+    (c.proof || [])
+      .filter((p) => p.type === "photo" && (p.path || p.url))
+      .map((p) => ({ ...p, taskId: c.taskId, _sortKey: c.completionDate || "" }))
+  );
+  const memoryPhotos = (albumPhotos || [])
+    .filter((p) => p.path)
+    .map((p) => ({ path: p.path, caption: p.caption, taskId: null, _sortKey: p.takenAt || (p.createdAt || "").slice(0, 10) }));
+  const photos = [...proofPhotos, ...memoryPhotos].sort(
+    (a, b) => (b._sortKey || "").localeCompare(a._sortKey || "")
+  );
   const booksDone = (books || []).filter((b) => b.status === "finished");
   const topStreaks = Object.entries(streaks || {}).map(([id, s]) => ({ a: activities.find((x) => x.id === id), s })).filter((x) => x.a).sort((a, b) => b.s.current - a.s.current);
 
