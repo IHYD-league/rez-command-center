@@ -110,6 +110,16 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
   const [familyId, setFamilyId] = useState(null);
   const [currentProfileId, setCurrentProfileId] = useState(null);
   const debounceRefs = useRef({});
+  // Sync-error surfacing — when a sync upsert / delete fails, push the
+  // detail here so a red banner appears at the top of the app. Without
+  // this every failure was a silent console.error, invisible to the
+  // user and the cause of the "writes vanish on refresh" mystery.
+  const [syncErrors, setSyncErrors] = useState([]);
+  const pushSyncError = (table, op, msg) => {
+    const stamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setSyncErrors((prev) => [{ id: Date.now() + Math.random(), table, op, msg, stamp }, ...prev].slice(0, 5));
+  };
+  const dismissSyncErrors = () => setSyncErrors([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -211,7 +221,7 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
           const { error } = await supabase
             .from("board_state")
             .upsert(rows, { onConflict: "family_id,profile_id" });
-          if (error) console.error("board_state sync:", error.message);
+          if (error) { console.error("board_state sync:", error.message); pushSyncError("board_state", "upsert", error.message); }
           return;
         }
         if (key === "userPrefs") {
@@ -223,7 +233,7 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
           const { error } = await supabase
             .from("user_prefs")
             .upsert(rows, { onConflict: "family_id,profile_id" });
-          if (error) console.error("user_prefs sync:", error.message);
+          if (error) { console.error("user_prefs sync:", error.message); pushSyncError("user_prefs", "upsert", error.message); }
           return;
         }
         if (key === "summerQuest") {
@@ -236,7 +246,7 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
           const { error } = await supabase
             .from("summer_quest_progress")
             .upsert(rows, { onConflict: "family_id,profile_id" });
-          if (error) console.error("summer_quest_progress sync:", error.message);
+          if (error) { console.error("summer_quest_progress sync:", error.message); pushSyncError("summer_quest_progress", "upsert", error.message); }
           return;
         }
         if (key === "familySettings") {
@@ -248,7 +258,7 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
               { family_id: familyId, settings: value || {} },
               { onConflict: "family_id" }
             );
-          if (error) console.error("family_settings sync:", error.message);
+          if (error) { console.error("family_settings sync:", error.message); pushSyncError("family_settings", "upsert", error.message); }
           return;
         }
         if (key === "streaks") {
@@ -260,7 +270,7 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
           const { error } = await supabase
             .from("streaks")
             .upsert(rows, { onConflict: "family_id,activity_id" });
-          if (error) console.error("streaks sync:", error.message);
+          if (error) { console.error("streaks sync:", error.message); pushSyncError("streaks", "upsert", error.message); }
           return;
         }
         const rows = (value || []).map(def.toDb(familyId));
@@ -275,16 +285,18 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
           ? del.not(def.key, "in", `(${keepIds.map((id) => `"${id}"`).join(",")})`)
           : del;
         const { error: dErr } = await delQ;
-        if (dErr) console.error(`${def.table} delete:`, dErr.message);
+        if (dErr) { console.error(`${def.table} delete:`, dErr.message); pushSyncError(def.table, "delete", dErr.message); }
 
         if (rows.length) {
           const { error: uErr } = await supabase
             .from(def.table)
             .upsert(rows, { onConflict: def.key });
-          if (uErr) console.error(`${def.table} upsert:`, uErr.message);
+          if (uErr) { console.error(`${def.table} upsert:`, uErr.message); pushSyncError(def.table, "upsert", uErr.message); }
         }
       } catch (e) {
-        console.error(`sync ${key}:`, e.message || e);
+        const msg = e.message || String(e);
+        console.error(`sync ${key}:`, msg);
+        pushSyncError(key, "sync", msg);
       }
     }, 400);
   };
@@ -389,5 +401,43 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
     );
   }
 
-  return children({ initial: data, currentProfileId, sync, familyId });
+  return (
+    <>
+      {syncErrors.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0, left: 0, right: 0,
+            zIndex: 9999,
+            background: "#dc2626",
+            color: "#fff",
+            padding: "10px 14px",
+            fontFamily: "system-ui, sans-serif",
+            fontSize: 13,
+            lineHeight: 1.4,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+            maxHeight: "50vh",
+            overflowY: "auto",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+            <div style={{ fontWeight: 800 }}>⚠️ Sync failed ({syncErrors.length}) — writes are NOT reaching the server</div>
+            <button
+              onClick={dismissSyncErrors}
+              style={{ background: "rgba(255,255,255,0.2)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontWeight: 700, cursor: "pointer", fontSize: 12 }}
+            >
+              Dismiss
+            </button>
+          </div>
+          {syncErrors.map((e) => (
+            <div key={e.id} style={{ fontSize: 12, opacity: 0.95, marginBottom: 2 }}>
+              <span style={{ opacity: 0.7 }}>[{e.stamp}]</span>{" "}
+              <strong>{e.table}</strong> {e.op}: {e.msg}
+            </div>
+          ))}
+        </div>
+      )}
+      {children({ initial: data, currentProfileId, sync, familyId })}
+    </>
+  );
 }
