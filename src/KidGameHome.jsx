@@ -458,7 +458,7 @@ function StatCard({ label, value }) {
   );
 }
 
-export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest, onTapStars, onOpenBoard, onTapBadges }) {
+export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest, onTapStars, onOpenBoard, onTapBadges, onTapHeroLevel }) {
   if (!data) return null;
   const {
     name,
@@ -756,22 +756,52 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
         </div>
 
         {level && (
-          <div className="mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
-                <Crown size={12} className="text-amber-300" /> Hero level
+          // Tappable when onTapHeroLevel is wired — replays the level-up
+          // cinematic so the kid can re-experience it after the parent
+          // approved the qualifying completion on their own screen.
+          onTapHeroLevel ? (
+            <button
+              type="button"
+              onClick={onTapHeroLevel}
+              className="w-full text-left mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10 active:scale-[0.99] transition"
+              aria-label={`Replay level ${level.value} celebration`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
+                  <Crown size={12} className="text-amber-300" /> Hero level
+                </div>
+                <div className="text-[11px] font-bold text-white/90">
+                  {level.xpIntoLevel} / {level.xpToNext} XP
+                </div>
               </div>
-              <div className="text-[11px] font-bold text-white/90">
-                {level.xpIntoLevel} / {level.xpToNext} XP
+              <div className="text-sm font-extrabold mt-0.5">
+                Lv {level.value} · {level.title}
+              </div>
+              <div className="mt-1.5">
+                <ProgressBar have={level.xpIntoLevel} need={level.xpToNext} color="#fcd34d" />
+              </div>
+              <div className="mt-1 text-[10px] text-white/60 font-bold uppercase tracking-wider">
+                Tap to replay 🎉
+              </div>
+            </button>
+          ) : (
+            <div className="mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
+                  <Crown size={12} className="text-amber-300" /> Hero level
+                </div>
+                <div className="text-[11px] font-bold text-white/90">
+                  {level.xpIntoLevel} / {level.xpToNext} XP
+                </div>
+              </div>
+              <div className="text-sm font-extrabold mt-0.5">
+                Lv {level.value} · {level.title}
+              </div>
+              <div className="mt-1.5">
+                <ProgressBar have={level.xpIntoLevel} need={level.xpToNext} color="#fcd34d" />
               </div>
             </div>
-            <div className="text-sm font-extrabold mt-0.5">
-              Lv {level.value} · {level.title}
-            </div>
-            <div className="mt-1.5">
-              <ProgressBar have={level.xpIntoLevel} need={level.xpToNext} color="#fcd34d" />
-            </div>
-          </div>
+          )
         )}
 
         {nextReward && (

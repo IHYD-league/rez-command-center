@@ -1414,6 +1414,20 @@ function Router(props) {
         onOpenMenu={() => props.setTab("missions")}
         onOpenBoard={() => props.setTab("board")}
         onTapBadges={() => props.setTab("stars")}
+        onTapHeroLevel={() => {
+          // Replay the cinematic. The auto-detector at line 1137 fires on
+          // crossing UP; this is the kid-side "let me see that again"
+          // path so Reznor experiences the level-up moment even if the
+          // qualifying completion was approved on the parent's screen.
+          const lv = props.kidData?.level?.value;
+          if (!lv) return;
+          juice.burst("success", "levelUp");
+          levelUp.show({
+            level: lv,
+            prevLevel: Math.max(0, lv - 1),
+            title: props.kidData?.level?.title || "",
+          });
+        }}
       />
     );
   }
