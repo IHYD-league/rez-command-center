@@ -8,6 +8,7 @@ import KidGameHome from "./KidGameHome.jsx";
 import SummerQuest from "./SummerQuest.jsx";
 import PhotoGallery from "./PhotoGallery.jsx";
 import Insights from "./Insights.jsx";
+import MusicLibrary from "./MusicLibrary.jsx";
 import DataExport from "./DataExport.jsx";
 import MilestoneSlideshow from "./MilestoneSlideshow.jsx";
 import ParentCompanion from "./summerQuest/ParentCompanion.jsx";
@@ -5315,6 +5316,7 @@ function MoreParent(props) {
   if (sub === "board_plan") return <BackWrap title="Daily Adventure Board · Plan" onBack={() => setSub("menu")}><DailyAdventureBoardPlan {...props} /></BackWrap>;
   if (sub === "gallery") return <BackWrap title="Photo Gallery" onBack={() => setSub("menu")}><PhotoGallery {...props} /></BackWrap>;
   if (sub === "insights") return <BackWrap title="Insights" onBack={() => setSub("menu")}><Insights {...props} /></BackWrap>;
+  if (sub === "music_library") return <BackWrap title="Music Library" onBack={() => setSub("menu")}><MusicLibrary {...props} /></BackWrap>;
   if (sub === "export") return <BackWrap title="Export Data" onBack={() => setSub("menu")}><DataExport {...props} /></BackWrap>;
   if (sub === "slideshow") return <BackWrap title="Milestone Slideshows" onBack={() => setSub("menu")}><MilestoneSlideshow {...props} /></BackWrap>;
   const items = [
@@ -5333,6 +5335,7 @@ function MoreParent(props) {
     { k: "board_theme", icon: <MapIcon size={18} />, label: "Adventure Board", sub: "Daily target · theme · controls" },
     { k: "gallery", icon: <Camera size={18} />, label: "Photo Gallery", sub: "Every photo · sort by date · filter by activity" },
     { k: "insights", icon: <TrendingUp size={18} />, label: "Insights", sub: "Practice time · songs · books · counts" },
+    { k: "music_library", icon: <Music size={18} />, label: "Music Library", sub: "Every song · sort · edit titles / artists / albums / covers" },
     { k: "export", icon: <Download size={18} />, label: "Export Data", sub: "CSV downloads — own your data" },
     { k: "slideshow", icon: <Play size={18} />, label: "Milestone Slideshows", sub: "Monthly · 6-month · 1-year recaps" },
   ];
