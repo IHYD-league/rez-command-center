@@ -968,7 +968,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
   const setPriority = (taskId, level, scope) => setPriorities((prev) => ({ ...prev, [taskId]: { level, scope, by: currentUserId } }));
   const clearPriority = (taskId) => setPriorities((prev) => { const n = { ...prev }; delete n[taskId]; return n; });
-  const giftStars = (label, n) => setGifted((prev) => [{ id: "g_" + Date.now(), label, stars: n, by: currentUserId, date: fmtDate(today) }, ...prev]);
+  // date must be ISO (YYYY-MM-DD) — Postgres date column rejects the
+  // human-readable fmtDate ("Wednesday, June 10") form. Krissie hit
+  // this on bonus-star gifting bedtime 2026-06-10.
+  const giftStars = (label, n) => setGifted((prev) => [{ id: "g_" + Date.now(), label, stars: n, by: currentUserId, date: TODAY_ISO }, ...prev]);
   const toggleTkdDay = (day) => setTkdDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   const setTkdTime = (day, time) => setTkdTimes((prev) => ({ ...prev, [day]: time }));
   const addTask = (t) => setTasks((prev) => [...prev, t]);
