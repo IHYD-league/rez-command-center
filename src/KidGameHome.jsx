@@ -473,6 +473,8 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
     level,
     nextBadge,
     treasureStreak = 0,
+    earnedToday = 0,
+    giftedToday = 0,
   } = data;
 
   // Fire the celebration when the canonical star total ticks up. We derive
@@ -679,6 +681,13 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                   {tappable && <span className="text-white/40 text-[10px]">›</span>}
                 </div>
                 <div ref={bankRef} data-star-bank className="text-2xl font-extrabold leading-none mt-1" style={{ display: "inline-block", transformOrigin: "left center" }}><AnimatedNumber value={stars} /></div>
+                {(earnedToday > 0 || giftedToday > 0) && (
+                  <div className="text-[10px] font-bold text-amber-200 mt-0.5">
+                    {earnedToday > 0 && <span>+{earnedToday} earned today</span>}
+                    {earnedToday > 0 && giftedToday > 0 && <span className="opacity-70"> · </span>}
+                    {giftedToday > 0 && <span>+{giftedToday}⭐ gift today</span>}
+                  </div>
+                )}
               </>
             );
             return tappable ? (

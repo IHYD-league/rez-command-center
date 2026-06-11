@@ -745,6 +745,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const earnedAllTime = approvedAll.reduce((s, c) => s + (c.awardedStars || 0), 0);
   const redeemedTotal = redemptions.filter((r) => r.status === "approved").reduce((s, r) => s + r.cost, 0);
   const giftedTotal = gifted.reduce((s, g) => s + g.stars, 0);
+  const giftedToday = gifted.filter((g) => g.date === TODAY_ISO).reduce((s, g) => s + (Number(g.stars) || 0), 0);
   const starBank = CHILD.starBankBase + earnedAllTime + giftedTotal - redeemedTotal;
   // Today-only stats (what the labels actually say). Honest now.
   const earnedToday = approvedAll
@@ -1279,6 +1280,8 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     mainQuests: todaysTopEight.filter((t) => t.required).map(_questFromTask),
     sideQuests: todaysTopEight.filter((t) => !t.required).map(_questFromTask),
     treasureStreak: _treasureStreak,
+    giftedToday,
+    earnedToday,
     stats: [
       { label: "Drum streak", value: _drumCurrent ? `${_drumCurrent}d` : "—" },
       { label: "Books finished", value: _booksFinished || "—" },
@@ -3899,7 +3902,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
@@ -3930,7 +3933,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         </div>
       </Card>
 
-      <GiftStarsCard giftStars={giftStars} />
+      <GiftStarsCard giftStars={giftStars} gifted={gifted} users={users} />
 
       <SectionTitle icon={<Clock size={16} className="text-amber-500" />}>Needs approval ({pending.length})</SectionTitle>
       {pending.length === 0 && <p className="text-xs text-slate-400 px-1">Nothing waiting. 🎉</p>}
@@ -4065,15 +4068,67 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   );
 }
 
-function GiftStarsCard({ giftStars }) {
+function GiftStarsCard({ giftStars, gifted = [], users = [] }) {
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState("");
   const [amt, setAmt] = useState(5);
-  if (!open) return <button onClick={() => setOpen(true)} className="w-full mt-3 py-3 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#f59e0b,#ec4899)" }}><Sparkles size={16} /> Gift bonus stars</button>;
+
+  // Filter to today only — the existing 'gifted' rows carry `date` as
+  // an ISO YYYY-MM-DD string (the bedtime 2026-06-10 fix). Sum + list
+  // so the parent sees what's already been given and never accidentally
+  // double-gifts the same activity.
+  const giftedToday = (gifted || []).filter((g) => g.date === TODAY_ISO);
+  const todayTotal = giftedToday.reduce((s, g) => s + (Number(g.stars) || 0), 0);
+
+  if (!open) {
+    return (
+      <div className="mt-3">
+        <button onClick={() => setOpen(true)} className="w-full py-3 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#f59e0b,#ec4899)" }}>
+          <Sparkles size={16} /> Gift bonus stars
+          {todayTotal > 0 && (
+            <span className="ml-1 text-[11px] font-extrabold bg-white/25 rounded-full px-2 py-0.5">
+              {todayTotal}⭐ today
+            </span>
+          )}
+        </button>
+        {/* Honest list of what's already been gifted today so the parent
+            never accidentally double-gifts the same activity. */}
+        {giftedToday.length > 0 && (
+          <div className="mt-2 bg-amber-50 border border-amber-200 rounded-2xl p-2.5">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">Already gifted today</div>
+            <div className="space-y-1">
+              {giftedToday.map((g) => {
+                const giver = users.find((u) => u.id === g.by)?.name || "—";
+                return (
+                  <div key={g.id} className="flex items-center gap-2 text-[12px]">
+                    <span className="font-bold text-amber-700 tabular-nums shrink-0">+{g.stars}⭐</span>
+                    <span className="flex-1 text-slate-700 truncate">{g.label}</span>
+                    <span className="text-[10px] text-slate-400 shrink-0">{giver}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <Card className="p-4 mt-3">
       <div className="font-bold text-sm mb-1 flex items-center gap-2"><Sparkles size={15} className="text-amber-500" /> Gift bonus stars</div>
       <div className="text-[11px] text-slate-400 mb-2">For great stuff that isn't on the list — helping others, cooking, kindness.</div>
+      {giftedToday.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-2 mb-2">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">Already gifted today ({todayTotal}⭐)</div>
+          {giftedToday.map((g) => (
+            <div key={g.id} className="flex items-center gap-2 text-[11px]">
+              <span className="font-bold text-amber-700 tabular-nums shrink-0">+{g.stars}⭐</span>
+              <span className="flex-1 text-slate-700 truncate">{g.label}</span>
+            </div>
+          ))}
+          <div className="text-[10px] text-amber-700 mt-1 font-bold">Don't double-gift — pick a different reason or amount.</div>
+        </div>
+      )}
       <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="What did he do? e.g. Helped cook dinner" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
       <div className="flex items-center gap-2 mb-3">
         {[3, 5, 10, 15, 20].map((n) => <button key={n} onClick={() => setAmt(n)} className={`px-3 py-1.5 rounded-xl text-sm font-bold ${amt === n ? "bg-amber-400 text-white" : "bg-slate-100 text-slate-500"}`}>{n}⭐</button>)}
