@@ -3,6 +3,7 @@ import { Search, X, Music, ChevronLeft, ChevronRight, GripHorizontal } from "luc
 import { EnrichedSongRow } from "./SongRow.jsx";
 import { useSignedUrl } from "./lib/storage.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
+import { buildAlbumCoverMap, resolveSongCover } from "./lib/albumCover.js";
 
 /* =====================================================================
    MusicLibrary — full song catalog with sort + filter.
@@ -132,15 +133,47 @@ function SongShelfTile({ s, onTap, selected, rearranging, onNudgeLeft, onNudgeRi
 }
 
 const SORT_OPTIONS = [
-  { k: "plays",        label: "Most played" },
-  { k: "recent",       label: "Recently played" },
-  { k: "title_az",     label: "Title A–Z" },
-  { k: "title_za",     label: "Title Z–A" },
-  { k: "artist_az",    label: "Artist A–Z" },
-  { k: "album_az",     label: "Album A–Z" },
-  { k: "added_newest", label: "Newest added" },
-  { k: "added_oldest", label: "Oldest added" },
+  { k: "plays",          label: "Most played" },
+  { k: "recent",         label: "Recently played" },
+  { k: "artist_grouped", label: "By artist" },
+  { k: "title_az",       label: "Title A–Z" },
+  { k: "title_za",       label: "Title Z–A" },
+  { k: "artist_az",      label: "Artist A–Z" },
+  { k: "album_az",       label: "Album A–Z" },
+  { k: "added_newest",   label: "Newest added" },
+  { k: "added_oldest",   label: "Oldest added" },
 ];
+
+// Bucket the song list by canonical artist. Unknown artist (no
+// canonical, no user-typed) all bucket into one trailing group.
+// Within each artist, sort by canonical_album → title for a clean
+// discography read. Returns [{ artist, songs }, ...].
+function groupByArtist(songs) {
+  const buckets = new Map();
+  for (const s of songs) {
+    const key = (s.canonicalArtist || s.artist || "").trim() || "Unknown artist";
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(s);
+  }
+  const titleOf = (s) => s.canonicalTitle || s.title || "";
+  const albumOf = (s) => s.canonicalAlbum || "";
+  const groups = [];
+  for (const [artist, list] of buckets) {
+    list.sort((a, b) => albumOf(a).localeCompare(albumOf(b)) || titleOf(a).localeCompare(titleOf(b)));
+    groups.push({ artist, songs: list });
+  }
+  // Sort groups by play count desc (most-engaged artist on top), then
+  // alphabetically. Unknown sinks to the bottom.
+  groups.sort((a, b) => {
+    if (a.artist === "Unknown artist" && b.artist !== "Unknown artist") return 1;
+    if (b.artist === "Unknown artist" && a.artist !== "Unknown artist") return -1;
+    const playsA = a.songs.reduce((n, s) => n + (s.count || 0), 0);
+    const playsB = b.songs.reduce((n, s) => n + (s.count || 0), 0);
+    if (playsB !== playsA) return playsB - playsA;
+    return a.artist.localeCompare(b.artist);
+  });
+  return groups;
+}
 
 export default function MusicLibrary({ songs = [], songPlays = [], updateSong, familyId, libraryOrder = { songs: [], books: [] }, setLibraryOrder }) {
   const [sort, setSort] = useState("plays");
@@ -164,9 +197,15 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
       if (date && (!c.last || date > c.last)) c.last = date;
       counts.set(sid, c);
     }
+    // Album-cover dedup: pre-resolve coverUrl + customCoverPath so any
+    // song sharing (canonical_artist, canonical_album) with a peer that
+    // has a cover inherits it for display. The DB stays per-song; only
+    // the display layer borrows from album peers. See src/lib/albumCover.js.
+    const albumMap = buildAlbumCoverMap(songs || []);
     return (songs || []).map((s) => {
       const c = counts.get(s.id) || { count: 0, last: null };
-      return { ...s, count: c.count, last: c.last };
+      const resolved = resolveSongCover(s, albumMap);
+      return { ...resolved, count: c.count, last: c.last };
     });
   }, [songs, songPlays]);
 
@@ -319,16 +358,50 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
           </div>
         </div>
       ) : viewMode === "list" ? (
-        <div className="space-y-2">
-          {sorted.map((s) => (
-            <EnrichedSongRow
-              key={s.id}
-              s={s}
-              updateSong={updateSong}
-              familyId={familyId}
-            />
-          ))}
-        </div>
+        sort === "artist_grouped" ? (
+          // Grouped-by-artist render: section header per artist with
+          // play count + song count badges, songs underneath sorted
+          // album → title. Unknown sinks to the bottom.
+          <div className="space-y-4">
+            {groupByArtist(sorted).map(({ artist, songs: groupSongs }) => {
+              const totalPlays = groupSongs.reduce((n, s) => n + (s.count || 0), 0);
+              return (
+                <div key={artist}>
+                  <div className="flex items-baseline justify-between gap-2 mb-1.5 px-1">
+                    <div className="text-sm font-extrabold text-slate-800 truncate">
+                      {artist}
+                    </div>
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold shrink-0">
+                      {groupSongs.length} {groupSongs.length === 1 ? "song" : "songs"}
+                      {totalPlays > 0 ? ` · ${totalPlays} ${totalPlays === 1 ? "play" : "plays"}` : ""}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {groupSongs.map((s) => (
+                      <EnrichedSongRow
+                        key={s.id}
+                        s={s}
+                        updateSong={updateSong}
+                        familyId={familyId}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sorted.map((s) => (
+              <EnrichedSongRow
+                key={s.id}
+                s={s}
+                updateSong={updateSong}
+                familyId={familyId}
+              />
+            ))}
+          </div>
+        )
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-3 gap-2 pb-32">
           {sorted.map((s) => (
