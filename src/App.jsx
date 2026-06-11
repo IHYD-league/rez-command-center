@@ -1317,6 +1317,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
             books={books}
             updateBook={updateBook}
             addBook={addBook}
+            updateCompletion={updateCompletion}
           />
         )}
         {celebrate && <CelebrateOverlay data={celebrate} onClose={() => setCelebrate(null)} />}
@@ -1341,6 +1342,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
               onUpdateNotes={(notes) => updateCompletion(c.id, { notes })}
               onUndo={() => undoTask(c.taskId)}
               onEditTask={(taskId) => setDetailId(taskId)}
+              onEditDetails={() => { setOpenCompletionId(null); setOpenTask(t); }}
             />
           );
         })()}
@@ -2460,7 +2462,7 @@ function CompletionPhotoTile({ photo, onRemove, canRemove }) {
 function CompletionDetailSheet({
   task, completion, activities, users, streaks,
   onClose, onAddPhoto, onRemovePhoto, onUpdateNotes,
-  onUndo, onEditTask, familyId, role,
+  onUndo, onEditTask, onEditDetails, familyId, role,
 }) {
   const [tab, setTab] = useState("photos");
   const [notes, setNotes] = useState(completion?.notes || "");
@@ -2636,6 +2638,18 @@ function CompletionDetailSheet({
 
         {tab === "edit" && (
           <div className="space-y-2">
+            {/* In-place edit (parent-only) — change the book picked, the
+                minutes, the notes, etc. without an undo+resubmit cycle.
+                Star/status/identity stay locked; only human fields move. */}
+            {isParent && onEditDetails && (
+              <button
+                type="button"
+                onClick={() => onEditDetails()}
+                className="w-full py-3 rounded-2xl bg-indigo-600 text-white font-extrabold text-sm active:scale-95"
+              >
+                💾 Edit this completion's details
+              </button>
+            )}
             <button
               type="button"
               onClick={() => { onUndo(); onClose(); }}
@@ -2649,7 +2663,7 @@ function CompletionDetailSheet({
                 onClick={() => { onEditTask?.(task.id); onClose(); }}
                 className="w-full py-3 rounded-2xl bg-indigo-50 text-indigo-700 font-extrabold text-sm active:scale-95"
               >
-                ✏️ Edit task settings
+                ✏️ Edit task settings (all days, not just this one)
               </button>
             )}
             <div className="text-[11px] text-slate-400 px-1 mt-2 leading-snug">
@@ -2898,7 +2912,7 @@ function StreakCard({ e, hero }) {
 }
 
 // ===================== TASK SHEET (submit flow) =====================
-function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, songPlays, addSong, addSongPlay, books = [], updateBook, addBook }) {
+function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, songPlays, addSong, addSongPlay, books = [], updateBook, addBook, updateCompletion }) {
   const [notes, setNotes] = useState(existing?.notes || "");
   const [bookTitle, setBookTitle] = useState(existing?.extra?.bookTitle || "");
   const [lang, setLang] = useState(existing?.extra?.lang || "English");
@@ -3056,10 +3070,30 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
       }
     }
 
-    onSubmit(task.id, { notes, proof, extra });
+    if (canEdit && existing) {
+      // Edit mode: patch the existing completion in place. Status,
+      // awarded_stars, pending_stars, submitted_by, approved_by all
+      // stay untouched — only the human-meaningful fields change.
+      // Skips streak bump, juice, celebrate — those already fired on
+      // the original submit. Clean way to fix the book pick or
+      // minutes hours later without an undo+resubmit round trip.
+      updateCompletion(existing.id, { notes, proof, extra });
+      onClose();
+    } else {
+      onSubmit(task.id, { notes, proof, extra });
+    }
   };
 
   const alreadyApproved = existing?.status === "approved";
+  // Edit mode: parents (or admins) can change the details of an
+  // already-approved completion in place — picking a different book,
+  // fixing minutes, swapping the markFinished flag — without undoing
+  // and re-submitting. The patch goes through updateCompletion which
+  // preserves status / awarded_stars / submitted_by / approved_by, so
+  // editing is purely about the human-meaningful fields, not the
+  // economy. Kids can't enter edit mode (would let them tweak their
+  // own stars).
+  const canEdit = alreadyApproved && role === "parent" && !!updateCompletion;
 
   // Slide-up + drag-to-dismiss. `visible` flips true on the next frame
   // after mount so the sheet animates UP from translateY(100%) instead
@@ -3154,10 +3188,16 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
         </div>
 
         {alreadyApproved && (
-          <div className="mt-4 bg-emerald-50 text-emerald-700 rounded-2xl p-3 text-sm font-semibold flex items-center gap-2"><Check size={16} /> Approved — {existing.awardedStars} ⭐ banked! 🎉</div>
+          <div className="mt-4 bg-emerald-50 text-emerald-700 rounded-2xl p-3 text-sm font-semibold flex items-center gap-2">
+            <Check size={16} />
+            <span className="flex-1">Approved — {existing.awardedStars} ⭐ banked! 🎉</span>
+            {canEdit && (
+              <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-600 bg-emerald-100 rounded-full px-2 py-0.5">edit mode</span>
+            )}
+          </div>
         )}
 
-        {!alreadyApproved && (
+        {(!alreadyApproved || canEdit) && (
           <div className="mt-4 space-y-3">
             {isReading && (
               <>
@@ -3314,13 +3354,19 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
             {!ready && <div className="text-xs text-rose-500 flex items-center gap-1"><AlertCircle size={13} /> {gateMsg}</div>}
 
             <button disabled={!ready} onClick={doSubmit}
-              className={`w-full py-4 rounded-2xl font-extrabold text-white text-base transition ${ready ? "bg-emerald-500 active:scale-95" : "bg-slate-200 text-slate-400"}`}>
-              {task.approvalRequired ? "Submit for Stars ⭐" : "Mark Done ✓"}
+              className={`w-full py-4 rounded-2xl font-extrabold text-white text-base transition ${
+                ready
+                  ? (canEdit ? "bg-indigo-600 active:scale-95" : "bg-emerald-500 active:scale-95")
+                  : "bg-slate-200 text-slate-400"
+              }`}>
+              {canEdit
+                ? "Save changes 💾"
+                : (task.approvalRequired ? "Submit for Stars ⭐" : "Mark Done ✓")}
             </button>
             <button onClick={handleClose} className="w-full py-2 text-slate-400 text-sm font-semibold">Cancel</button>
           </div>
         )}
-        {alreadyApproved && <button onClick={handleClose} className="w-full py-3 mt-4 text-slate-400 text-sm font-semibold">Close</button>}
+        {alreadyApproved && !canEdit && <button onClick={handleClose} className="w-full py-3 mt-4 text-slate-400 text-sm font-semibold">Close</button>}
       </div>
       <style>{`.input{width:100%;border:1px solid #e2e8f0;border-radius:1rem;padding:0.6rem 0.8rem;font-size:0.9rem;outline:none}.input:focus{border-color:#6366f1}`}</style>
     </div>
