@@ -89,6 +89,11 @@ export const toApp = {
     // label carries the rough when.
     preTracking: r.pre_tracking ?? false,
     eraLabel: r.era_label || "",
+    // Re-read counter — defaults to 1 in the DB so every existing
+    // book gets credit for the read we already know about. The
+    // Reading Library picker increments this when an existing book
+    // is selected for a Round 2+.
+    readCount: r.read_count ?? 1,
     // Phase 6a: Open Library enrichment cache. NULL on existing rows
     // until the first auto-match writes them. matchStatus = "unmatched"
     // by DB default so the auto-enrich effect picks them up.
@@ -313,6 +318,7 @@ export const toDb = {
     notes: o.notes,
     pre_tracking: !!o.preTracking,
     era_label: o.eraLabel || null,
+    read_count: Math.max(1, Number(o.readCount) || 1),
     cover_url:        o.coverUrl || null,
     canonical_title:  o.canonicalTitle || null,
     canonical_author: o.canonicalAuthor || null,
