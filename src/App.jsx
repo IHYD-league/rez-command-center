@@ -4632,7 +4632,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
           <button onClick={() => setAddingBacklog(true)} className="py-2.5 rounded-2xl bg-amber-100 text-amber-800 font-bold text-sm flex items-center justify-center gap-1 border-2 border-amber-200"><Archive size={15} /> Add backlog</button>
         </div>
       )}
-      {adding && <AddBookForm onAdd={(b) => { addBook(b); setAdding(false); }} onCancel={() => setAdding(false)} />}
+      {adding && <AddBookForm onAdd={(b) => { addBook(b); setAdding(false); }} onCancel={() => setAdding(false)} books={books} updateBook={updateBook} />}
       {addingBacklog && <AddBacklogBookForm onAdd={(b) => { addBook(b); setAddingBacklog(false); }} onCancel={() => setAddingBacklog(false)} />}
 
       {q && reading.length === 0 && finished.length === 0 && archiveFiltered.length === 0 && <p className="text-sm text-slate-400 px-1">No books match "{q}".</p>}
@@ -5198,20 +5198,135 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
   );
 }
 
-function AddBookForm({ onAdd, onCancel }) {
+function AddBookForm({ onAdd, onCancel, books = [], updateBook }) {
   const [title, setTitle] = useState("");
   const [lang, setLang] = useState("English");
   const [level, setLevel] = useState("");
   const [started, setStarted] = useState(TODAY_ISO);
+  const [pickSearch, setPickSearch] = useState("");
+
+  // Mirror of TaskSheet's reading picker — filter the catalog by free
+  // text, sort by "what's most useful when starting a new read"
+  // (reading first, wishlist, archive, dropped, finished). Tap a
+  // result to either resume / graduate / restart that book without
+  // creating a duplicate. Free-text below still creates a brand-new
+  // book row.
+  const pickerBooks = useMemo(() => {
+    if (!updateBook) return [];
+    const needle = pickSearch.trim().toLowerCase();
+    const all = (books || []).map((b) => ({
+      ...b,
+      _display: b.canonicalTitle || b.title || "",
+    }));
+    const filtered = needle
+      ? all.filter((b) => {
+          const hay = `${b._display} ${b.canonicalAuthor || ""} ${b.lang || ""}`.toLowerCase();
+          return hay.includes(needle);
+        })
+      : [];
+    const statusOrder = { reading: 0, wishlist: 1, dropped: 3, finished: 4 };
+    return filtered
+      .sort((a, b) => {
+        const aArch = a.preTracking ? 2 : (statusOrder[a.status] ?? 99);
+        const bArch = b.preTracking ? 2 : (statusOrder[b.status] ?? 99);
+        if (aArch !== bArch) return aArch - bArch;
+        return a._display.localeCompare(b._display);
+      })
+      .slice(0, 12);
+  }, [books, pickSearch, updateBook]);
+
+  // Tap a picker result — flip the existing book's state instead of
+  // creating a duplicate.
+  const pickBook = (b) => {
+    if (!updateBook) return;
+    const patch = {};
+    const wasReadAlready =
+      b.preTracking || b.status === "finished" || b.status === "dropped";
+    if (b.status === "reading") {
+      // Already in progress — surface a soft toast and bail.
+      alert(`"${b._display}" is already in his Reading Now list.`);
+      onCancel?.();
+      return;
+    }
+    if (b.status === "wishlist") {
+      patch.status = "reading";
+      patch.started = TODAY_ISO;
+      patch.finished = "";
+    } else {
+      // finished / dropped / archive -> Round N
+      patch.status = "reading";
+      patch.started = TODAY_ISO;
+      patch.finished = "";
+      patch.readCount = (b.readCount || 1) + 1;
+    }
+    updateBook(b.id, patch);
+    onCancel?.();
+  };
+
   return (
     <Card className="p-4 mb-3">
+      {updateBook && (
+        <>
+          <div className="text-xs font-semibold text-slate-500 mb-1">Already in his library? Pick to start a fresh read</div>
+          <input
+            value={pickSearch}
+            onChange={(e) => setPickSearch(e.target.value)}
+            placeholder="Search his books — title, author, lang…"
+            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2"
+          />
+          {pickSearch.trim() && pickerBooks.length > 0 && (
+            <div className="max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100 mb-2">
+              {pickerBooks.map((b) => {
+                const statusLabel =
+                  b.preTracking ? `Archive · ${b.eraLabel || "era unset"}`
+                  : b.status === "finished" ? "Finished"
+                  : b.status === "wishlist" ? "Wishlist"
+                  : b.status === "dropped" ? "Dropped"
+                  : "Reading";
+                const statusColor =
+                  b.preTracking ? "bg-amber-100 text-amber-800"
+                  : b.status === "finished" ? "bg-emerald-100 text-emerald-700"
+                  : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
+                  : b.status === "dropped" ? "bg-slate-200 text-slate-500"
+                  : "bg-sky-100 text-sky-700";
+                const isRereadCandidate = b.preTracking || b.status === "finished" || b.status === "dropped";
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => pickBook(b)}
+                    className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-slate-800 truncate">{b._display || "(untitled)"}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${statusColor}`}>{statusLabel}</span>
+                        {b.lang && <span className="text-[10px] text-slate-500">{b.lang}</span>}
+                        {(b.readCount || 1) > 1 && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                            Read {b.readCount}×
+                          </span>
+                        )}
+                        {isRereadCandidate && (
+                          <span className="text-[10px] text-amber-600 font-bold">round {((b.readCount || 1) + 1)}?</span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-2">— or add a new one —</div>
+        </>
+      )}
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Book title" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
       <div className="flex gap-1.5 mb-2">{["English", "Spanish"].map((l) => <button key={l} onClick={() => setLang(l)} className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === l ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>)}</div>
       <input value={level} onChange={(e) => setLevel(e.target.value)} placeholder="Reading level (e.g. ~2nd grade)" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
       <label className="text-[11px] font-semibold text-slate-500 block mb-2">Started<input type="date" value={started} onChange={(e) => setStarted(e.target.value)} className="w-full mt-0.5 border border-slate-200 rounded-xl px-3 py-2 text-sm" /></label>
       <div className="flex gap-2">
         <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">Cancel</button>
-        <button disabled={!title.trim()} onClick={() => onAdd({ id: "b_" + Date.now(), title: title.trim(), lang, status: "reading", started, finished: "", level: level.trim(), rating: 0, notes: "" })} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${title.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Add book</button>
+        <button disabled={!title.trim()} onClick={() => onAdd({ id: "b_" + Date.now(), title: title.trim(), lang, status: "reading", started, finished: "", level: level.trim(), rating: 0, notes: "", preTracking: false, eraLabel: "", readCount: 1 })} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${title.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Add new book</button>
       </div>
     </Card>
   );
