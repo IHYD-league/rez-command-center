@@ -1020,6 +1020,9 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // human-readable fmtDate ("Wednesday, June 10") form. Krissie hit
   // this on bonus-star gifting bedtime 2026-06-10.
   const giftStars = (label, n) => setGifted((prev) => [{ id: "g_" + Date.now(), label, stars: n, by: currentUserId, date: TODAY_ISO }, ...prev]);
+  // Remove a gift row by id. Used by the Star Ledger to correct
+  // duplicates after the fact (the 'Krissie double-gifted' case).
+  const removeGift = (id) => setGifted((prev) => prev.filter((g) => g.id !== id));
   const toggleTkdDay = (day) => setTkdDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   const setTkdTime = (day, time) => setTkdTimes((prev) => ({ ...prev, [day]: time }));
   const addTask = (t) => setTasks((prev) => [...prev, t]);
@@ -1319,6 +1322,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     kidData,
     familyId,
     songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay, updateSong,
+    removeGift,
     setStatDetailId,
     earnedAllTime,
     boardState, setBoardLastPosition, setTreasureClaimed,
@@ -1440,6 +1444,8 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
             pendingStars={pendingStars}
             availableToday={availableToday}
             base={CHILD.starBankBase}
+            role={user?.role}
+            removeGift={removeGift}
           />
         )}
       </div>
@@ -2148,6 +2154,8 @@ function StatDetail({
   pendingStars,
   availableToday,
   base,
+  role,
+  removeGift,
 }) {
   // Date windows for the per-task tallies.
   // Week = calendar week Sun–Sat — today.getDay() returns 0 for Sunday,
@@ -2323,6 +2331,23 @@ function StatDetail({
             <div className="text-lg font-extrabold text-violet-700">{starBank}</div>
           </div>
         </Card>
+
+        {/* Star ledger — every individual line item that contributed
+            to the bank, newest first. Earned stars (approved completions)
+            stay read-only here; tap-to-edit lives in CompletionDetailSheet.
+            Gifts are parent-deletable (the 'Krissie double-gifted' use
+            case). Redemptions are read-only — those are decisions
+            made through the rewards flow. */}
+        <StarLedger
+          completions={completions}
+          tasks={tasks}
+          gifted={gifted}
+          redemptions={redemptions}
+          users={users}
+          base={base}
+          isParent={role === "parent"}
+          onRemoveGift={removeGift}
+        />
       </>
     );
   } else if (kind === "available") {
@@ -2388,6 +2413,124 @@ function StatDetail({
   }
 
   return <StatDetailSheet onClose={onClose} meta={meta} body={body} tally={tally} />;
+}
+
+// StarLedger — every line item that contributed to the bank, sorted
+// newest-first. Earned (approved completion) + Gifted + Redeemed +
+// Base. Gifts get a small × so a parent can delete a duplicate
+// without leaving the sheet. Mirrors the Portfolio fix's per-row
+// honest-date treatment.
+function StarLedger({ completions, tasks, gifted, redemptions, users, base, isParent, onRemoveGift }) {
+  const fmtRowDate = (iso) => {
+    if (!iso) return "—";
+    const d = new Date(iso + "T12:00");
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+  const items = [];
+  for (const c of (completions || [])) {
+    if (c.status !== "approved" || !c.awardedStars) continue;
+    const t = (tasks || []).find((x) => x.id === c.taskId);
+    items.push({
+      key: `c-${c.id}`,
+      kind: "earned",
+      date: c.completionDate || "",
+      label: t?.title || c.taskId,
+      sub: c.extra?.bookTitle ? c.extra.bookTitle : "",
+      stars: c.awardedStars,
+      who: users.find((u) => u.id === c.approvedBy)?.name || "",
+    });
+  }
+  for (const g of (gifted || [])) {
+    items.push({
+      key: `g-${g.id}`,
+      id: g.id,
+      kind: "gift",
+      date: g.date || "",
+      label: g.label || "Bonus",
+      sub: "bonus",
+      stars: Number(g.stars) || 0,
+      who: users.find((u) => u.id === g.by)?.name || "",
+      deletable: true,
+    });
+  }
+  for (const r of (redemptions || [])) {
+    if (r.status !== "approved") continue;
+    items.push({
+      key: `r-${r.id}`,
+      kind: "redeemed",
+      date: r.completionDate || "",
+      label: r.title || "Reward",
+      sub: "redeemed",
+      stars: -Math.abs(r.cost || 0),
+      who: users.find((u) => u.id === r.requestedBy)?.name || "",
+    });
+  }
+  items.sort((a, b) => {
+    if (a.date !== b.date) return (b.date || "").localeCompare(a.date || "");
+    return b.key.localeCompare(a.key);
+  });
+  return (
+    <div className="mt-4">
+      <div className="flex items-baseline justify-between mb-2 px-1">
+        <div className="text-sm font-extrabold text-slate-700">Star ledger</div>
+        <div className="text-[10px] text-slate-400">{items.length} {items.length === 1 ? "entry" : "entries"} · base {base}⭐ before this list</div>
+      </div>
+      {items.length === 0 ? (
+        <Card className="p-3 text-center text-xs text-slate-400">No activity yet.</Card>
+      ) : (
+        <Card className="p-2">
+          {items.map((row) => {
+            const color =
+              row.kind === "earned" ? "text-emerald-700"
+              : row.kind === "gift" ? "text-pink-700"
+              : "text-rose-700";
+            const bg =
+              row.kind === "earned" ? "bg-emerald-50"
+              : row.kind === "gift" ? "bg-pink-50"
+              : "bg-rose-50";
+            const icon =
+              row.kind === "earned" ? "⭐"
+              : row.kind === "gift" ? "✨"
+              : "🎁";
+            return (
+              <div key={row.key} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                <div className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${bg}`}>
+                  <span className="text-sm">{icon}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-bold text-slate-800 truncate">
+                    {row.label}
+                    {row.sub && <span className="text-slate-400 font-normal"> · {row.sub}</span>}
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    {fmtRowDate(row.date)}
+                    {row.who ? ` · ${row.who}` : ""}
+                  </div>
+                </div>
+                <div className={`text-sm font-extrabold tabular-nums shrink-0 ${color}`}>
+                  {row.stars > 0 ? "+" : ""}{row.stars}⭐
+                </div>
+                {row.deletable && isParent && onRemoveGift && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Delete this gift?\n\n"${row.label}" (+${row.stars}⭐)\n\nReznor's bank will drop by ${row.stars} stars.`)) {
+                        onRemoveGift(row.id);
+                      }
+                    }}
+                    className="text-slate-300 hover:text-rose-500 p-1 shrink-0"
+                    aria-label="Delete gift"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </Card>
+      )}
+    </div>
+  );
 }
 
 // Split out so we can call hooks (useBottomSheet) without violating

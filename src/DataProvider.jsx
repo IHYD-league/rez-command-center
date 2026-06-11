@@ -120,6 +120,13 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
     setSyncErrors((prev) => [{ id: Date.now() + Math.random(), table, op, msg, stamp }, ...prev].slice(0, 5));
   };
   const dismissSyncErrors = () => setSyncErrors([]);
+  // Live sync status — driven by syncErrors + debounce count.
+  //   "idle"     → no pending writes, no errors
+  //   "saving"   → at least one debounced setTimeout in flight
+  //   "error"    → most recent sync attempt failed (banner shows details)
+  // The dot in the parent header reads this; tiny + ambient.
+  const [pendingCount, setPendingCount] = useState(0);
+  const syncStatus = syncErrors.length > 0 ? "error" : pendingCount > 0 ? "saving" : "idle";
 
   useEffect(() => {
     let cancelled = false;
@@ -209,6 +216,10 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
       console.warn("sync: unknown entity", key);
       return;
     }
+    // Track in-flight writes for the SyncStatusDot. Each clear+set is
+    // a new debounce window — first one queues a +1; the timer fires
+    // once with no replacement (-1 at the end). Replacements net to 0.
+    if (!debounceRefs.current[key]) setPendingCount((n) => n + 1);
     clearTimeout(debounceRefs.current[key]);
     debounceRefs.current[key] = setTimeout(async () => {
       try {
@@ -297,6 +308,9 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
         const msg = e.message || String(e);
         console.error(`sync ${key}:`, msg);
         pushSyncError(key, "sync", msg);
+      } finally {
+        delete debounceRefs.current[key];
+        setPendingCount((n) => Math.max(0, n - 1));
       }
     }, 400);
   };
@@ -437,7 +451,54 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
           ))}
         </div>
       )}
-      {children({ initial: data, currentProfileId, sync, familyId })}
+      <SyncStatusDot status={syncStatus} />
+      {children({ initial: data, currentProfileId, sync, familyId, syncStatus })}
     </>
+  );
+}
+
+// SyncStatusDot — a 8px dot pinned bottom-right. Green=settled,
+// amber=writing, red=failed. Ambient, no labels, no chrome. Tap-target
+// expanded by a transparent halo so a parent can confirm "yes that
+// saved" by glancing at the corner. The red sync banner is the
+// detailed error surface; this is the at-a-glance signal.
+function SyncStatusDot({ status }) {
+  const color =
+    status === "error" ? "#dc2626"
+    : status === "saving" ? "#f59e0b"
+    : "#10b981";
+  const pulse = status === "saving";
+  const title =
+    status === "error" ? "Sync failed — see banner"
+    : status === "saving" ? "Saving…"
+    : "All changes saved";
+  return (
+    <div
+      title={title}
+      style={{
+        position: "fixed",
+        bottom: 10,
+        right: 10,
+        zIndex: 9998,
+        width: 16,
+        height: 16,
+        display: "grid",
+        placeItems: "center",
+        pointerEvents: "none",
+      }}
+    >
+      <div
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          background: color,
+          boxShadow: pulse ? `0 0 0 0 ${color}66` : `0 0 0 2px rgba(255,255,255,0.85)`,
+          animation: pulse ? "rcc-sync-pulse 1.2s ease-out infinite" : undefined,
+          transition: "background 220ms ease",
+        }}
+      />
+      <style>{`@keyframes rcc-sync-pulse { 0% { box-shadow: 0 0 0 0 ${color}99; } 70% { box-shadow: 0 0 0 6px ${color}00; } 100% { box-shadow: 0 0 0 0 ${color}00; } }`}</style>
+    </div>
   );
 }
