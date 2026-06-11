@@ -369,15 +369,62 @@ const ACHIEVEMENTS = [
   { id: "bilingual", kind: "trophy", emoji: "🌎", title: "Two Languages", desc: "Read a book in Spanish", test: (c) => c.spanishBook },
   { id: "books5", kind: "trophy", emoji: "📚", title: "Bookworm", desc: "Finished 5 books", test: (c) => c.booksFinished >= 5, goal: 5, val: (c) => c.booksFinished },
   { id: "books10", kind: "trophy", emoji: "📖", title: "Library Legend", desc: "Finished 10 books", test: (c) => c.booksFinished >= 10, goal: 10, val: (c) => c.booksFinished },
+  { id: "treasure3", kind: "trophy", emoji: "🗝️", title: "Treasure Trio", desc: "3 days in a row opening the treasure", test: (c) => c.treasureStreak >= 3, goal: 3, val: (c) => c.treasureStreak },
+  { id: "treasure7", kind: "trophy", emoji: "🏆", title: "Week of Treasures", desc: "7 days in a row opening the treasure", test: (c) => c.treasureStreak >= 7, goal: 7, val: (c) => c.treasureStreak },
+  { id: "treasure14", kind: "trophy", emoji: "💎", title: "Treasure Fortnight", desc: "14 days in a row", test: (c) => c.treasureStreak >= 14, goal: 14, val: (c) => c.treasureStreak },
+  { id: "treasure30", kind: "trophy", emoji: "👑", title: "Treasure King", desc: "30 days in a row — every day a clean sweep", test: (c) => c.treasureStreak >= 30, goal: 30, val: (c) => c.treasureStreak },
 ];
-function buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books }) {
+function buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books, treasureStreak = 0 }) {
   const doneToday = todaysTasks.filter((t) => ["approved", "pending"].includes(compByTask[t.id]?.status)).length;
   const allToday = todaysTasks.length > 0 && todaysTasks.every((t) => ["approved", "pending"].includes(compByTask[t.id]?.status));
   const drumsDone = !!compByTask["t_drums"];
   const photoToday = Object.values(compByTask).some((c) => (c?.proof || []).some((p) => p.type === "photo"));
-  const booksFinished = (books || []).filter((b) => b.status === "finished").length;
+  const booksFinished = (books || []).filter((b) => b.status === "finished" || b.preTracking).length;
   const spanishBook = (books || []).some((b) => b.status === "finished" && b.lang === "Spanish");
-  return { doneToday, allToday, drumsDone, photoToday, starBank, booksFinished, spanishBook, drumStreak: streaks?.a_drums?.current || 0, spaStreak: streaks?.a_spa?.current || 0 };
+  return { doneToday, allToday, drumsDone, photoToday, starBank, booksFinished, spanishBook, drumStreak: streaks?.a_drums?.current || 0, spaStreak: streaks?.a_spa?.current || 0, treasureStreak };
+}
+
+// Treasure-day streak — count consecutive days from today walking back
+// where Reznor cleared ALL of that day's Top 8 (= opened the treasure).
+// Honest limitation: the Top 8 for prior days is computed using the
+// CURRENT topPriorities + tasks config, not historical snapshots. If a
+// parent changed the plan, the count uses today's plan retroactively.
+// Acceptable approximation; the alternative would be storing daily
+// treasure-opened flags which adds complexity for marginal honesty gain.
+function computeTreasureStreak({ completions, tasks, topPriorities }) {
+  if (!Array.isArray(completions) || !Array.isArray(tasks)) return 0;
+  const bootstrap = bootstrapWeeklyTopEight(tasks);
+  // Pre-bucket approved completions by date for O(1) lookup per day.
+  const approvedByDate = new Map();
+  for (const c of completions) {
+    if (c.status !== "approved" || !c.completionDate) continue;
+    const set = approvedByDate.get(c.completionDate) || new Set();
+    set.add(c.taskId);
+    approvedByDate.set(c.completionDate, set);
+  }
+  let streak = 0;
+  const cursor = new Date(today);
+  for (let i = 0; i < 366; i++) {
+    const iso = isoLocal(cursor);
+    const weekday = cursor.toLocaleDateString("en-US", { weekday: "long" });
+    const dailyOverride = topPriorities?.daily?.[iso];
+    const weeklyPlan = topPriorities?.weekly?.[weekday];
+    const ids = Array.isArray(dailyOverride)
+      ? dailyOverride
+      : (Array.isArray(weeklyPlan) ? weeklyPlan : bootstrap[weekday]);
+    // Only count tasks that still exist + are active. Otherwise a deleted
+    // task from yesterday would make every prior day permanently failed.
+    const required = (ids || []).filter((id) =>
+      tasks.some((t) => t.id === id && t.active !== false)
+    );
+    if (required.length === 0) break;
+    const approvedForDay = approvedByDate.get(iso) || new Set();
+    const allDone = required.every((id) => approvedForDay.has(id));
+    if (!allDone) break;
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
 }
 
 // ---- HERO XP + LEVELS (computed at display time — ARCHITECTURE §3) ----
@@ -698,6 +745,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const earnedAllTime = approvedAll.reduce((s, c) => s + (c.awardedStars || 0), 0);
   const redeemedTotal = redemptions.filter((r) => r.status === "approved").reduce((s, r) => s + r.cost, 0);
   const giftedTotal = gifted.reduce((s, g) => s + g.stars, 0);
+  const giftedToday = gifted.filter((g) => g.date === TODAY_ISO).reduce((s, g) => s + (Number(g.stars) || 0), 0);
   const starBank = CHILD.starBankBase + earnedAllTime + giftedTotal - redeemedTotal;
   // Today-only stats (what the labels actually say). Honest now.
   const earnedToday = approvedAll
@@ -1202,7 +1250,8 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const _xpAtLevel = xpForLevel(_levelN);
   const _xpAtNext = xpForLevel(_levelN + 1);
   // Next-badge pull-forward — derived from the canonical ACHIEVEMENTS list.
-  const _achCtx = buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books });
+  const _treasureStreak = computeTreasureStreak({ completions, tasks, topPriorities });
+  const _achCtx = buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books, treasureStreak: _treasureStreak });
   const _nextBadge = nextBadgeFor(_achCtx);
   const _nextBadgeValue = _nextBadge?.val ? _nextBadge.val(_achCtx) : 0;
   const kidData = {
@@ -1230,6 +1279,9 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     },
     mainQuests: todaysTopEight.filter((t) => t.required).map(_questFromTask),
     sideQuests: todaysTopEight.filter((t) => !t.required).map(_questFromTask),
+    treasureStreak: _treasureStreak,
+    giftedToday,
+    earnedToday,
     stats: [
       { label: "Drum streak", value: _drumCurrent ? `${_drumCurrent}d` : "—" },
       { label: "Books finished", value: _booksFinished || "—" },
@@ -3669,9 +3721,10 @@ function RewardsKid({ rewards, starBank, requestReward, redemptions }) {
   );
 }
 
-function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay, setStatDetailId }) {
+function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay, setStatDetailId, topPriorities }) {
   const approved = completions.filter((c) => c.status === "approved");
-  const ctx = buildAchCtx({ completions, todaysTasks: todaysTasks || [], compByTask: compByTask || {}, starBank, streaks, books });
+  const treasureStreak = computeTreasureStreak({ completions, tasks: tasks || [], topPriorities });
+  const ctx = buildAchCtx({ completions, todaysTasks: todaysTasks || [], compByTask: compByTask || {}, starBank, streaks, books, treasureStreak });
   const dayWins = ACHIEVEMENTS.filter((a) => a.kind === "day");
   const trophies = ACHIEVEMENTS.filter((a) => a.kind === "trophy");
   const wonToday = dayWins.filter((a) => a.test(ctx)).length;
@@ -3849,7 +3902,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
@@ -3880,7 +3933,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         </div>
       </Card>
 
-      <GiftStarsCard giftStars={giftStars} />
+      <GiftStarsCard giftStars={giftStars} gifted={gifted} users={users} />
 
       <SectionTitle icon={<Clock size={16} className="text-amber-500" />}>Needs approval ({pending.length})</SectionTitle>
       {pending.length === 0 && <p className="text-xs text-slate-400 px-1">Nothing waiting. 🎉</p>}
@@ -4015,15 +4068,67 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   );
 }
 
-function GiftStarsCard({ giftStars }) {
+function GiftStarsCard({ giftStars, gifted = [], users = [] }) {
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState("");
   const [amt, setAmt] = useState(5);
-  if (!open) return <button onClick={() => setOpen(true)} className="w-full mt-3 py-3 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#f59e0b,#ec4899)" }}><Sparkles size={16} /> Gift bonus stars</button>;
+
+  // Filter to today only — the existing 'gifted' rows carry `date` as
+  // an ISO YYYY-MM-DD string (the bedtime 2026-06-10 fix). Sum + list
+  // so the parent sees what's already been given and never accidentally
+  // double-gifts the same activity.
+  const giftedToday = (gifted || []).filter((g) => g.date === TODAY_ISO);
+  const todayTotal = giftedToday.reduce((s, g) => s + (Number(g.stars) || 0), 0);
+
+  if (!open) {
+    return (
+      <div className="mt-3">
+        <button onClick={() => setOpen(true)} className="w-full py-3 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#f59e0b,#ec4899)" }}>
+          <Sparkles size={16} /> Gift bonus stars
+          {todayTotal > 0 && (
+            <span className="ml-1 text-[11px] font-extrabold bg-white/25 rounded-full px-2 py-0.5">
+              {todayTotal}⭐ today
+            </span>
+          )}
+        </button>
+        {/* Honest list of what's already been gifted today so the parent
+            never accidentally double-gifts the same activity. */}
+        {giftedToday.length > 0 && (
+          <div className="mt-2 bg-amber-50 border border-amber-200 rounded-2xl p-2.5">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">Already gifted today</div>
+            <div className="space-y-1">
+              {giftedToday.map((g) => {
+                const giver = users.find((u) => u.id === g.by)?.name || "—";
+                return (
+                  <div key={g.id} className="flex items-center gap-2 text-[12px]">
+                    <span className="font-bold text-amber-700 tabular-nums shrink-0">+{g.stars}⭐</span>
+                    <span className="flex-1 text-slate-700 truncate">{g.label}</span>
+                    <span className="text-[10px] text-slate-400 shrink-0">{giver}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <Card className="p-4 mt-3">
       <div className="font-bold text-sm mb-1 flex items-center gap-2"><Sparkles size={15} className="text-amber-500" /> Gift bonus stars</div>
       <div className="text-[11px] text-slate-400 mb-2">For great stuff that isn't on the list — helping others, cooking, kindness.</div>
+      {giftedToday.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-2 mb-2">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">Already gifted today ({todayTotal}⭐)</div>
+          {giftedToday.map((g) => (
+            <div key={g.id} className="flex items-center gap-2 text-[11px]">
+              <span className="font-bold text-amber-700 tabular-nums shrink-0">+{g.stars}⭐</span>
+              <span className="flex-1 text-slate-700 truncate">{g.label}</span>
+            </div>
+          ))}
+          <div className="text-[10px] text-amber-700 mt-1 font-bold">Don't double-gift — pick a different reason or amount.</div>
+        </div>
+      )}
       <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="What did he do? e.g. Helped cook dinner" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
       <div className="flex items-center gap-2 mb-3">
         {[3, 5, 10, 15, 20].map((n) => <button key={n} onClick={() => setAmt(n)} className={`px-3 py-1.5 rounded-xl text-sm font-bold ${amt === n ? "bg-amber-400 text-white" : "bg-slate-100 text-slate-500"}`}>{n}⭐</button>)}
