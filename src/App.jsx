@@ -1446,6 +1446,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
             base={CHILD.starBankBase}
             role={user?.role}
             removeGift={removeGift}
+            songs={songs}
+            songPlays={songPlays}
+            albumPhotos={albumPhotos}
+            books={books}
           />
         )}
       </div>
@@ -2156,6 +2160,10 @@ function StatDetail({
   base,
   role,
   removeGift,
+  songs,
+  songPlays,
+  albumPhotos,
+  books,
 }) {
   // Date windows for the per-task tallies.
   // Week = calendar week Sun–Sat — today.getDay() returns 0 for Sunday,
@@ -2347,6 +2355,11 @@ function StatDetail({
           base={base}
           isParent={role === "parent"}
           onRemoveGift={removeGift}
+          songs={songs}
+          songPlays={songPlays}
+          albumPhotos={albumPhotos}
+          books={books}
+          activities={activities}
         />
       </>
     );
@@ -2420,7 +2433,16 @@ function StatDetail({
 // Base. Gifts get a small × so a parent can delete a duplicate
 // without leaving the sheet. Mirrors the Portfolio fix's per-row
 // honest-date treatment.
-function StarLedger({ completions, tasks, gifted, redemptions, users, base, isParent, onRemoveGift }) {
+//
+// Tapping any row drills into DayBreakdown — the per-day audit view
+// showing every completion, gift, redemption, song, photo, and book
+// activity for that ISO date. Answers "what actually happened on
+// June 9?" without leaving the bank sheet.
+function StarLedger({
+  completions, tasks, gifted, redemptions, users, base, isParent, onRemoveGift,
+  songs, songPlays, albumPhotos, books, activities,
+}) {
+  const [selectedDay, setSelectedDay] = useState(null);
   const fmtRowDate = (iso) => {
     if (!iso) return "—";
     const d = new Date(iso + "T12:00");
@@ -2469,6 +2491,28 @@ function StarLedger({ completions, tasks, gifted, redemptions, users, base, isPa
     if (a.date !== b.date) return (b.date || "").localeCompare(a.date || "");
     return b.key.localeCompare(a.key);
   });
+
+  if (selectedDay) {
+    return (
+      <DayBreakdown
+        iso={selectedDay}
+        onBack={() => setSelectedDay(null)}
+        completions={completions}
+        tasks={tasks}
+        activities={activities}
+        gifted={gifted}
+        redemptions={redemptions}
+        users={users}
+        songs={songs}
+        songPlays={songPlays}
+        albumPhotos={albumPhotos}
+        books={books}
+        isParent={isParent}
+        onRemoveGift={onRemoveGift}
+      />
+    );
+  }
+
   return (
     <div className="mt-4">
       <div className="flex items-baseline justify-between mb-2 px-1">
@@ -2494,22 +2538,29 @@ function StarLedger({ completions, tasks, gifted, redemptions, users, base, isPa
               : "🎁";
             return (
               <div key={row.key} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
-                <div className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${bg}`}>
-                  <span className="text-sm">{icon}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-bold text-slate-800 truncate">
-                    {row.label}
-                    {row.sub && <span className="text-slate-400 font-normal"> · {row.sub}</span>}
+                <button
+                  type="button"
+                  onClick={() => row.date && setSelectedDay(row.date)}
+                  className="flex-1 flex items-center gap-2 min-w-0 text-left active:scale-[0.99] transition"
+                  title={row.date ? "See everything that happened this day" : ""}
+                >
+                  <div className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${bg}`}>
+                    <span className="text-sm">{icon}</span>
                   </div>
-                  <div className="text-[10px] text-slate-400">
-                    {fmtRowDate(row.date)}
-                    {row.who ? ` · ${row.who}` : ""}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] font-bold text-slate-800 truncate">
+                      {row.label}
+                      {row.sub && <span className="text-slate-400 font-normal"> · {row.sub}</span>}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {fmtRowDate(row.date)}
+                      {row.who ? ` · ${row.who}` : ""}
+                    </div>
                   </div>
-                </div>
-                <div className={`text-sm font-extrabold tabular-nums shrink-0 ${color}`}>
-                  {row.stars > 0 ? "+" : ""}{row.stars}⭐
-                </div>
+                  <div className={`text-sm font-extrabold tabular-nums shrink-0 ${color}`}>
+                    {row.stars > 0 ? "+" : ""}{row.stars}⭐
+                  </div>
+                </button>
                 {row.deletable && isParent && onRemoveGift && (
                   <button
                     type="button"
@@ -2528,6 +2579,247 @@ function StarLedger({ completions, tasks, gifted, redemptions, users, base, isPa
             );
           })}
         </Card>
+      )}
+    </div>
+  );
+}
+
+// DayBreakdown — everything that happened on a single ISO date.
+// Reached by tapping a row in the Star Ledger. Per the user's
+// "honest data audit" theme: nothing derived, nothing fudged — each
+// section pulls straight from its source table filtered by date.
+//
+// Sections (in order of "is it stars-related?"):
+//   1. Stars summary — net for the day
+//   2. Completions — approved + pending, with task title + actor
+//   3. Gifts — same parent-only delete UX as the ledger
+//   4. Redemptions
+//   5. Songs played — title + canonical + notes
+//   6. Photos uploaded — count + previewed in PhotoGallery
+//   7. Books — started / finished that day
+function DayBreakdown({
+  iso, onBack,
+  completions, tasks, activities, gifted, redemptions, users,
+  songs, songPlays, albumPhotos, books,
+  isParent, onRemoveGift,
+}) {
+  const dayDate = new Date(iso + "T12:00");
+  const dayLabel = dayDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+  const dayCompletions = (completions || []).filter((c) => c.completionDate === iso);
+  const dayApproved = dayCompletions.filter((c) => c.status === "approved");
+  const dayPending = dayCompletions.filter((c) => c.status === "pending");
+  const dayGifts = (gifted || []).filter((g) => g.date === iso);
+  const dayRedemptions = (redemptions || []).filter((r) => r.completionDate === iso && r.status === "approved");
+  const daySongs = (songPlays || []).filter((p) => p.playedOn === iso);
+  const dayPhotos = (albumPhotos || []).filter((p) => (p.takenAt || (p.createdAt || "").slice(0, 10)) === iso);
+  const dayBooksFinished = (books || []).filter((b) => b.finished === iso);
+  const dayBooksStarted = (books || []).filter((b) => b.started === iso && b.finished !== iso);
+
+  const earnedNet = dayApproved.reduce((s, c) => s + (c.awardedStars || 0), 0);
+  const giftedNet = dayGifts.reduce((s, g) => s + (Number(g.stars) || 0), 0);
+  const redeemedNet = dayRedemptions.reduce((s, r) => s + (r.cost || 0), 0);
+  const net = earnedNet + giftedNet - redeemedNet;
+
+  const taskTitle = (id) => (tasks || []).find((t) => t.id === id)?.title || id;
+  const userName = (id) => (users || []).find((u) => u.id === id)?.name || "";
+  const songName = (id) => {
+    const s = (songs || []).find((x) => x.id === id);
+    if (!s) return "(deleted song)";
+    return s.canonicalTitle || s.title || "(unknown)";
+  };
+  const songArtist = (id) => {
+    const s = (songs || []).find((x) => x.id === id);
+    return s ? (s.canonicalArtist || s.artist || "") : "";
+  };
+
+  const Section = ({ title, count, accent, children }) => (
+    <div className="mt-3">
+      <div className="flex items-baseline justify-between px-1 mb-1">
+        <div className={`text-[11px] font-extrabold uppercase tracking-wider ${accent}`}>{title}</div>
+        <div className="text-[10px] text-slate-400 tabular-nums">{count}</div>
+      </div>
+      {children}
+    </div>
+  );
+
+  const isEmpty = !dayApproved.length && !dayPending.length && !dayGifts.length && !dayRedemptions.length
+    && !daySongs.length && !dayPhotos.length && !dayBooksFinished.length && !dayBooksStarted.length;
+
+  return (
+    <div className="mt-4">
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex items-center gap-1 text-[12px] font-bold text-violet-700 mb-2 px-1 active:opacity-70"
+      >
+        <ChevronLeft size={14} /> Back to ledger
+      </button>
+
+      <div className="bg-gradient-to-br from-violet-50 to-indigo-50 rounded-2xl p-4 mb-2 text-center border border-violet-100">
+        <div className="text-[11px] font-bold text-violet-700 uppercase tracking-wider">{dayLabel}</div>
+        <div className={`text-3xl font-extrabold mt-1 tabular-nums ${net >= 0 ? "text-violet-700" : "text-rose-700"}`}>
+          {net > 0 ? "+" : ""}{net}⭐
+        </div>
+        <div className="text-[10px] text-slate-500 mt-0.5">net stars this day</div>
+      </div>
+
+      {isEmpty ? (
+        <Card className="p-4 text-center text-xs text-slate-400">
+          Nothing logged on this day.
+        </Card>
+      ) : (
+        <>
+          {dayApproved.length > 0 && (
+            <Section title={`Earned · +${earnedNet}⭐`} count={dayApproved.length} accent="text-emerald-700">
+              <Card className="p-2">
+                {dayApproved.map((c) => (
+                  <div key={c.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-50 grid place-items-center shrink-0 text-sm">⭐</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-bold text-slate-800 truncate">{taskTitle(c.taskId)}</div>
+                      <div className="text-[10px] text-slate-400">approved by {userName(c.approvedBy) || "—"}</div>
+                    </div>
+                    <div className="text-sm font-extrabold text-emerald-700 tabular-nums shrink-0">+{c.awardedStars}⭐</div>
+                  </div>
+                ))}
+              </Card>
+            </Section>
+          )}
+          {dayPending.length > 0 && (
+            <Section title="Pending approval" count={dayPending.length} accent="text-amber-700">
+              <Card className="p-2">
+                {dayPending.map((c) => (
+                  <div key={c.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <div className="w-7 h-7 rounded-lg bg-amber-50 grid place-items-center shrink-0 text-sm">⏳</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-bold text-slate-800 truncate">{taskTitle(c.taskId)}</div>
+                      <div className="text-[10px] text-slate-400">submitted by {userName(c.submittedBy) || "Reznor"}</div>
+                    </div>
+                    <div className="text-[10px] font-bold text-amber-700 shrink-0">awaiting</div>
+                  </div>
+                ))}
+              </Card>
+            </Section>
+          )}
+          {dayGifts.length > 0 && (
+            <Section title={`Gifted · +${giftedNet}⭐`} count={dayGifts.length} accent="text-pink-700">
+              <Card className="p-2">
+                {dayGifts.map((g) => (
+                  <div key={g.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <div className="w-7 h-7 rounded-lg bg-pink-50 grid place-items-center shrink-0 text-sm">✨</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-bold text-slate-800 truncate">{g.label || "Bonus"}</div>
+                      <div className="text-[10px] text-slate-400">from {userName(g.by) || "—"}</div>
+                    </div>
+                    <div className="text-sm font-extrabold text-pink-700 tabular-nums shrink-0">+{Number(g.stars) || 0}⭐</div>
+                    {isParent && onRemoveGift && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Delete this gift?\n\n"${g.label || "Bonus"}" (+${g.stars}⭐)\n\nReznor's bank will drop by ${g.stars} stars.`)) {
+                            onRemoveGift(g.id);
+                          }
+                        }}
+                        className="text-slate-300 hover:text-rose-500 p-1 shrink-0"
+                        aria-label="Delete gift"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </Card>
+            </Section>
+          )}
+          {dayRedemptions.length > 0 && (
+            <Section title={`Redeemed · −${redeemedNet}⭐`} count={dayRedemptions.length} accent="text-rose-700">
+              <Card className="p-2">
+                {dayRedemptions.map((r) => (
+                  <div key={r.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <div className="w-7 h-7 rounded-lg bg-rose-50 grid place-items-center shrink-0 text-sm">🎁</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-bold text-slate-800 truncate">{r.title || "Reward"}</div>
+                      <div className="text-[10px] text-slate-400">for {userName(r.requestedBy) || "—"}</div>
+                    </div>
+                    <div className="text-sm font-extrabold text-rose-700 tabular-nums shrink-0">−{r.cost || 0}⭐</div>
+                  </div>
+                ))}
+              </Card>
+            </Section>
+          )}
+          {daySongs.length > 0 && (
+            <Section title="Songs played" count={daySongs.length} accent="text-purple-700">
+              <Card className="p-2">
+                {daySongs.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <div className="w-7 h-7 rounded-lg bg-purple-50 grid place-items-center shrink-0">
+                      <Music size={13} className="text-purple-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-bold text-slate-800 truncate">{songName(p.songId)}</div>
+                      <div className="text-[10px] text-slate-400 truncate">
+                        {songArtist(p.songId)}
+                        {p.notes ? `${songArtist(p.songId) ? " · " : ""}${p.notes}` : ""}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            </Section>
+          )}
+          {dayPhotos.length > 0 && (
+            <Section title="Photos uploaded" count={dayPhotos.length} accent="text-cyan-700">
+              <Card className="p-2">
+                {dayPhotos.slice(0, 6).map((p, i) => (
+                  <div key={p.id || i} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <div className="w-7 h-7 rounded-lg bg-cyan-50 grid place-items-center shrink-0">
+                      <Camera size={13} className="text-cyan-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-bold text-slate-800 truncate">
+                        {p.caption || <span className="font-normal text-slate-400">(no caption)</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {dayPhotos.length > 6 && (
+                  <div className="text-[10px] text-slate-400 text-center pt-1.5">
+                    + {dayPhotos.length - 6} more
+                  </div>
+                )}
+              </Card>
+            </Section>
+          )}
+          {(dayBooksFinished.length + dayBooksStarted.length) > 0 && (
+            <Section title="Books" count={dayBooksFinished.length + dayBooksStarted.length} accent="text-indigo-700">
+              <Card className="p-2">
+                {dayBooksFinished.map((b) => (
+                  <div key={`f-${b.id}`} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-50 grid place-items-center shrink-0">
+                      <BookOpen size={13} className="text-indigo-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-bold text-slate-800 truncate">{b.title}</div>
+                      <div className="text-[10px] text-slate-400 truncate">finished · {b.author || "unknown author"}</div>
+                    </div>
+                  </div>
+                ))}
+                {dayBooksStarted.map((b) => (
+                  <div key={`s-${b.id}`} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-50 grid place-items-center shrink-0">
+                      <BookOpen size={13} className="text-indigo-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-bold text-slate-800 truncate">{b.title}</div>
+                      <div className="text-[10px] text-slate-400 truncate">started · {b.author || "unknown author"}</div>
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            </Section>
+          )}
+        </>
       )}
     </div>
   );
