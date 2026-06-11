@@ -1,5 +1,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import { Music, Plus, X } from "lucide-react";
+import { useSignedUrl } from "./lib/storage.js";
+import { buildAlbumCoverMap, resolveSongCover } from "./lib/albumCover.js";
 
 /* =====================================================================
    SongLogger — fast drum-song logger.
@@ -12,6 +14,13 @@ import { Music, Plus, X } from "lucide-react";
    - "Most played" and per-song counts are DERIVED from song_plays at
      display time (§3) — no separate counter columns.
 
+   Display layer borrows the canonical fields (canonicalTitle /
+   canonicalArtist / canonicalAlbum / coverUrl / customCoverPath)
+   populated by the iTunes / MB enrichment so the picker shows the
+   same source-of-truth Music Library and Insights do. Covers are
+   album-deduped via src/lib/albumCover.js — log once with a cover
+   on any Toxicity song and every SOAD song from Toxicity inherits it.
+
    Props:
      songs:        catalog rows
      songPlays:    all play rows
@@ -20,9 +29,53 @@ import { Music, Plus, X } from "lucide-react";
      fuzzyMatch:   shared fuzzy matcher from App.jsx
    ===================================================================== */
 
+// Inline-tile renderer. Cover thumb + canonical metadata + play count
+// + tap-to-log. Used by quick-taps and search results so the picker
+// feels like a single consistent surface.
+function SongPickerRow({ s, count, onPick }) {
+  const customCoverSigned = useSignedUrl(s.customCoverPath || "");
+  const displayCover = customCoverSigned || s.coverUrl || "";
+  const title  = s.canonicalTitle  || s.title  || "(unknown)";
+  const artist = s.canonicalArtist || s.artist || "";
+  const album  = s.canonicalAlbum  || "";
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.preventDefault(); onPick?.(s); }}
+      className="w-full flex items-center gap-2 p-1.5 rounded-xl bg-white border border-purple-200 hover:border-purple-400 active:scale-[0.99] text-left"
+    >
+      {displayCover ? (
+        <img
+          src={displayCover}
+          alt=""
+          draggable={false}
+          className="w-8 h-8 object-cover rounded-md border border-slate-200 shrink-0 bg-slate-100"
+          loading="lazy"
+          onError={(e) => { e.currentTarget.style.display = "none"; }}
+        />
+      ) : (
+        <div className="w-8 h-8 rounded-md bg-slate-100 border border-slate-200 grid place-items-center shrink-0 text-slate-300">
+          <Music size={14} />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="text-[12px] font-bold text-slate-800 truncate">{title}</div>
+        <div className="text-[10px] text-slate-500 truncate">
+          {artist}{artist && album ? " · " : ""}{album && <span className="italic">{album}</span>}
+        </div>
+      </div>
+      {count > 0 && (
+        <span className="text-[10px] font-bold tabular-nums text-cyan-700 bg-cyan-50 border border-cyan-100 rounded-full px-2 py-0.5 shrink-0">
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export default function SongLogger({ songs, songPlays, addSong, addSongPlay, fuzzyMatch }) {
   const [q, setQ] = useState("");
-  const [sessionLog, setSessionLog] = useState([]); // [{id, songId, title, artist}]
+  const [sessionLog, setSessionLog] = useState([]); // [{id, songId, title}]
   const inputRef = useRef(null);
 
   // Counts derived from canonical song_plays — single source of truth.
@@ -32,41 +85,67 @@ export default function SongLogger({ songs, songPlays, addSong, addSongPlay, fuz
     return m;
   }, [songPlays]);
 
-  // Quick-tap chips: 6 most-played songs (fall back to most-recent songs
-  // if no play history yet).
-  const quickTaps = useMemo(() => {
-    const enriched = (songs || []).map((s) => ({ ...s, count: playCount[s.id] || 0 }));
-    enriched.sort((a, b) => (b.count - a.count) || (a.title || "").localeCompare(b.title || ""));
-    return enriched.slice(0, 6);
-  }, [songs, playCount]);
+  // Cover dedup map — songs sharing (canonical_artist, canonical_album)
+  // see one cover everywhere. Same helper Music Library + Insights use.
+  const albumMap = useMemo(() => buildAlbumCoverMap(songs || []), [songs]);
 
-  // Fuzzy results.
+  // Quick-taps: 10 most-played, cover-resolved. Falls back to most-
+  // recently-added if no plays yet.
+  const quickTaps = useMemo(() => {
+    const enriched = (songs || []).map((s) => ({
+      ...resolveSongCover(s, albumMap),
+      _count: playCount[s.id] || 0,
+    }));
+    enriched.sort((a, b) => (b._count - a._count) || (a.title || "").localeCompare(b.title || ""));
+    return enriched.slice(0, 10);
+  }, [songs, playCount, albumMap]);
+
+  // Fuzzy search across title + canonical title + artist + canonical
+  // artist + canonical album. Catches typos like "Tipos Malos" matching
+  // "Los Tipos Malos".
   const filtered = useMemo(() => {
     const query = q.trim();
     if (!query) return [];
     return (songs || [])
-      .map((s) => ({ s, m: fuzzyMatch(query, [s.title, s.artist].filter(Boolean).join(" ")) }))
+      .map((s) => {
+        const hay = [
+          s.title, s.canonicalTitle,
+          s.artist, s.canonicalArtist,
+          s.canonicalAlbum,
+        ].filter(Boolean).join(" ");
+        return { s, m: fuzzyMatch(query, hay) };
+      })
       .filter((x) => x.m.hit)
       .sort((a, b) => b.m.score - a.m.score)
       .slice(0, 8)
-      .map((x) => x.s);
-  }, [songs, q, fuzzyMatch]);
+      .map((x) => ({
+        ...resolveSongCover(x.s, albumMap),
+        _count: playCount[x.s.id] || 0,
+      }));
+  }, [songs, q, fuzzyMatch, playCount, albumMap]);
 
-  // Show "+ Add" when no exact (case-insensitive) title match.
+  // Only offer "+ Add new" when nothing matches in any field. Demoted to
+  // a small text affordance below the input so a parent doesn't
+  // accidentally create a duplicate when the canonical artist/album
+  // is what they're after.
   const exactMatch = q.trim() && (songs || []).find(
     (s) => (s.title || "").toLowerCase() === q.toLowerCase().trim()
+      || (s.canonicalTitle || "").toLowerCase() === q.toLowerCase().trim()
   );
-  const showAdd = q.trim() && !exactMatch;
+  const showAdd = q.trim() && !exactMatch && filtered.length === 0;
 
   const focusInput = () => {
-    // Defer to next frame so keyboards on mobile don't fight the rerender.
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
   const logSong = (song) => {
     addSongPlay(song.id);
     setSessionLog((prev) => [
-      { key: Date.now() + "_" + Math.random().toString(36).slice(2, 5), songId: song.id, title: song.title, artist: song.artist },
+      {
+        key: Date.now() + "_" + Math.random().toString(36).slice(2, 5),
+        songId: song.id,
+        title: song.canonicalTitle || song.title || "(unknown)",
+      },
       ...prev,
     ]);
     setQ("");
@@ -80,7 +159,7 @@ export default function SongLogger({ songs, songPlays, addSong, addSongPlay, fuz
     if (!newId) return;
     addSongPlay(newId);
     setSessionLog((prev) => [
-      { key: Date.now() + "_" + Math.random().toString(36).slice(2, 5), songId: newId, title, artist: null },
+      { key: Date.now() + "_" + Math.random().toString(36).slice(2, 5), songId: newId, title },
       ...prev,
     ]);
     setQ("");
@@ -106,64 +185,59 @@ export default function SongLogger({ songs, songPlays, addSong, addSongPlay, fuz
         )}
       </div>
 
-      {quickTaps.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {quickTaps.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={(e) => { e.preventDefault(); logSong(s); }}
-              title={`${s.count || 0} total ${s.count === 1 ? "play" : "plays"}${s.artist ? ` · ${s.artist}` : ""}`}
-              className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-700 hover:bg-purple-100 active:scale-95"
-            >
-              + {s.title}{s.count > 0 ? ` (${s.count})` : ""}
-            </button>
+      {/* Search input. Enter logs the top filtered result, or
+          "+ Add new" if nothing matches. */}
+      <input
+        ref={inputRef}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          if (filtered[0]) logSong(filtered[0]);
+          else if (showAdd) addAndLog();
+        }}
+        placeholder="Search his songs — typos OK (fuzzy match)…"
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none mb-2 bg-white"
+      />
+
+      {/* Search results — proper picker rows with cover + canonical
+          metadata + play count. Only visible when typing. */}
+      {filtered.length > 0 && (
+        <div className="space-y-1.5 mb-2">
+          {filtered.map((s) => (
+            <SongPickerRow key={s.id} s={s} count={s._count} onPick={logSong} />
           ))}
         </div>
       )}
 
-      <div className="flex gap-1.5">
-        <input
-          ref={inputRef}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            if (filtered[0]) logSong(filtered[0]);
-            else if (showAdd) addAndLog();
-          }}
-          placeholder="Type a song (fuzzy — typos OK)…"
-          className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none"
-        />
-        {showAdd && (
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); addAndLog(); }}
-            className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold flex items-center gap-1"
-          >
-            <Plus size={13} /> Add
-          </button>
-        )}
-      </div>
+      {showAdd && (
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); addAndLog(); }}
+          className="w-full mb-2 text-[12px] font-bold text-indigo-700 bg-white border border-dashed border-indigo-300 rounded-xl py-2 active:scale-[0.99] flex items-center justify-center gap-1"
+        >
+          <Plus size={13} /> Add "{q.trim()}" as a new song
+        </button>
+      )}
 
-      {filtered.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {filtered.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={(e) => { e.preventDefault(); logSong(s); }}
-              className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white border border-slate-200 text-slate-700 hover:border-purple-300"
-            >
-              ↵ {s.title}{s.artist ? ` — ${s.artist}` : ""}{playCount[s.id] ? ` (${playCount[s.id]})` : ""}
-            </button>
-          ))}
-        </div>
+      {/* Quick-tap list — top 10 most-played, always visible so the
+          parent can scroll and pick without typing. */}
+      {!q.trim() && quickTaps.length > 0 && (
+        <>
+          <div className="text-[10px] uppercase tracking-wider font-bold text-purple-700 mb-1.5 px-1">
+            Most played — tap to log
+          </div>
+          <div className="space-y-1.5">
+            {quickTaps.map((s) => (
+              <SongPickerRow key={s.id} s={s} count={s._count} onPick={logSong} />
+            ))}
+          </div>
+        </>
       )}
 
       {sessionLog.length > 0 && (
-        <div className="mt-3">
+        <div className="mt-3 pt-3 border-t border-purple-200">
           <div className="text-[11px] font-bold text-slate-500 mb-1 flex items-center justify-between">
             <span>Logged this session</span>
             <button
