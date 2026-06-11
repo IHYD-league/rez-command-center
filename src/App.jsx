@@ -1314,6 +1314,9 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
             songPlays={songPlays}
             addSong={addSong}
             addSongPlay={addSongPlay}
+            books={books}
+            updateBook={updateBook}
+            addBook={addBook}
           />
         )}
         {celebrate && <CelebrateOverlay data={celebrate} onClose={() => setCelebrate(null)} />}
@@ -2895,7 +2898,7 @@ function StreakCard({ e, hero }) {
 }
 
 // ===================== TASK SHEET (submit flow) =====================
-function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, songPlays, addSong, addSongPlay }) {
+function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, songPlays, addSong, addSongPlay, books = [], updateBook, addBook }) {
   const [notes, setNotes] = useState(existing?.notes || "");
   const [bookTitle, setBookTitle] = useState(existing?.extra?.bookTitle || "");
   const [lang, setLang] = useState(existing?.extra?.lang || "English");
@@ -2906,10 +2909,61 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
   const [melodics, setMelodics] = useState("");
   const [songList, setSongList] = useState("");
   const [title, setTitle] = useState("");
+  // Reading picker — bookId is set when an existing book is selected;
+  // markFinished is the "I finished this book today" checkbox that
+  // flips the book's status to finished on submit. Both flow into
+  // extra.bookId / extra.markFinished so future analytics can read them.
+  const [bookId, setBookId] = useState(existing?.extra?.bookId || null);
+  const [markFinished, setMarkFinished] = useState(false);
+  const [bookSearch, setBookSearch] = useState("");
 
   const isReading = task.proofType === "reading";
   const isDrums = task.proofType === "drums";
   const isPhoto = task.proofType === "photo";
+
+  // Picker list: books filtered by free-text + sorted by "what's
+  // most useful at submit time" — reading-in-progress first (most
+  // likely match), then wishlist, then archive (re-read candidates),
+  // then finished/dropped. Top 20 keeps the dropdown bounded.
+  const pickerBooks = useMemo(() => {
+    if (!isReading) return [];
+    const needle = bookSearch.trim().toLowerCase();
+    const all = (books || []).map((b) => ({
+      ...b,
+      _display: b.canonicalTitle || b.title || "",
+    }));
+    const filtered = needle
+      ? all.filter((b) => {
+          const hay = `${b._display} ${b.canonicalAuthor || ""} ${b.lang || ""}`.toLowerCase();
+          return hay.includes(needle);
+        })
+      : all;
+    const statusOrder = { reading: 0, wishlist: 1, dropped: 3, finished: 4 };
+    return filtered
+      .sort((a, b) => {
+        const aArch = a.preTracking ? 2 : (statusOrder[a.status] ?? 99);
+        const bArch = b.preTracking ? 2 : (statusOrder[b.status] ?? 99);
+        if (aArch !== bArch) return aArch - bArch;
+        return a._display.localeCompare(b._display);
+      })
+      .slice(0, 20);
+  }, [books, bookSearch, isReading]);
+
+  const pickedBook = bookId ? (books || []).find((b) => b.id === bookId) : null;
+
+  // Tap a book in the picker — fills the title/lang fields so the
+  // existing form gates still pass, and pins bookId so doSubmit knows
+  // to update that row on the books side.
+  const pickBook = (b) => {
+    setBookId(b.id);
+    setBookTitle(b._display || b.title || "");
+    if (b.lang) setLang(b.lang);
+    setBookSearch("");
+  };
+  const clearPick = () => {
+    setBookId(null);
+    // Keep bookTitle so the user can edit it as free text from there.
+  };
 
   // Upload the file to family-photos under <familyId>/proof/ and store
   // the returned path on the photo object. The legacy `url` field is
@@ -2941,9 +2995,67 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
     // Strip any legacy preview URL from the stored proof item.
     const proof = photo ? [{ type: "photo", name: photo.name, path: photo.path }] : [];
     const extra = {};
-    if (isReading) Object.assign(extra, { bookTitle, lang, minutes });
+    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+
+    // Reading-side writes — keep the catalog in sync with what just got
+    // read. This is the unification Mike asked for: one book, one row,
+    // re-reads incrementing read_count; archive entries can graduate
+    // into actively-tracked rows on re-read while keeping their
+    // pre-tracking historical marker intact.
+    if (isReading) {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      if (pickedBook && updateBook) {
+        const patch = {};
+        const wasRereadCandidate =
+          pickedBook.status === "finished" ||
+          pickedBook.status === "dropped" ||
+          pickedBook.preTracking;
+        if (markFinished) {
+          patch.status = "finished";
+          patch.finished = todayIso;
+          if (!pickedBook.started) patch.started = todayIso;
+          if (wasRereadCandidate) {
+            patch.readCount = (pickedBook.readCount || 1) + 1;
+          }
+        } else if (pickedBook.status !== "reading") {
+          patch.status = "reading";
+          patch.finished = "";
+          patch.started = todayIso;
+          if (wasRereadCandidate) {
+            patch.readCount = (pickedBook.readCount || 1) + 1;
+          }
+        }
+        if (Object.keys(patch).length > 0) updateBook(pickedBook.id, patch);
+      } else if (!pickedBook && bookTitle.trim() && addBook) {
+        // Free-typed title with no existing match — create a new book
+        // row so the next session can pick it instead of re-typing.
+        addBook({
+          id: "b_" + Date.now(),
+          title: bookTitle.trim(),
+          lang,
+          status: markFinished ? "finished" : "reading",
+          started: todayIso,
+          finished: markFinished ? todayIso : "",
+          level: "",
+          rating: 0,
+          notes: "",
+          preTracking: false,
+          eraLabel: "",
+          readCount: 1,
+          coverUrl: "",
+          canonicalTitle: "",
+          canonicalAuthor: "",
+          customCoverPath: "",
+          externalSource: "",
+          externalId: "",
+          enrichedAt: null,
+          matchStatus: "unmatched",
+        });
+      }
+    }
+
     onSubmit(task.id, { notes, proof, extra });
   };
 
@@ -3049,13 +3161,103 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
           <div className="mt-4 space-y-3">
             {isReading && (
               <>
-                <Field label="Book title *"><input value={bookTitle} onChange={(e) => setBookTitle(e.target.value)} placeholder="e.g. Dog Man" className="input" /></Field>
+                {/* Book picker — search existing books to avoid duplicates.
+                    Tap a result to pin it; the title input + lang fill
+                    automatically. Type a new title in the field below
+                    when nothing matches. */}
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 mb-1">Pick from library, or type a new one below</div>
+                  <input
+                    value={bookSearch}
+                    onChange={(e) => setBookSearch(e.target.value)}
+                    placeholder="Search books he's read or is reading…"
+                    className="input"
+                  />
+                  {bookSearch.trim() && pickerBooks.length > 0 && (
+                    <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
+                      {pickerBooks.map((b) => {
+                        const statusLabel =
+                          b.preTracking ? `Archive · ${b.eraLabel || "era unset"}`
+                          : b.status === "finished" ? "Finished"
+                          : b.status === "wishlist" ? "Wishlist"
+                          : b.status === "dropped" ? "Dropped"
+                          : "Reading";
+                        const statusColor =
+                          b.preTracking ? "bg-amber-100 text-amber-800"
+                          : b.status === "finished" ? "bg-emerald-100 text-emerald-700"
+                          : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
+                          : b.status === "dropped" ? "bg-slate-200 text-slate-500"
+                          : "bg-sky-100 text-sky-700";
+                        const isRereadCandidate = b.preTracking || b.status === "finished" || b.status === "dropped";
+                        return (
+                          <button
+                            key={b.id}
+                            type="button"
+                            onClick={() => pickBook(b)}
+                            className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-bold text-slate-800 truncate">{b._display || "(untitled)"}</div>
+                              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${statusColor}`}>{statusLabel}</span>
+                                {b.lang && <span className="text-[10px] text-slate-500">{b.lang}</span>}
+                                {(b.readCount || 1) > 1 && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                                    Read {b.readCount}×
+                                  </span>
+                                )}
+                                {isRereadCandidate && (
+                                  <span className="text-[10px] text-amber-600 font-bold">round {((b.readCount || 1) + 1)}?</span>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {pickedBook && (
+                    <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-2">
+                      <Check size={14} className="text-emerald-600 shrink-0" />
+                      <div className="flex-1 text-[12px] text-emerald-800 font-bold truncate">
+                        Picked: {pickedBook.canonicalTitle || pickedBook.title || "(untitled)"}
+                        {(pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped") && (
+                          <span className="text-[10px] text-amber-700 ml-1">(this will be Round {(pickedBook.readCount || 1) + 1})</span>
+                        )}
+                      </div>
+                      <button onClick={clearPick} className="text-emerald-600 p-1" aria-label="Clear picked book">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <Field label={pickedBook ? "Title (synced from pick)" : "Book title *"}>
+                  <input
+                    value={bookTitle}
+                    onChange={(e) => { setBookTitle(e.target.value); if (pickedBook) setBookId(null); }}
+                    placeholder="e.g. Dog Man"
+                    className="input"
+                  />
+                </Field>
                 <div className="flex gap-2">
                   <button onClick={() => setLang("English")} className={`flex-1 py-2 rounded-2xl text-sm font-semibold ${lang === "English" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>English</button>
                   <button onClick={() => setLang("Spanish")} className={`flex-1 py-2 rounded-2xl text-sm font-semibold ${lang === "Spanish" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>Spanish 🇪🇸</button>
                 </div>
                 <Field label="Minutes read"><input type="number" value={minutes} onChange={(e) => setMinutes(e.target.value)} className="input" /></Field>
-                <div className="text-[11px] text-slate-400 flex items-center gap-1"><Camera size={12} /> TODO: book-cover scanner to auto-fill title</div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={markFinished}
+                    onChange={(e) => setMarkFinished(e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm text-slate-700">
+                    ✅ He finished this book today
+                    {pickedBook && (pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped")
+                      ? ` (Round ${(pickedBook.readCount || 1) + 1})`
+                      : ""}
+                  </span>
+                </label>
               </>
             )}
 
@@ -4315,7 +4517,10 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
   const thisMonth = tracked.filter((b) => b.status === "finished" && (b.finished || "").startsWith("2026-06")).length;
   const paces = tracked.filter((b) => b.status === "finished").map((b) => daysBetween(b.started, b.finished)).filter(Boolean);
   const avgPace = paces.length ? Math.round(paces.reduce((s, n) => s + n, 0) / paces.length) : null;
-  const finishedTotal = books.filter((b) => b.status === "finished").length; // tracked + backlog
+  // Finished count: explicit status=finished OR a pre-tracking archive
+  // entry. Archive books ARE finished — Reznor read them, we just have
+  // honest "no precise dates" framing instead of made-up timestamps.
+  const finishedTotal = books.filter((b) => b.status === "finished" || b.preTracking).length;
   // Group backlog by era_label for the archive header. Uses a plain
   // object instead of `new Map()` because this file imports `Map`
   // from lucide-react as an icon — `new Map()` would resolve to the
@@ -4561,6 +4766,12 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
             {b.preTracking && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
                 Pre-tracking{b.eraLabel ? ` · ${b.eraLabel}` : ""}
+              </span>
+            )}
+            {/* Re-read counter — only shows when > 1 to avoid clutter. */}
+            {(b.readCount || 1) > 1 && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                Read {b.readCount}×
               </span>
             )}
           </div>

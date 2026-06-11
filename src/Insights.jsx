@@ -560,7 +560,11 @@ export default function Insights({
     const eraCounts = new Map();
     let backlogCount = 0;
     for (const b of books || []) {
-      const status = b.status || "reading";
+      // Pre-tracking archive entries ARE finished books — Reznor read
+      // them, we just don't have precise dates. Bucket them under
+      // "finished" so the totals match reality. The Archive section
+      // below still surfaces them separately for honesty.
+      const status = b.preTracking ? "finished" : (b.status || "reading");
       buckets[status] = (buckets[status] || 0) + 1;
       if (b.lang) byLang.set(b.lang, (byLang.get(b.lang) || 0) + 1);
       if (b.level) byLevel.set(b.level, (byLevel.get(b.level) || 0) + 1);
