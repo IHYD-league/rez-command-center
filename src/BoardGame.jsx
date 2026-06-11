@@ -584,59 +584,26 @@ function buildPathD(positions) {
 }
 
 // Replay pill — bottom-of-board button that lets the kid re-watch the
-// catch-up journey. Tap = fast (Reznor's preferred); long-press OR
-// right-click = slow walk-pace (for enjoying the dino walk-cycle).
-// Long-press fires on pointer-up after a 500ms hold; right-click fires
-// onContextMenu. A small badge appears under the pill while holding
-// so the gesture has feedback.
-function ReplayPill({ onFast, onSlow }) {
-  const [holding, setHolding] = useState(false);
-  const heldRef = useRef(false);
-  const timerRef = useRef(null);
-  const onDown = (e) => {
-    e.stopPropagation();
-    heldRef.current = false;
-    setHolding(true);
-    timerRef.current = setTimeout(() => {
-      heldRef.current = true;
-    }, 500);
-  };
-  const finish = (e) => {
-    e?.stopPropagation();
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = null;
-    const wasHeld = heldRef.current;
-    heldRef.current = false;
-    setHolding(false);
-    if (wasHeld) onSlow();
-    else onFast();
-  };
-  const cancel = (e) => {
-    e?.stopPropagation();
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = null;
-    heldRef.current = false;
-    setHolding(false);
-  };
+// catch-up journey at a cinematic pace. The long-press / right-click
+// fast/slow split was removed 2026-06-11: slow IS the default, and a
+// per-frame camera follow keeps the character on screen for the whole
+// walk so kids don't miss the start.
+function ReplayPill({ onReplay }) {
   return (
     <div className="absolute bottom-2 left-0 right-0 text-center z-40 pointer-events-none">
       <button
         type="button"
-        onPointerDown={onDown}
-        onPointerUp={finish}
-        onPointerLeave={cancel}
-        onPointerCancel={cancel}
-        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onSlow(); }}
-        className={`pointer-events-auto inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-full shadow-lg ${holding ? "bg-amber-300 text-slate-900 scale-105" : "bg-white/95 text-slate-900"} transition`}
+        onPointerUp={(e) => { e.stopPropagation(); onReplay(); }}
+        className="pointer-events-auto inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-full shadow-lg bg-white/95 text-slate-900 active:scale-105 transition"
         style={{
           WebkitTapHighlightColor: "transparent",
           border: 0,
           touchAction: "none",
           userSelect: "none",
         }}
-        aria-label="Replay journey. Tap for fast, hold or right-click for slow walk."
+        aria-label="Replay the journey at a slow walking pace."
       >
-        {holding ? "🐢 Hold for slow walk…" : "▶ Start again"}
+        ▶ Start again
       </button>
     </div>
   );
@@ -1323,11 +1290,13 @@ export default function BoardGame({
   //
   // mode = "fast" (default tap) → ~280ms/space, capped at 3s. Reznor
   //                                likes this; it's the original.
-  //        "slow" (long-press / right-click) → ~900ms/space, capped
-  //                                at 9s. Mike wanted a way to ASK
-  //                                for the slow watch when he wants
-  //                                to enjoy the journey.
-  const replayJourney = (mode = "fast") => {
+  //  Krissie 2026-06-11: drop the fast/slow split entirely. The slow
+  //  walk should be the default — kids miss the start when the camera
+  //  jumps to the destination, and watching the dino walk-cycle at
+  //  a leisurely pace IS the fun part. animateAlong now follows the
+  //  token per-frame so the character stays on screen for the whole
+  //  journey.
+  const replayJourney = () => {
     if (isAnimating) return;
     if (targetIdx === 0) return;
     tokenIdxRef.current = 0;
@@ -1335,9 +1304,12 @@ export default function BoardGame({
     if (p0) setTokenXY({ x: p0.x, y: p0.y });
     juice.haptic("light");
     juice.sfx("swipe");
-    const perSpace = mode === "slow" ? 900 : 280;
-    const cap     = mode === "slow" ? 9000 : 3000;
-    const base    = mode === "slow" ? 900 : 600;
+    // Slower than the prior "slow" — Krissie's note was "way slower
+    // than we can have fun seeing." perSpace 1200ms / cap 18000ms
+    // gives a 9-space board ~11 seconds of cinematic walk.
+    const perSpace = 1200;
+    const cap      = 18000;
+    const base     = 1200;
     setTimeout(() => {
       animateAlong(0, targetIdx, {
         duration: Math.min(cap, base + targetIdx * perSpace),
@@ -1381,12 +1353,21 @@ export default function BoardGame({
     }
   }, []);
 
-  // Camera follow — keep the destination centered while the token
-  // animates so the kid never scrolls and misses the treasure opening
-  // (or any landing on a tall portrait bg). The board is taller than
-  // the viewport on most phones; without this, a 700ms animation
-  // could end with the chest entirely off-screen above.
-  const scrollToBoardY = (boardYPct) => {
+  // Camera follow — keeps the token in the middle of the viewport for
+  // the WHOLE walk, not just at the end. Called from animateAlong's
+  // tick loop every animation frame; uses direct scrollTop assignment
+  // rather than smooth-scroll because the per-frame ticks (60fps) ARE
+  // the smoothness. Smooth-scroll calls from inside an rAF loop fight
+  // each other and produce a "stuck on the destination" feel where
+  // the browser ignores subsequent calls until the previous one
+  // finishes.
+  //
+  // Krissie 2026-06-11: the old single-shot scrollTo(dest, "smooth")
+  // at the start of animateAlong scrolled to the treasure in ~500ms
+  // while the slow walk took 8000ms — kids saw the chest immediately
+  // and missed the whole start of the journey. Per-frame follow keeps
+  // the dino on screen for the entire walk.
+  const followCamera = (boardYPct) => {
     const board = boardRef.current;
     if (!board) return;
     let scrollEl = board.parentElement;
@@ -1400,18 +1381,13 @@ export default function BoardGame({
     const scrollRect = scrollEl.getBoundingClientRect();
     const boardY = boardRect.height * boardYPct;
     const targetInScroll = (boardRect.top - scrollRect.top) + boardY;
-    // Put the focal point ~45% from the top of the visible area so
-    // there's still some "look-ahead" room above. Pure center reads
-    // too tight when the token is approaching the top of the board.
+    // Token sits ~50% of viewport height. Slight upward bias would
+    // show look-ahead but Krissie wants the character squarely in
+    // frame, so center-of-viewport is the right call.
     const visibleH = scrollRect.height;
-    const desiredScrollTop = scrollEl.scrollTop + targetInScroll - visibleH * 0.45;
+    const desiredScrollTop = scrollEl.scrollTop + targetInScroll - visibleH * 0.5;
     const maxScroll = scrollEl.scrollHeight - visibleH;
-    const clamped = Math.max(0, Math.min(maxScroll, desiredScrollTop));
-    try {
-      scrollEl.scrollTo({ top: clamped, behavior: "smooth" });
-    } catch {
-      scrollEl.scrollTop = clamped;
-    }
+    scrollEl.scrollTop = Math.max(0, Math.min(maxScroll, desiredScrollTop));
   };
 
   // Animate the token along the SVG path from one logical index to another.
@@ -1425,14 +1401,11 @@ export default function BoardGame({
       onLand?.();
       return;
     }
-    // Camera follow: kick off a smooth scroll toward the destination at
-    // the START of the animation. The browser's native smooth-scroll
-    // runs concurrent with our token rAF — the page pans up while the
-    // token climbs the path, both arriving together. Critical for the
-    // treasure reveal on tall portrait bgs (volcano/dino/water/sky etc.):
-    // without this the chest opens off-screen above the viewport.
-    const dest = positions[toIdx];
-    if (dest) scrollToBoardY(dest.y / VIEWBOX_H);
+    // Camera follow: handled per-frame inside tick() below. Each
+    // frame computes where the token is and scrolls to keep it
+    // centered in the viewport. The single-shot smooth-scroll at the
+    // START that this used to do was the source of the "camera jumps
+    // to treasure, we miss the start of the slow walk" bug.
     setIsAnimating(true);
     setFlying(true);
     const pathEl = pathRef.current;
@@ -1448,6 +1421,9 @@ export default function BoardGame({
       const pt = pathEl.getPointAtLength(len);
       updateFacingFromX(pt.x);
       setTokenXY({ x: pt.x, y: pt.y });
+      // Per-frame camera follow — keeps the character centered for
+      // the whole walk so the kid never loses sight of it.
+      followCamera(pt.y / VIEWBOX_H);
       if (t < 1) {
         animRef.current = requestAnimationFrame(tick);
       } else {
@@ -2009,15 +1985,13 @@ export default function BoardGame({
           </div>
         )}
 
-        {/* Start again — Reznor's replay button.
-              - Tap          → FAST replay (default; Reznor's pick)
-              - Long-press   → SLOW walk replay (hold ≥ 500ms then release)
-              - Right-click  → SLOW walk replay (desktop alternate)
-            The slow mode lets Mike (or anyone) enjoy the journey at
-            stride pace — useful when there's a dino theme with the
-            running animation to watch. */}
+        {/* Start again — replay the journey at a cinematic walking
+            pace. Single mode (no fast/slow split): per Krissie's
+            request 2026-06-11, slow IS the default and the camera
+            follows the character per-frame so it never falls off the
+            top of the viewport. */}
         {launched && targetIdx > 0 && !isAnimating && (
-          <ReplayPill onFast={() => replayJourney("fast")} onSlow={() => replayJourney("slow")} />
+          <ReplayPill onReplay={() => replayJourney()} />
         )}
       </div>
 
