@@ -472,6 +472,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
     mapStops = [],
     level,
     nextBadge,
+    treasureStreak = 0,
   } = data;
 
   // Fire the celebration when the canonical star total ticks up. We derive
@@ -802,6 +803,37 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               </div>
             </div>
           )
+        )}
+
+        {/* Treasure-day streak — celebrates consecutive days where
+            Reznor opened the daily treasure (= cleared his Top 8).
+            Renders inside the hero card alongside Hero Level / Next
+            Reward so the kid sees the long-term flame right where
+            the daily stats live. */}
+        {treasureStreak > 0 && (
+          <div className="mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
+                <Trophy size={12} className="text-amber-300" /> Treasure streak
+              </div>
+              <div className="text-[11px] font-bold text-white/90 tabular-nums">
+                {treasureStreak} day{treasureStreak === 1 ? "" : "s"}
+              </div>
+            </div>
+            <div className="text-sm font-extrabold mt-0.5">
+              🗝️ {treasureStreak === 1
+                ? "1 day in a row"
+                : `${treasureStreak} days in a row opening the chest`}
+            </div>
+            {treasureStreak >= 3 && (
+              <div className="mt-0.5 text-[11px] text-amber-200 font-bold">
+                {treasureStreak >= 30 ? "👑 Treasure King!" :
+                 treasureStreak >= 14 ? "💎 Treasure Fortnight unlocked!" :
+                 treasureStreak >= 7 ? "🏆 Week of Treasures!" :
+                 "🗝️ Treasure Trio unlocked!"}
+              </div>
+            )}
+          </div>
         )}
 
         {nextReward && (

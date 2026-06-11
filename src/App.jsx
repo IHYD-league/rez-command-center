@@ -369,15 +369,62 @@ const ACHIEVEMENTS = [
   { id: "bilingual", kind: "trophy", emoji: "🌎", title: "Two Languages", desc: "Read a book in Spanish", test: (c) => c.spanishBook },
   { id: "books5", kind: "trophy", emoji: "📚", title: "Bookworm", desc: "Finished 5 books", test: (c) => c.booksFinished >= 5, goal: 5, val: (c) => c.booksFinished },
   { id: "books10", kind: "trophy", emoji: "📖", title: "Library Legend", desc: "Finished 10 books", test: (c) => c.booksFinished >= 10, goal: 10, val: (c) => c.booksFinished },
+  { id: "treasure3", kind: "trophy", emoji: "🗝️", title: "Treasure Trio", desc: "3 days in a row opening the treasure", test: (c) => c.treasureStreak >= 3, goal: 3, val: (c) => c.treasureStreak },
+  { id: "treasure7", kind: "trophy", emoji: "🏆", title: "Week of Treasures", desc: "7 days in a row opening the treasure", test: (c) => c.treasureStreak >= 7, goal: 7, val: (c) => c.treasureStreak },
+  { id: "treasure14", kind: "trophy", emoji: "💎", title: "Treasure Fortnight", desc: "14 days in a row", test: (c) => c.treasureStreak >= 14, goal: 14, val: (c) => c.treasureStreak },
+  { id: "treasure30", kind: "trophy", emoji: "👑", title: "Treasure King", desc: "30 days in a row — every day a clean sweep", test: (c) => c.treasureStreak >= 30, goal: 30, val: (c) => c.treasureStreak },
 ];
-function buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books }) {
+function buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books, treasureStreak = 0 }) {
   const doneToday = todaysTasks.filter((t) => ["approved", "pending"].includes(compByTask[t.id]?.status)).length;
   const allToday = todaysTasks.length > 0 && todaysTasks.every((t) => ["approved", "pending"].includes(compByTask[t.id]?.status));
   const drumsDone = !!compByTask["t_drums"];
   const photoToday = Object.values(compByTask).some((c) => (c?.proof || []).some((p) => p.type === "photo"));
-  const booksFinished = (books || []).filter((b) => b.status === "finished").length;
+  const booksFinished = (books || []).filter((b) => b.status === "finished" || b.preTracking).length;
   const spanishBook = (books || []).some((b) => b.status === "finished" && b.lang === "Spanish");
-  return { doneToday, allToday, drumsDone, photoToday, starBank, booksFinished, spanishBook, drumStreak: streaks?.a_drums?.current || 0, spaStreak: streaks?.a_spa?.current || 0 };
+  return { doneToday, allToday, drumsDone, photoToday, starBank, booksFinished, spanishBook, drumStreak: streaks?.a_drums?.current || 0, spaStreak: streaks?.a_spa?.current || 0, treasureStreak };
+}
+
+// Treasure-day streak — count consecutive days from today walking back
+// where Reznor cleared ALL of that day's Top 8 (= opened the treasure).
+// Honest limitation: the Top 8 for prior days is computed using the
+// CURRENT topPriorities + tasks config, not historical snapshots. If a
+// parent changed the plan, the count uses today's plan retroactively.
+// Acceptable approximation; the alternative would be storing daily
+// treasure-opened flags which adds complexity for marginal honesty gain.
+function computeTreasureStreak({ completions, tasks, topPriorities }) {
+  if (!Array.isArray(completions) || !Array.isArray(tasks)) return 0;
+  const bootstrap = bootstrapWeeklyTopEight(tasks);
+  // Pre-bucket approved completions by date for O(1) lookup per day.
+  const approvedByDate = new Map();
+  for (const c of completions) {
+    if (c.status !== "approved" || !c.completionDate) continue;
+    const set = approvedByDate.get(c.completionDate) || new Set();
+    set.add(c.taskId);
+    approvedByDate.set(c.completionDate, set);
+  }
+  let streak = 0;
+  const cursor = new Date(today);
+  for (let i = 0; i < 366; i++) {
+    const iso = isoLocal(cursor);
+    const weekday = cursor.toLocaleDateString("en-US", { weekday: "long" });
+    const dailyOverride = topPriorities?.daily?.[iso];
+    const weeklyPlan = topPriorities?.weekly?.[weekday];
+    const ids = Array.isArray(dailyOverride)
+      ? dailyOverride
+      : (Array.isArray(weeklyPlan) ? weeklyPlan : bootstrap[weekday]);
+    // Only count tasks that still exist + are active. Otherwise a deleted
+    // task from yesterday would make every prior day permanently failed.
+    const required = (ids || []).filter((id) =>
+      tasks.some((t) => t.id === id && t.active !== false)
+    );
+    if (required.length === 0) break;
+    const approvedForDay = approvedByDate.get(iso) || new Set();
+    const allDone = required.every((id) => approvedForDay.has(id));
+    if (!allDone) break;
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
 }
 
 // ---- HERO XP + LEVELS (computed at display time — ARCHITECTURE §3) ----
@@ -1202,7 +1249,8 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const _xpAtLevel = xpForLevel(_levelN);
   const _xpAtNext = xpForLevel(_levelN + 1);
   // Next-badge pull-forward — derived from the canonical ACHIEVEMENTS list.
-  const _achCtx = buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books });
+  const _treasureStreak = computeTreasureStreak({ completions, tasks, topPriorities });
+  const _achCtx = buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books, treasureStreak: _treasureStreak });
   const _nextBadge = nextBadgeFor(_achCtx);
   const _nextBadgeValue = _nextBadge?.val ? _nextBadge.val(_achCtx) : 0;
   const kidData = {
@@ -1230,6 +1278,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     },
     mainQuests: todaysTopEight.filter((t) => t.required).map(_questFromTask),
     sideQuests: todaysTopEight.filter((t) => !t.required).map(_questFromTask),
+    treasureStreak: _treasureStreak,
     stats: [
       { label: "Drum streak", value: _drumCurrent ? `${_drumCurrent}d` : "—" },
       { label: "Books finished", value: _booksFinished || "—" },
@@ -3669,9 +3718,10 @@ function RewardsKid({ rewards, starBank, requestReward, redemptions }) {
   );
 }
 
-function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay, setStatDetailId }) {
+function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay, setStatDetailId, topPriorities }) {
   const approved = completions.filter((c) => c.status === "approved");
-  const ctx = buildAchCtx({ completions, todaysTasks: todaysTasks || [], compByTask: compByTask || {}, starBank, streaks, books });
+  const treasureStreak = computeTreasureStreak({ completions, tasks: tasks || [], topPriorities });
+  const ctx = buildAchCtx({ completions, todaysTasks: todaysTasks || [], compByTask: compByTask || {}, starBank, streaks, books, treasureStreak });
   const dayWins = ACHIEVEMENTS.filter((a) => a.kind === "day");
   const trophies = ACHIEVEMENTS.filter((a) => a.kind === "trophy");
   const wonToday = dayWins.filter((a) => a.test(ctx)).length;
