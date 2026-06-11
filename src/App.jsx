@@ -391,7 +391,7 @@ function buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, 
 // parent changed the plan, the count uses today's plan retroactively.
 // Acceptable approximation; the alternative would be storing daily
 // treasure-opened flags which adds complexity for marginal honesty gain.
-function computeTreasureStreak({ completions, tasks, topPriorities }) {
+function computeTreasureStreak({ completions, tasks, topPriorities, taskNaDays }) {
   if (!Array.isArray(completions) || !Array.isArray(tasks)) return 0;
   const bootstrap = bootstrapWeeklyTopEight(tasks);
   // Pre-bucket approved completions by date for O(1) lookup per day.
@@ -412,10 +412,14 @@ function computeTreasureStreak({ completions, tasks, topPriorities }) {
     const ids = Array.isArray(dailyOverride)
       ? dailyOverride
       : (Array.isArray(weeklyPlan) ? weeklyPlan : bootstrap[weekday]);
+    // N/A list for this day — parent-marked exceptions (sick day,
+    // travel). Removed from the required set so the streak survives
+    // genuine non-applicable days.
+    const naSet = new Set((taskNaDays || {})[iso] || []);
     // Only count tasks that still exist + are active. Otherwise a deleted
     // task from yesterday would make every prior day permanently failed.
     const required = (ids || []).filter((id) =>
-      tasks.some((t) => t.id === id && t.active !== false)
+      !naSet.has(id) && tasks.some((t) => t.id === id && t.active !== false)
     );
     if (required.length === 0) break;
     const approvedForDay = approvedByDate.get(iso) || new Set();
@@ -598,6 +602,14 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // No cap on length — Top 8 is the default expectation but parents
   // can add ad-hoc items in the editor so the board grows when needed.
   const [topPriorities, setTopPriorities] = familySetting("topPriorities", { weekly: {}, daily: {} });
+  // taskNaDays: per-ISO-date list of task IDs marked N/A — Reznor was
+  // sick, traveling, or the task genuinely doesn't apply. Distinct from
+  // priorities (which describe importance) and topPriorities (which
+  // describe the day's plan). Honored everywhere a task is enumerated
+  // for a date: todaysTasks (parent view), todaysTopEight (kid board),
+  // computeTreasureStreak (streak math). Keeps the streak honest when
+  // life gets in the way. Shape: { "2026-06-11": ["drums", "books"] }
+  const [taskNaDays, setTaskNaDays] = familySetting("taskNaDays", {});
   // Library custom shelf order. One key per domain — ordered array of
   // ids. When the Shelf view is active in MusicLibrary / ReadingLibrary,
   // items are displayed in this order; items not in the array are
@@ -685,10 +697,29 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const user = users.find((u) => u.id === currentUserId);
 
   // ---- derived ----
-  const todaysTasks = useMemo(
-    () => tasks.filter((t) => (t.mode === "both" || t.mode === mode) && (!t.days || t.days.includes(WEEKDAY)) && t.active !== false),
-    [tasks, mode]
-  );
+  const todaysTasks = useMemo(() => {
+    const naSet = new Set(taskNaDays?.[TODAY_ISO] || []);
+    return tasks.filter((t) =>
+      (t.mode === "both" || t.mode === mode)
+      && (!t.days || t.days.includes(WEEKDAY))
+      && t.active !== false
+      && !naSet.has(t.id)
+    );
+  }, [tasks, mode, taskNaDays]);
+  // Tasks the parent marked N/A today — surfaced as a small restore
+  // strip so the action is recoverable in one tap. Same source-of-
+  // truth filter as todaysTasks above (so we never show a deleted or
+  // off-schedule task as "N/A today").
+  const todaysNATasks = useMemo(() => {
+    const naIds = new Set(taskNaDays?.[TODAY_ISO] || []);
+    if (naIds.size === 0) return [];
+    return tasks.filter((t) =>
+      naIds.has(t.id)
+      && (t.mode === "both" || t.mode === mode)
+      && (!t.days || t.days.includes(WEEKDAY))
+      && t.active !== false
+    );
+  }, [tasks, mode, taskNaDays]);
   // The parent-curated Top 8 in canonical task-object form. Source of
   // truth for the board, kid missions, kid home quests. Sparse entries
   // (deleted tasks, inactive tasks) are dropped silently so the board
@@ -700,10 +731,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     const ids = Array.isArray(dailyOverride)
       ? dailyOverride
       : (Array.isArray(weeklyPlan) ? weeklyPlan : bootstrap[WEEKDAY]);
+    const naSet = new Set(taskNaDays?.[TODAY_ISO] || []);
     return (ids || [])
       .map((id) => tasks.find((t) => t.id === id))
-      .filter((t) => t && t.active !== false);
-  }, [tasks, topPriorities]);
+      .filter((t) => t && t.active !== false && !naSet.has(t.id));
+  }, [tasks, topPriorities, taskNaDays]);
   // Imperative helpers — write directly to the topPriorities jsonb.
   // setDailyTopEight pins a per-date override; resetDailyTopEight drops
   // it back to the weekly default; setWeeklyTopEight updates the
@@ -726,6 +758,25 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       weekly: { ...((prev?.weekly) || {}), [weekday]: taskIds },
       daily: (prev?.daily) || {},
     }));
+  // N/A-for-a-day helpers. markTaskNA pins a task as not applicable for
+  // an ISO date (sick day, travel, schedule conflict). restoreTaskFromNA
+  // undoes it. Both write into the taskNaDays jsonb. We dedupe on add
+  // and drop the date key entirely when its list goes empty so the JSON
+  // stays compact.
+  const markTaskNA = (dateIso, taskId) =>
+    setTaskNaDays((prev) => {
+      const existing = new Set((prev || {})[dateIso] || []);
+      existing.add(taskId);
+      return { ...(prev || {}), [dateIso]: Array.from(existing) };
+    });
+  const restoreTaskFromNA = (dateIso, taskId) =>
+    setTaskNaDays((prev) => {
+      const list = ((prev || {})[dateIso] || []).filter((id) => id !== taskId);
+      const next = { ...(prev || {}) };
+      if (list.length === 0) delete next[dateIso];
+      else next[dateIso] = list;
+      return next;
+    });
   // compByTask is "what's the status of each task TODAY". Older completions
   // (yesterday's drums, last week's writing) stay in the completions array
   // so Approvals tab + history reads work, but they do NOT count toward
@@ -1117,6 +1168,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     setSongPlays((prev) => prev.filter((p) => p.songId !== id));
   };
   const removeSongPlay = (id) => setSongPlays((prev) => prev.filter((p) => p.id !== id));
+  // Edit a single play row — picked wrong song, logged the wrong
+  // date, want to drop a note. Shallow patch so the toDb mapper
+  // gets the same row shape it would for a fresh insert.
+  const updateSongPlay = (id, patch) =>
+    setSongPlays((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   // Phase 6b: shallow patcher for enrichment fields (cover_url,
   // canonical_*, match_status). Mirrors updateBook's contract.
   const updateSong = (id, patch) =>
@@ -1253,7 +1309,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const _xpAtLevel = xpForLevel(_levelN);
   const _xpAtNext = xpForLevel(_levelN + 1);
   // Next-badge pull-forward — derived from the canonical ACHIEVEMENTS list.
-  const _treasureStreak = computeTreasureStreak({ completions, tasks, topPriorities });
+  const _treasureStreak = computeTreasureStreak({ completions, tasks, topPriorities, taskNaDays });
   const _achCtx = buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books, treasureStreak: _treasureStreak });
   const _nextBadge = nextBadgeFor(_achCtx);
   const _nextBadgeValue = _nextBadge?.val ? _nextBadge.val(_achCtx) : 0;
@@ -1312,7 +1368,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   const shared = {
-    user, users, tasks, todaysTasks, todaysTopEight, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, libraryOrder, setLibraryOrder, rewards, completions, compByTask, events, handoff, redemptions,
+    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, libraryOrder, setLibraryOrder, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
@@ -1321,7 +1377,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     pendingRegistrations, approveRegistration, denyRegistration, currentProfileId, setCurrentUserId,
     kidData,
     familyId,
-    songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay, updateSong,
+    songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay, updateSongPlay, updateSong,
     removeGift,
     setStatDetailId,
     earnedAllTime,
@@ -4156,9 +4212,9 @@ function RewardsKid({ rewards, starBank, requestReward, redemptions }) {
   );
 }
 
-function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay, setStatDetailId, topPriorities }) {
+function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay, updateSongPlay, setStatDetailId, topPriorities, taskNaDays }) {
   const approved = completions.filter((c) => c.status === "approved");
-  const treasureStreak = computeTreasureStreak({ completions, tasks: tasks || [], topPriorities });
+  const treasureStreak = computeTreasureStreak({ completions, tasks: tasks || [], topPriorities, taskNaDays });
   const ctx = buildAchCtx({ completions, todaysTasks: todaysTasks || [], compByTask: compByTask || {}, starBank, streaks, books, treasureStreak });
   const dayWins = ACHIEVEMENTS.filter((a) => a.kind === "day");
   const trophies = ACHIEVEMENTS.filter((a) => a.kind === "trophy");
@@ -4185,7 +4241,7 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
         })}
       </div>
 
-      <MostPlayedSongs songs={songs || []} songPlays={songPlays || []} removeSongPlay={removeSongPlay} />
+      <MostPlayedSongs songs={songs || []} songPlays={songPlays || []} removeSongPlay={removeSongPlay} updateSongPlay={updateSongPlay} />
 
       <SectionTitle icon={<Medal size={16} className="text-violet-500" />}>Trophy case</SectionTitle>
       <div className="grid grid-cols-3 gap-2">
@@ -4253,8 +4309,13 @@ function BigStat({ label, value, onClick }) {
 
 // MostPlayedSongs: derive counts / last-played from the canonical
 // songPlays rows (ARCHITECTURE §3). No "play_count" column anywhere.
-function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
+function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay }) {
   const [openId, setOpenId] = useState(null);
+  // Per-play edit state — only one row at a time, so a single id is
+  // enough. Draft holds the unsaved date + notes so cancel can bail
+  // without touching the database.
+  const [editingPlayId, setEditingPlayId] = useState(null);
+  const [draft, setDraft] = useState({ playedOn: "", notes: "" });
   if (!songs.length && !songPlays.length) return null;
   const byId = Object.fromEntries(songs.map((s) => [s.id, s]));
   const grouped = {};
@@ -4310,21 +4371,80 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
                       .slice()
                       .sort((a, b) => (b.playedOn || "").localeCompare(a.playedOn || ""))
                       .slice(0, 20)
-                      .map((p) => (
-                        <div key={p.id} className="flex items-center justify-between text-[11px] text-slate-600">
-                          <span>{fmtShort(p.playedOn)}{p.notes ? ` — ${p.notes}` : ""}</span>
-                          {removeSongPlay && (
-                            <button
-                              type="button"
-                              onClick={() => removeSongPlay(p.id)}
-                              className="text-slate-300 hover:text-rose-500"
-                              title="Remove this play"
-                            >
-                              <X size={12} />
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                      .map((p) => {
+                        const isEditing = editingPlayId === p.id;
+                        if (isEditing) {
+                          return (
+                            <div key={p.id} className="bg-white rounded-lg p-2 border border-indigo-200">
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <input
+                                  type="date"
+                                  value={draft.playedOn}
+                                  onChange={(e) => setDraft((d) => ({ ...d, playedOn: e.target.value }))}
+                                  className="text-[11px] border border-slate-200 rounded px-1.5 py-1 flex-1 min-w-0"
+                                />
+                              </div>
+                              <input
+                                type="text"
+                                value={draft.notes}
+                                onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+                                placeholder="Notes (optional)…"
+                                className="text-[11px] border border-slate-200 rounded px-1.5 py-1 w-full mb-1.5"
+                              />
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!draft.playedOn) return;
+                                    updateSongPlay(p.id, { playedOn: draft.playedOn, notes: draft.notes });
+                                    setEditingPlayId(null);
+                                  }}
+                                  className="flex-1 text-[10px] font-bold bg-indigo-600 text-white rounded py-1 active:scale-95"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingPlayId(null)}
+                                  className="flex-1 text-[10px] font-bold bg-slate-200 text-slate-700 rounded py-1 active:scale-95"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={p.id} className="flex items-center justify-between text-[11px] text-slate-600">
+                            <span className="truncate">{fmtShort(p.playedOn)}{p.notes ? ` — ${p.notes}` : ""}</span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {updateSongPlay && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingPlayId(p.id);
+                                    setDraft({ playedOn: p.playedOn || TODAY_ISO, notes: p.notes || "" });
+                                  }}
+                                  className="text-slate-300 hover:text-indigo-500"
+                                  title="Edit this play"
+                                >
+                                  <Pencil size={11} />
+                                </button>
+                              )}
+                              {removeSongPlay && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeSongPlay(p.id)}
+                                  className="text-slate-300 hover:text-rose-500"
+                                  title="Remove this play"
+                                >
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               )}
@@ -4337,7 +4457,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
@@ -4395,7 +4515,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
       })}
 
       <SectionTitle icon={<ClipboardList size={16} className="text-slate-400" />} right={<span className="text-[11px] text-slate-400 flex items-center gap-1"><Flag size={11} /> tap to set priority</span>}>Still to do ({todo.length})</SectionTitle>
-      {todo.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="slate" mode={mode} priorities={priorities} users={users} setPriority={setPriority} clearPriority={clearPriority} activities={activities} onOpenDetail={setDetailId} onMarkDone={setOpenTask} />)}
+      {todo.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="slate" mode={mode} priorities={priorities} users={users} setPriority={setPriority} clearPriority={clearPriority} activities={activities} onOpenDetail={setDetailId} onMarkDone={setOpenTask} markTaskNA={markTaskNA} />)}
 
       <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Done ({done.length})</SectionTitle>
       {done.map((t) => {
@@ -4404,6 +4524,37 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         // stats, edit). Krissie's flow lives here on the parent side.
         return <MiniRow key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
       })}
+
+      {/* N/A today — recoverable strip. Sick day, travel, schedule
+          conflict: a parent taps "N/A" on a task and it disappears
+          from the todo list, the kid board, and the streak math for
+          today only. This strip surfaces every excluded task with a
+          one-tap restore so the action is never lost. */}
+      {todaysNATasks.length > 0 && (
+        <>
+          <SectionTitle icon={<X size={16} className="text-slate-400" />} right={<span className="text-[11px] text-slate-400">tap to restore</span>}>
+            N/A today ({todaysNATasks.length})
+          </SectionTitle>
+          <div className="flex flex-wrap gap-1.5 px-1 mb-3">
+            {todaysNATasks.map((t) => {
+              const d = actFor(t, activities);
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => restoreTaskFromNA && restoreTaskFromNA(TODAY_ISO, t.id)}
+                  className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200 active:scale-95 flex items-center gap-1.5"
+                  title={`Restore "${t.title}" to today's list`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: d.color }} />
+                  {t.title}
+                  <RotateCcw size={11} className="text-slate-400" />
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <SectionTitle icon={<Users size={16} className="text-indigo-500" />}>Handoff notes</SectionTitle>
       {handoff.slice(0, 2).map((h) => {
@@ -4433,7 +4584,7 @@ function SummaryStat({ label, value, tone, onClick }) {
   }
   return <Card className="p-3">{body}</Card>;
 }
-function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone }) {
+function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone, markTaskNA }) {
   const [open, setOpen] = useState(false);
   const by = comp?.approvedBy ? users?.find((u) => u.id === comp.approvedBy)?.name : null;
   const d = actFor(task, activities);
@@ -4465,6 +4616,20 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
               className="p-1.5 rounded-lg shrink-0 text-emerald-600 hover:bg-emerald-50"
             >
               <Check size={16} />
+            </button>
+          )}
+          {markTaskNA && !comp && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm(`Mark "${task.title}" as N/A for today?\n\nIt won't show on Reznor's board and the treasure-day streak will ignore it. You can restore it from the "N/A today" strip below.`)) {
+                  markTaskNA(TODAY_ISO, task.id);
+                }
+              }}
+              title="Mark N/A for today (sick day / travel / doesn't apply)"
+              className="p-1.5 rounded-lg shrink-0 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X size={16} />
             </button>
           )}
           {undoTask && comp && (
