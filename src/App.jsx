@@ -249,6 +249,24 @@ const DEFAULT_DAILY_CORE_IDS = [
 ];
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+// Push the current "in-progress" read snapshot onto a book's reads_history
+// jsonb array. Called by the book picker (TaskSheet + AddBookForm) right
+// before flipping a finished / dropped / archive book back to "reading"
+// for a Round N — captures the prior read's dates + lang so future
+// Insights charts ("books finished by month") read honestly across
+// re-reads.
+function appendBookReadToHistory(book) {
+  const entry = {
+    started: book.started || "",
+    finished: book.finished || "",
+    lang: book.lang || "",
+  };
+  if (book.preTracking) entry.eraLabel = book.eraLabel || "";
+  const prior = Array.isArray(book.readsHistory) ? book.readsHistory : [];
+  if (!entry.started && !entry.finished && !entry.eraLabel) return prior;
+  return [...prior, entry];
+}
+
 // Bootstrap the weekly Top 8 default from the current task catalog.
 // Each weekday's default = the 7 daily-core IDs that exist + active +
 // any task whose days field includes that weekday (Hip Hop Mon, Swim
@@ -3032,6 +3050,9 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
           if (!pickedBook.started) patch.started = todayIso;
           if (wasRereadCandidate) {
             patch.readCount = (pickedBook.readCount || 1) + 1;
+            // Snapshot the prior read into history so per-read dates
+            // and lang survive the overwrite below.
+            patch.readsHistory = appendBookReadToHistory(pickedBook);
           }
         } else if (pickedBook.status !== "reading") {
           patch.status = "reading";
@@ -3039,6 +3060,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
           patch.started = todayIso;
           if (wasRereadCandidate) {
             patch.readCount = (pickedBook.readCount || 1) + 1;
+            patch.readsHistory = appendBookReadToHistory(pickedBook);
           }
         }
         if (Object.keys(patch).length > 0) updateBook(pickedBook.id, patch);

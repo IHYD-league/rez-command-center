@@ -94,6 +94,11 @@ export const toApp = {
     // Reading Library picker increments this when an existing book
     // is selected for a Round 2+.
     readCount: r.read_count ?? 1,
+    // Snapshot of completed prior reads (each { started, finished, lang }).
+    // The current in-progress read still lives in started / finished / lang
+    // at the top of the row; the picker pushes prior values into this
+    // array when a Round N starts.
+    readsHistory: Array.isArray(r.reads_history) ? r.reads_history : [],
     // Phase 6a: Open Library enrichment cache. NULL on existing rows
     // until the first auto-match writes them. matchStatus = "unmatched"
     // by DB default so the auto-enrich effect picks them up.
@@ -319,6 +324,7 @@ export const toDb = {
     pre_tracking: !!o.preTracking,
     era_label: o.eraLabel || null,
     read_count: Math.max(1, Number(o.readCount) || 1),
+    reads_history: Array.isArray(o.readsHistory) ? o.readsHistory : [],
     cover_url:        o.coverUrl || null,
     canonical_title:  o.canonicalTitle || null,
     canonical_author: o.canonicalAuthor || null,
