@@ -6207,30 +6207,62 @@ function BackWrap({ title, onBack, children }) {
 }
 
 function Portfolio({ completions, tasks, users, gifted, activities }) {
-  const items = completions.filter((c) => c.status === "approved");
-  if (!items.length && !(gifted?.length)) return <p className="text-sm text-slate-400 px-1">Approved work with photos will appear here as a timeline.</p>;
+  // Merge completions + gifts into one timeline so the most-recent
+  // thing is on top regardless of which kind it is. Each item carries
+  // its own `_date` (ISO YYYY-MM-DD) used for the sort. Honest display
+  // dates too — the old layout was stamping every completion with
+  // today's date via fmtDate(today). Now: each row shows its real
+  // completion_date / given_on.
+  const fmtRowDate = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso + "T12:00");
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  };
+  const items = [];
+  for (const c of (completions || [])) {
+    if (c.status !== "approved") continue;
+    items.push({ kind: "completion", _date: c.completionDate || "", c });
+  }
+  for (const g of (gifted || [])) {
+    items.push({ kind: "gift", _date: g.date || "", g });
+  }
+  // Newest first. Ties broken by id so the order is stable across
+  // re-renders.
+  items.sort((a, b) => {
+    if (a._date !== b._date) return b._date.localeCompare(a._date);
+    const aid = a.kind === "completion" ? a.c.id : a.g.id;
+    const bid = b.kind === "completion" ? b.c.id : b.g.id;
+    return bid.localeCompare(aid);
+  });
+  if (items.length === 0) {
+    return <p className="text-sm text-slate-400 px-1">Approved work with photos will appear here as a timeline.</p>;
+  }
   return (
     <>
-      {gifted?.map((g) => (
-        <Card key={g.id} className="p-3 mb-2 flex gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-100 grid place-items-center">✨</div>
-          <div className="flex-1">
-            <div className="font-bold text-sm">{g.label} <span className="text-amber-600 font-normal">· bonus</span></div>
-            <div className="text-[11px] text-slate-400">{g.date} · {g.stars}⭐ · gifted by {users.find((u) => u.id === g.by)?.name}</div>
-          </div>
-        </Card>
-      ))}
-      {items.map((c) => {
+      {items.map((row) => {
+        if (row.kind === "gift") {
+          const g = row.g;
+          return (
+            <Card key={`g-${g.id}`} className="p-3 mb-2 flex gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 grid place-items-center shrink-0">✨</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-sm">{g.label} <span className="text-amber-600 font-normal">· bonus</span></div>
+                <div className="text-[11px] text-slate-400">{fmtRowDate(g.date)} · {g.stars}⭐ · gifted by {users.find((u) => u.id === g.by)?.name || "—"}</div>
+              </div>
+            </Card>
+          );
+        }
+        const c = row.c;
         const t = tasks.find((x) => x.id === c.taskId);
         const by = users.find((u) => u.id === c.approvedBy)?.name;
         const d = actFor(t || { activityType: "" }, activities);
         const ph = c.proof?.find((p) => p.path || p.url);
         return (
-          <Card key={c.id} className="p-3 mb-2 flex gap-3">
+          <Card key={`c-${c.id}`} className="p-3 mb-2 flex gap-3">
             {ph ? <StoredPhoto path={ph.path} url={ph.url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" fallback={<div className="w-12 h-12 rounded-xl bg-slate-100 animate-pulse shrink-0" />} /> : <div className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: d.tint }}><TaskIcon type={t?.activityType} color={d.color} /></div>}
             <div className="flex-1 min-w-0">
               <div className="font-bold text-sm">{t?.title} {c.extra?.bookTitle && <span className="text-slate-400 font-normal">· {c.extra.bookTitle}</span>}</div>
-              <div className="text-[11px] text-slate-400">{fmtDate(today)} · {c.awardedStars}⭐ · approved by {by}</div>
+              <div className="text-[11px] text-slate-400">{fmtRowDate(c.completionDate)} · {c.awardedStars}⭐ · approved by {by || "—"}</div>
               {ph?.geo && <div className="text-[11px] text-slate-400">📍 {ph.geo.label}{ph.time ? ` · ${ph.time}` : ""}{ph.by ? ` · by ${users.find((u) => u.id === ph.by)?.name || "helper"}` : ""}</div>}
             </div>
           </Card>
