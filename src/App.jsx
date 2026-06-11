@@ -5283,26 +5283,36 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     return out;
   };
 
-  // Picker list: books filtered by free-text + sorted by "what's
-  // most useful at submit time" — reading-in-progress first (most
-  // likely match), then wishlist, then archive (re-read candidates),
-  // then finished/dropped. Top 20 keeps the dropdown bounded.
+  // Picker list: books filtered by fuzzy match (typos OK — "tipos malos"
+  // finds "Los Tipos Malos", "rrr" finds Three R's, etc.) + sorted by
+  // "what's most useful at submit time" — reading-in-progress first
+  // (most likely match), then wishlist, then archive (re-read
+  // candidates), then finished/dropped. Top 20 keeps the dropdown
+  // bounded.
   const pickerBooks = useMemo(() => {
     if (!isReading) return [];
-    const needle = bookSearch.trim().toLowerCase();
     const all = (books || []).map((b) => ({
       ...b,
       _display: b.canonicalTitle || b.title || "",
     }));
+    const needle = bookSearch.trim();
     const filtered = needle
-      ? all.filter((b) => {
-          const hay = `${b._display} ${b.canonicalAuthor || ""} ${b.lang || ""}`.toLowerCase();
-          return hay.includes(needle);
-        })
+      ? all.map((b) => {
+          const hay = [
+            b._display, b.title,
+            b.canonicalAuthor,
+            b.lang, b.level,
+            b.eraLabel,
+          ].filter(Boolean).join(" ");
+          return { b, m: fuzzyMatch(needle, hay) };
+        }).filter((x) => x.m.hit).sort((a, b) => b.m.score - a.m.score).map((x) => x.b)
       : all;
     const statusOrder = { reading: 0, wishlist: 1, dropped: 3, finished: 4 };
     return filtered
       .sort((a, b) => {
+        // Only re-sort by status when there's no query — when the user
+        // is typing, fuzzy-score order is what they want.
+        if (needle) return 0;
         const aArch = a.preTracking ? 2 : (statusOrder[a.status] ?? 99);
         const bArch = b.preTracking ? 2 : (statusOrder[b.status] ?? 99);
         if (aArch !== bArch) return aArch - bArch;
@@ -8356,8 +8366,19 @@ function fuzzyMatch(query, text) {
 }
 function searchBooks(list, q) {
   if (!q.trim()) return list;
-  return list.map((b) => ({ b, m: fuzzyMatch(q, [b.title, b.level, b.lang, b.notes].filter(Boolean).join(" ")) }))
-    .filter((x) => x.m.hit).sort((a, b) => b.m.score - a.m.score).map((x) => x.b);
+  return list.map((b) => ({
+    b,
+    m: fuzzyMatch(
+      q,
+      [
+        b.title, b.canonicalTitle,
+        b.canonicalAuthor,
+        b.level, b.lang,
+        b.eraLabel,
+        b.notes,
+      ].filter(Boolean).join(" ")
+    ),
+  })).filter((x) => x.m.hit).sort((a, b) => b.m.score - a.m.score).map((x) => x.b);
 }
 
 // Sort options for the Reading Library. Apply within each section
