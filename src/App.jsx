@@ -1191,7 +1191,56 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       : undefined;
     return { id: t.id, title: t.title, xp: (t.starValue || 0) * 10, done: !!c, subtasks: subs };
   };
-  const _booksFinished = (books || []).filter((b) => b.status === "finished").length;
+  const _booksFinished = (books || []).filter((b) => b.status === "finished" || b.preTracking).length;
+  // "Reading right now" widget data — what books are actively being
+  // read + minutes logged today (per lang). Pulls today's reading
+  // completions out of compByTask, looks up the picked book by id
+  // (or by title fallback for free-typed entries), and merges with
+  // any other "status === reading" books in the catalog so the widget
+  // surfaces unlogged-today books too.
+  const _readingNow = (() => {
+    const readingBooks = (books || []).filter((b) => b.status === "reading" && !b.preTracking);
+    const byId = new Map(readingBooks.map((b) => [b.id, b]));
+    const minutesByBookId = new Map();
+    let totalMinutesToday = 0;
+    for (const t of tasks || []) {
+      if (t.proofType !== "reading") continue;
+      const c = compByTask[t.id];
+      if (!c) continue;
+      const mins = Number(c.extra?.minutes) || 0;
+      if (mins <= 0) continue;
+      totalMinutesToday += mins;
+      const bid = c.extra?.bookId;
+      if (bid && byId.has(bid)) {
+        minutesByBookId.set(bid, (minutesByBookId.get(bid) || 0) + mins);
+      } else if (c.extra?.bookTitle) {
+        // Fallback: free-typed title (pre-picker era). Find by canonical
+        // or raw title match.
+        const needle = (c.extra.bookTitle || "").trim().toLowerCase();
+        const hit = readingBooks.find((b) => {
+          const t1 = (b.canonicalTitle || "").trim().toLowerCase();
+          const t2 = (b.title || "").trim().toLowerCase();
+          return t1 === needle || t2 === needle;
+        });
+        if (hit) minutesByBookId.set(hit.id, (minutesByBookId.get(hit.id) || 0) + mins);
+      }
+    }
+    return {
+      books: readingBooks.slice(0, 3).map((b) => ({
+        id: b.id,
+        title: b.canonicalTitle || b.title || "(untitled)",
+        author: b.canonicalAuthor || "",
+        lang: b.lang || "",
+        level: b.level || "",
+        coverUrl: b.coverUrl || "",
+        customCoverPath: b.customCoverPath || "",
+        readCount: b.readCount || 1,
+        minutesToday: minutesByBookId.get(b.id) || 0,
+      })),
+      totalMinutesToday,
+      hasAny: readingBooks.length > 0,
+    };
+  })();
   const _songsToday = (songPlays || []).filter((p) => p.playedOn === TODAY_ISO).length;
   // Hero XP + level — derived, never stored. See xpForLevel / levelFromXp.
   const _xp = starBank * 10;
@@ -1227,6 +1276,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     },
     mainQuests: todaysTopEight.filter((t) => t.required).map(_questFromTask),
     sideQuests: todaysTopEight.filter((t) => !t.required).map(_questFromTask),
+    readingNow: _readingNow,
     stats: [
       { label: "Drum streak", value: _drumCurrent ? `${_drumCurrent}d` : "—" },
       { label: "Books finished", value: _booksFinished || "—" },

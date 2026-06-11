@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Star, Flame, Trophy, Crown, Target, Sparkles, MapPin, Menu, Map } from "lucide-react";
+import { Star, Flame, Trophy, Crown, Target, Sparkles, MapPin, Menu, Map, BookOpen } from "lucide-react";
 import { useSignedUrl } from "./lib/storage.js";
 import { starBurst } from "./lib/starBurst.js";
 import { prefersReducedMotion } from "./lib/motion.js";
@@ -458,6 +458,50 @@ function StatCard({ label, value }) {
   );
 }
 
+// One book tile for the "Reading right now" card. Lifted into its own
+// component so useSignedUrl can be called unconditionally per tile —
+// React's hook-rule says no conditional hook calls. Tiles stack tightly
+// (~52px each) so even three concurrent reads stay above the fold.
+function ReadingNowBookTile({ b }) {
+  const customCoverSigned = useSignedUrl(b.customCoverPath || "");
+  const displayCover = customCoverSigned || b.coverUrl || "";
+  return (
+    <div className="flex items-center gap-2 p-1.5 bg-white rounded-xl border border-sky-100">
+      {displayCover ? (
+        <img
+          src={displayCover}
+          alt=""
+          draggable={false}
+          className="w-10 h-14 object-cover rounded-md border border-slate-200 shrink-0 bg-slate-100"
+          loading="lazy"
+          onError={(e) => { e.currentTarget.style.display = "none"; }}
+        />
+      ) : (
+        <div className="w-10 h-14 rounded-md bg-slate-100 border border-slate-200 grid place-items-center shrink-0 text-slate-300">
+          <BookOpen size={16} />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-bold text-slate-800 truncate leading-tight">{b.title}</div>
+        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+          {b.author && <span className="text-[10px] text-slate-500 truncate">{b.author}</span>}
+          {b.lang && <span className="text-[10px] font-semibold text-slate-400">{b.lang}</span>}
+          {b.readCount > 1 && (
+            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-1.5 py-0.5">
+              Read {b.readCount}×
+            </span>
+          )}
+        </div>
+      </div>
+      {b.minutesToday > 0 && (
+        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5 shrink-0">
+          +{b.minutesToday}m
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest, onTapStars, onOpenBoard, onTapBadges, onTapHeroLevel }) {
   if (!data) return null;
   const {
@@ -472,6 +516,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
     mapStops = [],
     level,
     nextBadge,
+    readingNow,
   } = data;
 
   // Fire the celebration when the canonical star total ticks up. We derive
@@ -873,6 +918,30 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           </div>
           <div className="text-2xl text-emerald-600 shrink-0">▶</div>
         </button>
+      )}
+
+      {/* READING NOW — what book(s) he's actively reading + minutes
+          logged today. Sits between Up Next and Drums streak so the
+          books surface gets the same daily-motivator treatment as
+          the drum journey. Hidden when there are no current reads. */}
+      {readingNow && readingNow.hasAny && readingNow.books.length > 0 && (
+        <div className="rounded-3xl p-3.5 border-2 border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50">
+          <div className="flex items-baseline justify-between gap-2 mb-2">
+            <div className="text-xs font-extrabold text-sky-700 flex items-center gap-1.5">
+              <BookOpen size={14} /> Reading right now
+            </div>
+            {readingNow.totalMinutesToday > 0 && (
+              <div className="text-[11px] font-bold text-sky-600">
+                {readingNow.totalMinutesToday} min today
+              </div>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            {readingNow.books.map((b) => (
+              <ReadingNowBookTile key={b.id} b={b} />
+            ))}
+          </div>
+        </div>
       )}
 
       {/* A YEAR OF DRUMS — the single dedicated streak card. Sits between
