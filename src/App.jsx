@@ -1963,33 +1963,63 @@ function firstProofPhoto(c) {
 //   completion.extra.songId → cover from `songs`
 // gifted rows pass `gift` instead of `completion` and we read their
 // extra.photoPath / extra.bookId / extra.songId.
-function ProofThumb({ completion, gift, activity, task, books = [], songs = [], size = 36, clickable = true }) {
+function ProofThumb({ completion, gift, activity, task, books = [], songs = [], songPlays = [], size = 36, clickable = true }) {
   // Proof photo (from completion or gift).
   const proofPhoto = firstProofPhoto(completion);
   const giftPhotoPath = gift?.extra?.photoPath || null;
-  // Book lookup — match by id first, fall back to title (legacy data).
+  // Book + song lookups. Match by id first, fall back to title for legacy.
   const meta = completion?.extra || gift?.extra || {};
   const bookId = meta.bookId;
   const bookTitle = meta.bookTitle;
   const book = bookId
     ? books.find((b) => b.id === bookId)
     : (bookTitle ? books.find((b) => (b.title || "").toLowerCase() === bookTitle.toLowerCase()) : null);
-  const song = meta.songId ? songs.find((s) => s.id === meta.songId) : null;
+  // Activity-aware preference. The completion knows what kind of task
+  // it is via task.activityType / task.proofType. Reading + Drums each
+  // have a more meaningful "what was done" image than a generic proof
+  // photo — the book the kid read, the song he practiced. Use that as
+  // the FIRST choice when available.
+  const at = (task?.activityType || "").toLowerCase();
+  const pt = (task?.proofType || "").toLowerCase();
+  const isReading = pt === "reading" || /read|book/.test(at);
+  const isDrums = pt === "drums" || /drum/.test(at);
+  // For drums: pull the FIRST song play that matches the completion's
+  // date. We use sorted-by-id (timestamped) ascending so "first played"
+  // wins. Falls back to extra.songId if the task captured one directly.
+  let song = meta.songId ? songs.find((s) => s.id === meta.songId) : null;
+  if (!song && isDrums && completion?.completionDate && Array.isArray(songPlays)) {
+    const todayPlays = songPlays
+      .filter((p) => p.playedOn === completion.completionDate)
+      .sort((a, b) => (a.id || "").localeCompare(b.id || ""));
+    const firstPlay = todayPlays[0];
+    if (firstPlay) song = songs.find((s) => s.id === firstPlay.songId);
+  }
   // Custom uploads (storage paths). One useSignedUrl per slot — hooks
   // must be called unconditionally in stable order.
   const proofSigned = useSignedUrl(proofPhoto && !proofPhoto.url ? proofPhoto.path : null);
   const giftSigned = useSignedUrl(giftPhotoPath);
   const bookCustomSigned = useSignedUrl(book?.customCoverPath || null);
   const songCustomSigned = useSignedUrl(song?.customCoverPath || null);
-  // Resolution order: proof photo → gift photo → book custom → book
-  // canonical cover → song custom → song canonical cover → null.
-  const src =
-    (proofPhoto && (proofPhoto.url || proofSigned)) ||
-    giftSigned ||
-    bookCustomSigned ||
-    (book?.coverUrl || null) ||
-    songCustomSigned ||
-    (song?.coverUrl || null);
+  const bookCoverSrc = bookCustomSigned || book?.coverUrl || null;
+  const songCoverSrc = songCustomSigned || song?.coverUrl || null;
+  const proofSrc = proofPhoto && (proofPhoto.url || proofSigned);
+  // Resolution order:
+  //   Reading task → book cover preferred (the book IS what was read).
+  //                  Falls back to proof photo, then gift photo.
+  //   Drums task   → song cover preferred (the song IS what was practiced).
+  //                  Falls back to proof photo, then gift photo.
+  //   Otherwise    → proof photo (the photo IS what was done),
+  //                  then gift photo, then book / song cover, then null.
+  // Mike's rule: a real cover or photo means "done"; the activity icon
+  // means "not done yet or you forgot to attach proof — fix this."
+  let src = null;
+  if (isReading) {
+    src = bookCoverSrc || proofSrc || giftSigned || songCoverSrc;
+  } else if (isDrums) {
+    src = songCoverSrc || proofSrc || giftSigned || bookCoverSrc;
+  } else {
+    src = proofSrc || giftSigned || bookCoverSrc || songCoverSrc;
+  }
   const cls = "rounded-2xl shrink-0 object-cover bg-slate-100";
   const style = { width: size, height: size, ...(clickable && src ? { cursor: "zoom-in" } : {}) };
   if (src) {
@@ -2606,7 +2636,7 @@ function StatDetail({
     const stars = c.awardedStars || c.pendingStars || 0;
     return (
       <div className="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
-        <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} size={36} />
+        <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} songPlays={songPlays} size={36} />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-slate-800 truncate">{t?.title || c.taskId}</div>
           <div className="text-[11px] text-slate-400 truncate">
@@ -2908,6 +2938,7 @@ function StarLedger({
                       task={row.task}
                       books={books}
                       songs={songs}
+                      songPlays={songPlays}
                       size={28}
                     />
                   ) : (
@@ -3048,7 +3079,7 @@ function DayBreakdown({
                   const a = actByTask(t);
                   return (
                     <div key={c.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
-                      <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} size={28} />
+                      <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} songPlays={songPlays} size={28} />
                       <div className="flex-1 min-w-0">
                         <div className="text-[12px] font-bold text-slate-800 truncate">{taskTitle(c.taskId)}</div>
                         <div className="text-[10px] text-slate-400">approved by {userName(c.approvedBy) || "—"}</div>
@@ -3068,7 +3099,7 @@ function DayBreakdown({
                   const a = actByTask(t);
                   return (
                     <div key={c.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
-                      <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} size={28} />
+                      <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} songPlays={songPlays} size={28} />
                       <div className="flex-1 min-w-0">
                         <div className="text-[12px] font-bold text-slate-800 truncate">{taskTitle(c.taskId)}</div>
                         <div className="text-[10px] text-slate-400">submitted by {userName(c.submittedBy) || "—"}</div>
@@ -4774,7 +4805,7 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
                 const a = actFor(t || { activityType: "" }, activities);
                 return (
                   <Card key={c.id} className="p-3 mb-2 flex items-center gap-3">
-                    <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} size={36} />
+                    <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} songPlays={songPlays} size={36} />
                     <div className="flex-1 text-sm font-semibold">{t?.title}{c.extra?.bookTitle && <span className="block text-[11px] text-slate-400 font-normal">{c.extra.bookTitle}</span>}</div>
                     <StarPill n={c.awardedStars} tone="emerald" />
                   </Card>
@@ -5142,13 +5173,50 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         );
       })()}
 
-      <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Done ({done.length})</SectionTitle>
-      {done.map((t) => {
-        const c = compByTask[t.id];
-        // Done rows: tap → CompletionDetailSheet (photos, notes,
-        // stats, edit). Krissie's flow lives here on the parent side.
-        return <MiniRow key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
-      })}
+      {(() => {
+        // Bonus stars belong in Done — they're contributions Reznor
+        // made today that earned stars, same as a finished chore. Mike
+        // explicitly wanted them visible here. We pull today's gifts and
+        // count them in the section header so the total reads honest.
+        const giftedTodayList = (gifted || []).filter((g) => g.date === TODAY_ISO);
+        const doneTotalCount = done.length + giftedTodayList.length;
+        return (
+          <>
+            <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Done ({doneTotalCount})</SectionTitle>
+            {done.map((t) => {
+              const c = compByTask[t.id];
+              // Done rows: tap → CompletionDetailSheet (photos, notes,
+              // stats, edit). Krissie's flow lives here on the parent side.
+              return <MiniRow key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
+            })}
+            {giftedTodayList.map((g) => {
+              const gTask = g.extra?.taskId ? tasks.find((t) => t.id === g.extra.taskId) : null;
+              const gAct = g.extra?.activityId
+                ? activities.find((a) => a.id === g.extra.activityId)
+                : (gTask
+                    ? activities.find((a) => a.id === (gTask.activityId
+                        || gTask.activityType?.toLowerCase().replace(/\s/g, "_")))
+                    : null);
+              const giver = users.find((u) => u.id === g.by)?.name || "—";
+              return (
+                <Card key={g.id} className="p-3 mb-2 flex items-center gap-3 border-amber-100 bg-amber-50/40">
+                  <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} songPlays={songPlays} size={36} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-slate-800 truncate flex items-center gap-1">
+                      <Sparkles size={12} className="text-amber-500 shrink-0" />
+                      {g.label || "Bonus"}
+                    </div>
+                    <div className="text-[11px] text-slate-400 truncate">
+                      bonus stars · from {giver}{gTask?.title ? ` · ${gTask.title}` : ""}
+                    </div>
+                  </div>
+                  <StarPill n={Number(g.stars) || 0} tone="emerald" />
+                </Card>
+              );
+            })}
+          </>
+        );
+      })()}
 
       {/* N/A today — recoverable strip. Sick day, travel, schedule
           conflict: a parent taps "N/A" on a task and it disappears
