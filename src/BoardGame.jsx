@@ -1322,14 +1322,16 @@ export default function BoardGame({
   // no data changes, no celebration replay (so it can be re-run
   // without re-firing the treasure pop — that lives on its own gate).
   //
-  // mode = "normal" (default tap) → ~900ms/space, capped at 9s. This
-  //                                  used to be the "slow" mode; Reza
-  //                                  and Krissie said the old default
-  //                                  was too fast to watch, so it's
-  //                                  now the baseline.
-  //        "slow" (long-press / right-click) → ~1800ms/space, capped
-  //                                at 18s. Extra-slow for the full
-  //                                cinematic enjoy-the-walk-cycle pass.
+  // mode = "normal" (default tap) → ~1200ms/space, soft cap 30s. Reza
+  //                                  and Krissie want to enjoy the
+  //                                  token landing on each space; the
+  //                                  earlier 9s cap was averaging the
+  //                                  per-space pace right back to the
+  //                                  old fast feel on longer boards.
+  //                                  The cap now is just a safety
+  //                                  upper bound, not a target.
+  //        "slow" (long-press / right-click) → ~2400ms/space, soft cap
+  //                                60s. Full cinematic walk-cycle pass.
   const replayJourney = (mode = "normal") => {
     if (isAnimating) return;
     if (targetIdx === 0) return;
@@ -1338,9 +1340,9 @@ export default function BoardGame({
     if (p0) setTokenXY({ x: p0.x, y: p0.y });
     juice.haptic("light");
     juice.sfx("swipe");
-    const perSpace = mode === "slow" ? 1800 : 900;
-    const cap     = mode === "slow" ? 18000 : 9000;
-    const base    = mode === "slow" ? 1500 : 900;
+    const perSpace = mode === "slow" ? 2400 : 1200;
+    const cap     = mode === "slow" ? 60000 : 30000;
+    const base    = mode === "slow" ? 1800 : 1200;
     setTimeout(() => {
       animateAlong(0, targetIdx, {
         duration: Math.min(cap, base + targetIdx * perSpace),
@@ -1365,10 +1367,12 @@ export default function BoardGame({
       onTokenTap();
       return;
     }
-    // Speed scales with distance, capped so a long walk isn't tedious.
+    // Speed scales with distance — ~1200ms per space matches the new
+    // replayJourney pace so a tap-to-walk and the full replay feel
+    // like the same animation, just different lengths.
     const dist = Math.abs(toIdx - tokenIdxRef.current);
     animateAlong(tokenIdxRef.current, toIdx, {
-      duration: Math.min(2700, 900 + dist * 540),
+      duration: Math.min(18000, 900 + dist * 1200),
     });
   };
 
