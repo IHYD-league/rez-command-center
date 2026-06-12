@@ -584,11 +584,12 @@ function buildPathD(positions) {
 }
 
 // Replay pill — bottom-of-board button that lets the kid re-watch the
-// catch-up journey. Tap = fast (Reznor's preferred); long-press OR
-// right-click = slow walk-pace (for enjoying the dino walk-cycle).
-// Long-press fires on pointer-up after a 500ms hold; right-click fires
-// onContextMenu. A small badge appears under the pill while holding
-// so the gesture has feedback.
+// catch-up journey. Tap = normal pace (~3× slower than the original
+// fast pace; Reza & Krissie wanted to actually see the journey).
+// Long-press OR right-click = extra-slow walk-pace (for enjoying the
+// dino walk-cycle land on every space). Long-press fires on pointer-up
+// after a 500ms hold; right-click fires onContextMenu. A small badge
+// appears under the pill while holding so the gesture has feedback.
 function ReplayPill({ onFast, onSlow }) {
   const [holding, setHolding] = useState(false);
   const heldRef = useRef(false);
@@ -634,9 +635,9 @@ function ReplayPill({ onFast, onSlow }) {
           touchAction: "none",
           userSelect: "none",
         }}
-        aria-label="Replay journey. Tap for fast, hold or right-click for slow walk."
+        aria-label="Replay journey. Tap to walk it, hold or right-click for extra-slow."
       >
-        {holding ? "🐢 Hold for slow walk…" : "▶ Start again"}
+        {holding ? "🐢 Extra slow…" : "▶ Start again"}
       </button>
     </div>
   );
@@ -1321,13 +1322,17 @@ export default function BoardGame({
   // no data changes, no celebration replay (so it can be re-run
   // without re-firing the treasure pop — that lives on its own gate).
   //
-  // mode = "fast" (default tap) → ~280ms/space, capped at 3s. Reznor
-  //                                likes this; it's the original.
-  //        "slow" (long-press / right-click) → ~900ms/space, capped
-  //                                at 9s. Mike wanted a way to ASK
-  //                                for the slow watch when he wants
-  //                                to enjoy the journey.
-  const replayJourney = (mode = "fast") => {
+  // mode = "normal" (default tap) → ~1200ms/space, soft cap 30s. Reza
+  //                                  and Krissie want to enjoy the
+  //                                  token landing on each space; the
+  //                                  earlier 9s cap was averaging the
+  //                                  per-space pace right back to the
+  //                                  old fast feel on longer boards.
+  //                                  The cap now is just a safety
+  //                                  upper bound, not a target.
+  //        "slow" (long-press / right-click) → ~2400ms/space, soft cap
+  //                                60s. Full cinematic walk-cycle pass.
+  const replayJourney = (mode = "normal") => {
     if (isAnimating) return;
     if (targetIdx === 0) return;
     tokenIdxRef.current = 0;
@@ -1335,9 +1340,9 @@ export default function BoardGame({
     if (p0) setTokenXY({ x: p0.x, y: p0.y });
     juice.haptic("light");
     juice.sfx("swipe");
-    const perSpace = mode === "slow" ? 900 : 280;
-    const cap     = mode === "slow" ? 9000 : 3000;
-    const base    = mode === "slow" ? 900 : 600;
+    const perSpace = mode === "slow" ? 2400 : 1200;
+    const cap     = mode === "slow" ? 60000 : 30000;
+    const base    = mode === "slow" ? 1800 : 1200;
     setTimeout(() => {
       animateAlong(0, targetIdx, {
         duration: Math.min(cap, base + targetIdx * perSpace),
@@ -1349,6 +1354,10 @@ export default function BoardGame({
   // wherever it currently is back to that space. Reznor can replay his
   // own journey — up to but not past the last canonical completion.
   // No data mutation; this is pure visual exploration.
+  //
+  // Speeds match the new replayJourney baseline (~3× slower than the
+  // original) — Reza and Krissie said the old fast pace was too quick
+  // to watch the walk cycle land on each space.
   const walkToCompleted = (toIdx) => {
     if (toIdx < 0 || toIdx >= spaces.length) return;
     // Guard: never move past targetIdx (the canonical "real" position).
@@ -1358,10 +1367,12 @@ export default function BoardGame({
       onTokenTap();
       return;
     }
-    // Speed scales with distance, capped so a long walk isn't tedious.
+    // Speed scales with distance — ~1200ms per space matches the new
+    // replayJourney pace so a tap-to-walk and the full replay feel
+    // like the same animation, just different lengths.
     const dist = Math.abs(toIdx - tokenIdxRef.current);
     animateAlong(tokenIdxRef.current, toIdx, {
-      duration: Math.min(900, 280 + dist * 180),
+      duration: Math.min(18000, 900 + dist * 1200),
     });
   };
 
@@ -1443,7 +1454,12 @@ export default function BoardGame({
     const startedAt = performance.now();
     const tick = (now) => {
       const t = Math.min(1, (now - startedAt) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
+      // Linear pacing — every space gets equal time. The previous
+      // cubic ease-out made the token cover ~70% of the path in the
+      // first 30% of time, so even a 30-second sweep felt fast at
+      // the start. For Reza & Krissie's "watch it land on each
+      // space" experience we want constant velocity.
+      const eased = t;
       const len = startLen + (endLen - startLen) * eased;
       const pt = pathEl.getPointAtLength(len);
       updateFacingFromX(pt.x);
@@ -1501,9 +1517,14 @@ export default function BoardGame({
       return;
     }
     const tm = setTimeout(() => {
-      // Quick sweep: cap at 700ms so the kid sees it but doesn't wait.
+      // Catch-up sweep — matches replayJourney "normal" pace so the
+      // first impression of the board doesn't blast past every space
+      // in a half-second. Reza and Krissie called this out: tap to
+      // replay was perfect speed, but the launch catch-up was still
+      // the old fast pace and made them think the slow setting hadn't
+      // landed.
       animateAlong(0, targetIdx, {
-        duration: Math.min(700, 320 + targetIdx * 70),
+        duration: Math.min(30000, 1200 + targetIdx * 1200),
         onLand: () => {
           seenIdsRef.current = new Set(approvedIds);
           // Catch-up reloads still need the full payoff at the end.
@@ -1539,9 +1560,12 @@ export default function BoardGame({
       return;
     }
 
-    // Animate to the new last-completed space and pop once.
+    // Animate to the new last-completed space and pop once. Pace
+    // matches replayJourney "normal" so a freshly approved chore
+    // delivers the same satisfying walk every time, instead of
+    // snapping the token a quarter-second ahead.
     animateAlong(tokenIdxRef.current, targetIdx, {
-      duration: Math.min(900, 350 + Math.max(0, targetIdx - tokenIdxRef.current) * 250),
+      duration: Math.min(6000, 900 + Math.max(0, targetIdx - tokenIdxRef.current) * 1200),
       onLand: () => {
         const landed = spaces[targetIdx];
         // Pulse the space the rocket just arrived on — visible
@@ -2017,7 +2041,7 @@ export default function BoardGame({
             stride pace — useful when there's a dino theme with the
             running animation to watch. */}
         {launched && targetIdx > 0 && !isAnimating && (
-          <ReplayPill onFast={() => replayJourney("fast")} onSlow={() => replayJourney("slow")} />
+          <ReplayPill onFast={() => replayJourney("normal")} onSlow={() => replayJourney("slow")} />
         )}
       </div>
 
