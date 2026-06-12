@@ -1798,6 +1798,48 @@ function StoredPhoto({ path, url, alt = "", className = "", fallback = null }) {
   return <img src={src} alt={alt} className={className} />;
 }
 
+// Pull the first photo proof off a completion, if there is one.
+// Proof entries can be {type:"photo", path, url, name, ...} or legacy
+// {name,...} for non-photo notes — we only want the photo ones.
+function firstProofPhoto(c) {
+  if (!c || !Array.isArray(c.proof)) return null;
+  return c.proof.find((p) => (p?.type === "photo" || p?.path || p?.url) && (p?.path || p?.url)) || null;
+}
+
+// ProofThumb: tiny square that shows the completion's first proof photo
+// if there is one; otherwise renders the activity icon tile. Used in
+// every "completion row" surface (today list, Star Ledger, per-day
+// breakdown, MiniRow). Krissie called this out: a Make-Bed row with a
+// photo of the made bed should LOOK like the bed, not a generic house
+// icon. Real visuals make the parent view scannable.
+function ProofThumb({ completion, activity, task, size = 36 }) {
+  const photo = firstProofPhoto(completion);
+  const signed = useSignedUrl(photo && !photo.url ? photo.path : null);
+  const src = photo ? (photo.url || signed) : null;
+  const cls = "rounded-2xl shrink-0 object-cover bg-slate-100";
+  const style = { width: size, height: size };
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        className={cls}
+        style={style}
+        onError={(e) => { e.currentTarget.style.display = "none"; }}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-2xl grid place-items-center shrink-0"
+      style={{ ...style, background: (activity?.color || "#94a3b8") + "22", color: activity?.color || "#475569" }}
+    >
+      <TaskIcon type={task?.activityType} color={activity?.color || "#475569"} />
+    </div>
+  );
+}
+
 
 function SectionTitle({ icon, children, right }) {
   return (
@@ -2389,9 +2431,7 @@ function StatDetail({
     const stars = c.awardedStars || c.pendingStars || 0;
     return (
       <div className="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
-        <div className="w-9 h-9 rounded-2xl grid place-items-center shrink-0" style={{ background: (a?.color || "#94a3b8") + "22", color: a?.color || "#475569" }}>
-          <TaskIcon type={t?.activityType} color={a?.color || "#475569"} />
-        </div>
+        <ProofThumb completion={c} activity={a} task={t} size={36} />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-slate-800 truncate">{t?.title || c.taskId}</div>
           <div className="text-[11px] text-slate-400 truncate">
@@ -2577,6 +2617,7 @@ function StarLedger({
   for (const c of (completions || [])) {
     if (c.status !== "approved" || !c.awardedStars) continue;
     const t = (tasks || []).find((x) => x.id === c.taskId);
+    const a = (activities || []).find((x) => x.id === (t?.activityId || t?.activityType?.toLowerCase().replace(/\s/g, "_")));
     items.push({
       key: `c-${c.id}`,
       kind: "earned",
@@ -2585,6 +2626,9 @@ function StarLedger({
       sub: c.extra?.bookTitle ? c.extra.bookTitle : "",
       stars: c.awardedStars,
       who: users.find((u) => u.id === c.approvedBy)?.name || "",
+      completion: c,
+      task: t,
+      activity: a,
     });
   }
   for (const g of (gifted || [])) {
@@ -2669,9 +2713,13 @@ function StarLedger({
                   className="flex-1 flex items-center gap-2 min-w-0 text-left active:scale-[0.99] transition"
                   title={row.date ? "See everything that happened this day" : ""}
                 >
-                  <div className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${bg}`}>
-                    <span className="text-sm">{icon}</span>
-                  </div>
+                  {row.kind === "earned" && row.completion ? (
+                    <ProofThumb completion={row.completion} activity={row.activity} task={row.task} size={28} />
+                  ) : (
+                    <div className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${bg}`}>
+                      <span className="text-sm">{icon}</span>
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="text-[12px] font-bold text-slate-800 truncate">
                       {row.label}
@@ -2747,6 +2795,8 @@ function DayBreakdown({
   const net = earnedNet + giftedNet - redeemedNet;
 
   const taskTitle = (id) => (tasks || []).find((t) => t.id === id)?.title || id;
+  const taskById = (id) => (tasks || []).find((t) => t.id === id);
+  const actByTask = (t) => (activities || []).find((a) => a.id === (t?.activityId || t?.activityType?.toLowerCase().replace(/\s/g, "_")));
   const userName = (id) => (users || []).find((u) => u.id === id)?.name || "";
   const songName = (id) => {
     const s = (songs || []).find((x) => x.id === id);
@@ -2798,32 +2848,40 @@ function DayBreakdown({
           {dayApproved.length > 0 && (
             <Section title={`Earned · +${earnedNet}⭐`} count={dayApproved.length} accent="text-emerald-700">
               <Card className="p-2">
-                {dayApproved.map((c) => (
-                  <div key={c.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
-                    <div className="w-7 h-7 rounded-lg bg-emerald-50 grid place-items-center shrink-0 text-sm">⭐</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[12px] font-bold text-slate-800 truncate">{taskTitle(c.taskId)}</div>
-                      <div className="text-[10px] text-slate-400">approved by {userName(c.approvedBy) || "—"}</div>
+                {dayApproved.map((c) => {
+                  const t = taskById(c.taskId);
+                  const a = actByTask(t);
+                  return (
+                    <div key={c.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                      <ProofThumb completion={c} activity={a} task={t} size={28} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12px] font-bold text-slate-800 truncate">{taskTitle(c.taskId)}</div>
+                        <div className="text-[10px] text-slate-400">approved by {userName(c.approvedBy) || "—"}</div>
+                      </div>
+                      <div className="text-sm font-extrabold text-emerald-700 tabular-nums shrink-0">+{c.awardedStars}⭐</div>
                     </div>
-                    <div className="text-sm font-extrabold text-emerald-700 tabular-nums shrink-0">+{c.awardedStars}⭐</div>
-                  </div>
-                ))}
+                  );
+                })}
               </Card>
             </Section>
           )}
           {dayPending.length > 0 && (
             <Section title="Pending approval" count={dayPending.length} accent="text-amber-700">
               <Card className="p-2">
-                {dayPending.map((c) => (
-                  <div key={c.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
-                    <div className="w-7 h-7 rounded-lg bg-amber-50 grid place-items-center shrink-0 text-sm">⏳</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[12px] font-bold text-slate-800 truncate">{taskTitle(c.taskId)}</div>
-                      <div className="text-[10px] text-slate-400">submitted by {userName(c.submittedBy) || "Reznor"}</div>
+                {dayPending.map((c) => {
+                  const t = taskById(c.taskId);
+                  const a = actByTask(t);
+                  return (
+                    <div key={c.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                      <ProofThumb completion={c} activity={a} task={t} size={28} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12px] font-bold text-slate-800 truncate">{taskTitle(c.taskId)}</div>
+                        <div className="text-[10px] text-slate-400">submitted by {userName(c.submittedBy) || "—"}</div>
+                      </div>
+                      <div className="text-[10px] font-bold text-amber-700 shrink-0">awaiting</div>
                     </div>
-                    <div className="text-[10px] font-bold text-amber-700 shrink-0">awaiting</div>
-                  </div>
-                ))}
+                  );
+                })}
               </Card>
             </Section>
           )}
