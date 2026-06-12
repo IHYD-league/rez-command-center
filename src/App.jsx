@@ -5931,6 +5931,7 @@ function searchBooks(list, q) {
 // meaningful — Mike wants to scan "what's actively being read" without
 // it intermixing with finished books.
 const BOOK_SORT_OPTIONS = [
+  { k: "reading_order",  label: "Reading order" },
   { k: "added_newest",   label: "Newest added" },
   { k: "added_oldest",   label: "Oldest added" },
   { k: "title_az",       label: "Title A–Z" },
@@ -5940,19 +5941,51 @@ const BOOK_SORT_OPTIONS = [
   { k: "rating_high",    label: "Rating ★" },
 ];
 
+// Natural-sort collator. Critical for series like "Vol 1, Vol 2, …
+// Vol 10" — plain localeCompare treats "Vol 10" as alphabetically
+// before "Vol 2" because it compares char-by-char. numeric: true tells
+// the collator to recognize digit runs as numbers and order them
+// numerically. Reznor's complaint: archive showed Vol 6, 5, 3, 4, 7,
+// 2, 1 in random order. With this collator they sort Vol 1 … Vol 7.
+const naturalCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const natCmp = (a, b) => naturalCollator.compare(a || "", b || "");
+
 function sortBooks(list, sort) {
   const sorted = [...list];
   const titleOf  = (b) => b.canonicalTitle  || b.title  || "";
   const authorOf = (b) => b.canonicalAuthor || "";
   const addedOf  = (b) => b.id || ""; // id is "b_<Date.now()>"; lexicographic sort = chronological
   switch (sort) {
-    case "added_newest":    sorted.sort((a, b) => addedOf(b).localeCompare(addedOf(a))); break;
-    case "added_oldest":    sorted.sort((a, b) => addedOf(a).localeCompare(addedOf(b))); break;
-    case "title_az":        sorted.sort((a, b) => titleOf(a).localeCompare(titleOf(b))); break;
-    case "title_za":        sorted.sort((a, b) => titleOf(b).localeCompare(titleOf(a))); break;
-    case "author_az":       sorted.sort((a, b) => authorOf(a).localeCompare(authorOf(b)) || titleOf(a).localeCompare(titleOf(b))); break;
-    case "finished_newest": sorted.sort((a, b) => (b.finished || "").localeCompare(a.finished || "") || titleOf(a).localeCompare(titleOf(b))); break;
-    case "rating_high":     sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0) || titleOf(a).localeCompare(titleOf(b))); break;
+    case "reading_order":
+      // Pre-app archive books (preTracking) come first — Reznor read
+      // them before the app started, so chronologically earliest.
+      // Within archive, natural title sort respects "Vol 1, Vol 2…"
+      // order so series stay in the order he actually read them.
+      // Tracked finished books come next in true reading order
+      // (finished ASC = oldest read first). Anything still in progress
+      // (no finished date, not preTracking) sorts to the bottom by
+      // natural title.
+      sorted.sort((a, b) => {
+        const aPre = a.preTracking ? 1 : 0;
+        const bPre = b.preTracking ? 1 : 0;
+        if (aPre !== bPre) return bPre - aPre; // archive (1) before tracked (0)
+        if (a.preTracking && b.preTracking) return natCmp(titleOf(a), titleOf(b));
+        // Both tracked. Finished date ASC, then natural title fallback.
+        const aFin = a.finished || "";
+        const bFin = b.finished || "";
+        if (aFin && bFin) return aFin.localeCompare(bFin) || natCmp(titleOf(a), titleOf(b));
+        if (aFin) return -1; // finished before not-finished
+        if (bFin) return 1;
+        return natCmp(titleOf(a), titleOf(b));
+      });
+      break;
+    case "added_newest":    sorted.sort((a, b) => addedOf(b).localeCompare(addedOf(a)) || natCmp(titleOf(a), titleOf(b))); break;
+    case "added_oldest":    sorted.sort((a, b) => addedOf(a).localeCompare(addedOf(b)) || natCmp(titleOf(a), titleOf(b))); break;
+    case "title_az":        sorted.sort((a, b) => natCmp(titleOf(a), titleOf(b))); break;
+    case "title_za":        sorted.sort((a, b) => natCmp(titleOf(b), titleOf(a))); break;
+    case "author_az":       sorted.sort((a, b) => natCmp(authorOf(a), authorOf(b)) || natCmp(titleOf(a), titleOf(b))); break;
+    case "finished_newest": sorted.sort((a, b) => (b.finished || "").localeCompare(a.finished || "") || natCmp(titleOf(a), titleOf(b))); break;
+    case "rating_high":     sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0) || natCmp(titleOf(a), titleOf(b))); break;
     default: break;
   }
   return sorted;
@@ -6077,7 +6110,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
   const [addingBacklog, setAddingBacklog] = useState(false);
   const [q, setQ] = useState("");
   const [viewMode, setViewMode] = useState("list");
-  const [sort, setSort] = useState("added_newest");
+  const [sort, setSort] = useState("reading_order");
   const [focusedBookId, setFocusedBookId] = useState(null);
   const [rearranging, setRearranging] = useState(false);
   const savedOrder = libraryOrder?.books || [];
