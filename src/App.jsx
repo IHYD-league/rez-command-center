@@ -391,7 +391,7 @@ function buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, 
 // parent changed the plan, the count uses today's plan retroactively.
 // Acceptable approximation; the alternative would be storing daily
 // treasure-opened flags which adds complexity for marginal honesty gain.
-function computeTreasureStreak({ completions, tasks, topPriorities }) {
+function computeTreasureStreak({ completions, tasks, topPriorities, taskNaDays }) {
   if (!Array.isArray(completions) || !Array.isArray(tasks)) return 0;
   const bootstrap = bootstrapWeeklyTopEight(tasks);
   // Pre-bucket approved completions by date for O(1) lookup per day.
@@ -412,10 +412,14 @@ function computeTreasureStreak({ completions, tasks, topPriorities }) {
     const ids = Array.isArray(dailyOverride)
       ? dailyOverride
       : (Array.isArray(weeklyPlan) ? weeklyPlan : bootstrap[weekday]);
+    // N/A list for this day — parent-marked exceptions (sick day,
+    // travel). Removed from the required set so the streak survives
+    // genuine non-applicable days.
+    const naSet = new Set((taskNaDays || {})[iso] || []);
     // Only count tasks that still exist + are active. Otherwise a deleted
     // task from yesterday would make every prior day permanently failed.
     const required = (ids || []).filter((id) =>
-      tasks.some((t) => t.id === id && t.active !== false)
+      !naSet.has(id) && tasks.some((t) => t.id === id && t.active !== false)
     );
     if (required.length === 0) break;
     const approvedForDay = approvedByDate.get(iso) || new Set();
@@ -598,6 +602,23 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // No cap on length — Top 8 is the default expectation but parents
   // can add ad-hoc items in the editor so the board grows when needed.
   const [topPriorities, setTopPriorities] = familySetting("topPriorities", { weekly: {}, daily: {} });
+  // taskNaDays: per-ISO-date list of task IDs marked N/A — Reznor was
+  // sick, traveling, or the task genuinely doesn't apply. Distinct from
+  // priorities (which describe importance) and topPriorities (which
+  // describe the day's plan). Honored everywhere a task is enumerated
+  // for a date: todaysTasks (parent view), todaysTopEight (kid board),
+  // computeTreasureStreak (streak math). Keeps the streak honest when
+  // life gets in the way. Shape: { "2026-06-11": ["drums", "books"] }
+  const [taskNaDays, setTaskNaDays] = familySetting("taskNaDays", {});
+  // songPlayRequests: kid-initiated change requests against existing
+  // song_plays. Reznor (6yo) can SEE every play row in the Most Played
+  // card but should NOT be able to silently delete or re-attribute one
+  // — a mis-tap would erase a real practice session. Each request is
+  // an envelope {id, playId, kind, payload, by, at} that lands in the
+  // parent Approvals queue. On approve, the parent applies the change
+  // (removeSongPlay / updateSongPlay); on deny we just drop it. Same
+  // approve-the-mutation pattern as rewardRequests, scoped to plays.
+  const [songPlayRequests, setSongPlayRequests] = familySetting("songPlayRequests", []);
   // Library custom shelf order. One key per domain — ordered array of
   // ids. When the Shelf view is active in MusicLibrary / ReadingLibrary,
   // items are displayed in this order; items not in the array are
@@ -685,10 +706,29 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const user = users.find((u) => u.id === currentUserId);
 
   // ---- derived ----
-  const todaysTasks = useMemo(
-    () => tasks.filter((t) => (t.mode === "both" || t.mode === mode) && (!t.days || t.days.includes(WEEKDAY)) && t.active !== false),
-    [tasks, mode]
-  );
+  const todaysTasks = useMemo(() => {
+    const naSet = new Set(taskNaDays?.[TODAY_ISO] || []);
+    return tasks.filter((t) =>
+      (t.mode === "both" || t.mode === mode)
+      && (!t.days || t.days.includes(WEEKDAY))
+      && t.active !== false
+      && !naSet.has(t.id)
+    );
+  }, [tasks, mode, taskNaDays]);
+  // Tasks the parent marked N/A today — surfaced as a small restore
+  // strip so the action is recoverable in one tap. Same source-of-
+  // truth filter as todaysTasks above (so we never show a deleted or
+  // off-schedule task as "N/A today").
+  const todaysNATasks = useMemo(() => {
+    const naIds = new Set(taskNaDays?.[TODAY_ISO] || []);
+    if (naIds.size === 0) return [];
+    return tasks.filter((t) =>
+      naIds.has(t.id)
+      && (t.mode === "both" || t.mode === mode)
+      && (!t.days || t.days.includes(WEEKDAY))
+      && t.active !== false
+    );
+  }, [tasks, mode, taskNaDays]);
   // The parent-curated Top 8 in canonical task-object form. Source of
   // truth for the board, kid missions, kid home quests. Sparse entries
   // (deleted tasks, inactive tasks) are dropped silently so the board
@@ -700,10 +740,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     const ids = Array.isArray(dailyOverride)
       ? dailyOverride
       : (Array.isArray(weeklyPlan) ? weeklyPlan : bootstrap[WEEKDAY]);
+    const naSet = new Set(taskNaDays?.[TODAY_ISO] || []);
     return (ids || [])
       .map((id) => tasks.find((t) => t.id === id))
-      .filter((t) => t && t.active !== false);
-  }, [tasks, topPriorities]);
+      .filter((t) => t && t.active !== false && !naSet.has(t.id));
+  }, [tasks, topPriorities, taskNaDays]);
   // Imperative helpers — write directly to the topPriorities jsonb.
   // setDailyTopEight pins a per-date override; resetDailyTopEight drops
   // it back to the weekly default; setWeeklyTopEight updates the
@@ -726,6 +767,58 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       weekly: { ...((prev?.weekly) || {}), [weekday]: taskIds },
       daily: (prev?.daily) || {},
     }));
+  // N/A-for-a-day helpers. markTaskNA pins a task as not applicable for
+  // an ISO date (sick day, travel, schedule conflict). restoreTaskFromNA
+  // undoes it. Both write into the taskNaDays jsonb. We dedupe on add
+  // and drop the date key entirely when its list goes empty so the JSON
+  // stays compact.
+  const markTaskNA = (dateIso, taskId) =>
+    setTaskNaDays((prev) => {
+      const existing = new Set((prev || {})[dateIso] || []);
+      existing.add(taskId);
+      return { ...(prev || {}), [dateIso]: Array.from(existing) };
+    });
+  const restoreTaskFromNA = (dateIso, taskId) =>
+    setTaskNaDays((prev) => {
+      const list = ((prev || {})[dateIso] || []).filter((id) => id !== taskId);
+      const next = { ...(prev || {}) };
+      if (list.length === 0) delete next[dateIso];
+      else next[dateIso] = list;
+      return next;
+    });
+  // requestSongPlayChange — kid-side entry point. Builds an envelope
+  // and pushes it onto songPlayRequests. The play row itself is NOT
+  // mutated until a parent approves; that's the whole point.
+  // kind: "remove" — delete the play row
+  //       "update" — patch playedOn / notes
+  const requestSongPlayChange = (playId, kind, payload) => {
+    if (!playId || !kind) return;
+    setSongPlayRequests((prev) => [
+      ...(prev || []),
+      {
+        id: "spr_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+        playId,
+        kind,
+        payload: payload || null,
+        by: currentUserId,
+        at: new Date().toISOString(),
+      },
+    ]);
+  };
+  // decideSongPlayRequest — parent-side. Applies the change on approve,
+  // drops the envelope on deny. Either way the request leaves the
+  // queue — denied items are not retained (kid can re-ask). The
+  // mutation reuses the same setters as direct edits so the sync
+  // layer + actor-identity trigger behave identically.
+  const decideSongPlayRequest = (id, decision) => {
+    const req = (songPlayRequests || []).find((r) => r.id === id);
+    if (!req) return;
+    if (decision === "approve") {
+      if (req.kind === "remove") removeSongPlay(req.playId);
+      else if (req.kind === "update" && req.payload) updateSongPlay(req.playId, req.payload);
+    }
+    setSongPlayRequests((prev) => (prev || []).filter((r) => r.id !== id));
+  };
   // compByTask is "what's the status of each task TODAY". Older completions
   // (yesterday's drums, last week's writing) stay in the completions array
   // so Approvals tab + history reads work, but they do NOT count toward
@@ -1117,6 +1210,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     setSongPlays((prev) => prev.filter((p) => p.songId !== id));
   };
   const removeSongPlay = (id) => setSongPlays((prev) => prev.filter((p) => p.id !== id));
+  // Edit a single play row — picked wrong song, logged the wrong
+  // date, want to drop a note. Shallow patch so the toDb mapper
+  // gets the same row shape it would for a fresh insert.
+  const updateSongPlay = (id, patch) =>
+    setSongPlays((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   // Phase 6b: shallow patcher for enrichment fields (cover_url,
   // canonical_*, match_status). Mirrors updateBook's contract.
   const updateSong = (id, patch) =>
@@ -1253,7 +1351,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const _xpAtLevel = xpForLevel(_levelN);
   const _xpAtNext = xpForLevel(_levelN + 1);
   // Next-badge pull-forward — derived from the canonical ACHIEVEMENTS list.
-  const _treasureStreak = computeTreasureStreak({ completions, tasks, topPriorities });
+  const _treasureStreak = computeTreasureStreak({ completions, tasks, topPriorities, taskNaDays });
   const _achCtx = buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books, treasureStreak: _treasureStreak });
   const _nextBadge = nextBadgeFor(_achCtx);
   const _nextBadgeValue = _nextBadge?.val ? _nextBadge.val(_achCtx) : 0;
@@ -1312,7 +1410,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   const shared = {
-    user, users, tasks, todaysTasks, todaysTopEight, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, libraryOrder, setLibraryOrder, rewards, completions, compByTask, events, handoff, redemptions,
+    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
@@ -1321,7 +1419,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     pendingRegistrations, approveRegistration, denyRegistration, currentProfileId, setCurrentUserId,
     kidData,
     familyId,
-    songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay, updateSong,
+    songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay, updateSongPlay, updateSong,
     removeGift,
     setStatDetailId,
     earnedAllTime,
@@ -4156,9 +4254,9 @@ function RewardsKid({ rewards, starBank, requestReward, redemptions }) {
   );
 }
 
-function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay, setStatDetailId, topPriorities }) {
+function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gifted, activities, todaysTasks, compByTask, streaks, books, songs, songPlays, removeSongPlay, updateSongPlay, setStatDetailId, topPriorities, taskNaDays, user, songPlayRequests, requestSongPlayChange }) {
   const approved = completions.filter((c) => c.status === "approved");
-  const treasureStreak = computeTreasureStreak({ completions, tasks: tasks || [], topPriorities });
+  const treasureStreak = computeTreasureStreak({ completions, tasks: tasks || [], topPriorities, taskNaDays });
   const ctx = buildAchCtx({ completions, todaysTasks: todaysTasks || [], compByTask: compByTask || {}, starBank, streaks, books, treasureStreak });
   const dayWins = ACHIEVEMENTS.filter((a) => a.kind === "day");
   const trophies = ACHIEVEMENTS.filter((a) => a.kind === "trophy");
@@ -4185,7 +4283,15 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
         })}
       </div>
 
-      <MostPlayedSongs songs={songs || []} songPlays={songPlays || []} removeSongPlay={removeSongPlay} />
+      <MostPlayedSongs
+        songs={songs || []}
+        songPlays={songPlays || []}
+        removeSongPlay={removeSongPlay}
+        updateSongPlay={updateSongPlay}
+        role={user?.role}
+        songPlayRequests={songPlayRequests || []}
+        requestSongPlayChange={requestSongPlayChange}
+      />
 
       <SectionTitle icon={<Medal size={16} className="text-violet-500" />}>Trophy case</SectionTitle>
       <div className="grid grid-cols-3 gap-2">
@@ -4253,8 +4359,25 @@ function BigStat({ label, value, onClick }) {
 
 // MostPlayedSongs: derive counts / last-played from the canonical
 // songPlays rows (ARCHITECTURE §3). No "play_count" column anywhere.
-function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
+function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, role, songPlayRequests = [], requestSongPlayChange }) {
   const [openId, setOpenId] = useState(null);
+  // Per-play edit state — only one row at a time, so a single id is
+  // enough. Draft holds the unsaved date + notes so cancel can bail
+  // without touching the database.
+  const [editingPlayId, setEditingPlayId] = useState(null);
+  const [draft, setDraft] = useState({ playedOn: "", notes: "" });
+  // Kid-vs-parent gating. A six-year-old should not be one tap from
+  // wiping a real practice session. For kid role both × and pencil
+  // become "request a change" — the mutation only fires when a parent
+  // approves it in the Approvals queue. Parent role keeps the direct
+  // mutate behavior, since the parent is the authority on the data.
+  const isKid = role === "kid";
+  // Index of plays with an outstanding request, so we can hide the
+  // action buttons and surface a "waiting on parent" pill.
+  const pendingByPlayId = {};
+  for (const r of songPlayRequests) {
+    if (r.playId) pendingByPlayId[r.playId] = r;
+  }
   if (!songs.length && !songPlays.length) return null;
   const byId = Object.fromEntries(songs.map((s) => [s.id, s]));
   const grouped = {};
@@ -4310,21 +4433,105 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
                       .slice()
                       .sort((a, b) => (b.playedOn || "").localeCompare(a.playedOn || ""))
                       .slice(0, 20)
-                      .map((p) => (
-                        <div key={p.id} className="flex items-center justify-between text-[11px] text-slate-600">
-                          <span>{fmtShort(p.playedOn)}{p.notes ? ` — ${p.notes}` : ""}</span>
-                          {removeSongPlay && (
-                            <button
-                              type="button"
-                              onClick={() => removeSongPlay(p.id)}
-                              className="text-slate-300 hover:text-rose-500"
-                              title="Remove this play"
-                            >
-                              <X size={12} />
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                      .map((p) => {
+                        const isEditing = editingPlayId === p.id;
+                        if (isEditing) {
+                          return (
+                            <div key={p.id} className="bg-white rounded-lg p-2 border border-indigo-200">
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <input
+                                  type="date"
+                                  value={draft.playedOn}
+                                  onChange={(e) => setDraft((d) => ({ ...d, playedOn: e.target.value }))}
+                                  className="text-[11px] border border-slate-200 rounded px-1.5 py-1 flex-1 min-w-0"
+                                />
+                              </div>
+                              <input
+                                type="text"
+                                value={draft.notes}
+                                onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+                                placeholder="Notes (optional)…"
+                                className="text-[11px] border border-slate-200 rounded px-1.5 py-1 w-full mb-1.5"
+                              />
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!draft.playedOn) return;
+                                    if (isKid) {
+                                      requestSongPlayChange(p.id, "update", { playedOn: draft.playedOn, notes: draft.notes });
+                                    } else {
+                                      updateSongPlay(p.id, { playedOn: draft.playedOn, notes: draft.notes });
+                                    }
+                                    setEditingPlayId(null);
+                                  }}
+                                  className="flex-1 text-[10px] font-bold bg-indigo-600 text-white rounded py-1 active:scale-95"
+                                >
+                                  {isKid ? "Ask parent" : "Save"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingPlayId(null)}
+                                  className="flex-1 text-[10px] font-bold bg-slate-200 text-slate-700 rounded py-1 active:scale-95"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+                        const pendingReq = pendingByPlayId[p.id];
+                        return (
+                          <div key={p.id} className="flex items-center justify-between text-[11px] text-slate-600">
+                            <span className="truncate">{fmtShort(p.playedOn)}{p.notes ? ` — ${p.notes}` : ""}</span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {pendingReq ? (
+                                <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5">
+                                  ⏳ {pendingReq.kind === "remove" ? "remove" : "edit"} pending
+                                </span>
+                              ) : (
+                                <>
+                                  {updateSongPlay && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingPlayId(p.id);
+                                        setDraft({ playedOn: p.playedOn || TODAY_ISO, notes: p.notes || "" });
+                                      }}
+                                      className="text-slate-300 hover:text-indigo-500"
+                                      title="Edit this play"
+                                    >
+                                      <Pencil size={11} />
+                                    </button>
+                                  )}
+                                  {removeSongPlay && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const songTitle = song.canonicalTitle || song.title || "this song";
+                                        const when = p.playedOn ? fmtShort(p.playedOn) : "an unknown date";
+                                        if (isKid) {
+                                          if (window.confirm(`Ask a parent to remove this play?\n\n"${songTitle}" — ${when}${p.notes ? `\n${p.notes}` : ""}\n\nIt'll show up in the parent's Approval queue. The play count won't change until they approve.`)) {
+                                            requestSongPlayChange(p.id, "remove", null);
+                                          }
+                                        } else {
+                                          if (window.confirm(`Remove this play?\n\n"${songTitle}" — ${when}${p.notes ? `\n${p.notes}` : ""}\n\nThe play count drops by 1 and this can't be undone.`)) {
+                                            removeSongPlay(p.id);
+                                          }
+                                        }
+                                      }}
+                                      className="text-slate-300 hover:text-rose-500"
+                                      title={isKid ? "Ask parent to remove this play" : "Remove this play"}
+                                    >
+                                      <X size={12} />
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               )}
@@ -4337,7 +4544,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay }) {
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
@@ -4395,7 +4602,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
       })}
 
       <SectionTitle icon={<ClipboardList size={16} className="text-slate-400" />} right={<span className="text-[11px] text-slate-400 flex items-center gap-1"><Flag size={11} /> tap to set priority</span>}>Still to do ({todo.length})</SectionTitle>
-      {todo.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="slate" mode={mode} priorities={priorities} users={users} setPriority={setPriority} clearPriority={clearPriority} activities={activities} onOpenDetail={setDetailId} onMarkDone={setOpenTask} />)}
+      {todo.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="slate" mode={mode} priorities={priorities} users={users} setPriority={setPriority} clearPriority={clearPriority} activities={activities} onOpenDetail={setDetailId} onMarkDone={setOpenTask} markTaskNA={markTaskNA} />)}
 
       <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Done ({done.length})</SectionTitle>
       {done.map((t) => {
@@ -4404,6 +4611,37 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         // stats, edit). Krissie's flow lives here on the parent side.
         return <MiniRow key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
       })}
+
+      {/* N/A today — recoverable strip. Sick day, travel, schedule
+          conflict: a parent taps "N/A" on a task and it disappears
+          from the todo list, the kid board, and the streak math for
+          today only. This strip surfaces every excluded task with a
+          one-tap restore so the action is never lost. */}
+      {todaysNATasks.length > 0 && (
+        <>
+          <SectionTitle icon={<X size={16} className="text-slate-400" />} right={<span className="text-[11px] text-slate-400">tap to restore</span>}>
+            N/A today ({todaysNATasks.length})
+          </SectionTitle>
+          <div className="flex flex-wrap gap-1.5 px-1 mb-3">
+            {todaysNATasks.map((t) => {
+              const d = actFor(t, activities);
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => restoreTaskFromNA && restoreTaskFromNA(TODAY_ISO, t.id)}
+                  className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200 active:scale-95 flex items-center gap-1.5"
+                  title={`Restore "${t.title}" to today's list`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: d.color }} />
+                  {t.title}
+                  <RotateCcw size={11} className="text-slate-400" />
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <SectionTitle icon={<Users size={16} className="text-indigo-500" />}>Handoff notes</SectionTitle>
       {handoff.slice(0, 2).map((h) => {
@@ -4433,7 +4671,7 @@ function SummaryStat({ label, value, tone, onClick }) {
   }
   return <Card className="p-3">{body}</Card>;
 }
-function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone }) {
+function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone, markTaskNA }) {
   const [open, setOpen] = useState(false);
   const by = comp?.approvedBy ? users?.find((u) => u.id === comp.approvedBy)?.name : null;
   const d = actFor(task, activities);
@@ -4465,6 +4703,20 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
               className="p-1.5 rounded-lg shrink-0 text-emerald-600 hover:bg-emerald-50"
             >
               <Check size={16} />
+            </button>
+          )}
+          {markTaskNA && !comp && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm(`Mark "${task.title}" as N/A for today?\n\nIt won't show on Reznor's board and the treasure-day streak will ignore it. You can restore it from the "N/A today" strip below.`)) {
+                  markTaskNA(TODAY_ISO, task.id);
+                }
+              }}
+              title="Mark N/A for today (sick day / travel / doesn't apply)"
+              className="p-1.5 rounded-lg shrink-0 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X size={16} />
             </button>
           )}
           {undoTask && comp && (
@@ -4577,8 +4829,9 @@ function GiftStarsCard({ giftStars, gifted = [], users = [] }) {
 }
 
 // ===================== PARENT: APPROVALS =====================
-function Approvals({ completions, tasks, users, decide }) {
+function Approvals({ completions, tasks, users, decide, songs = [], songPlays = [], songPlayRequests = [], decideSongPlayRequest }) {
   const pending = completions.filter((c) => c.status === "pending");
+  const songReqs = songPlayRequests || [];
   // Today's approved-stars tally — derived from canonical completions.
   // Resets at the date roll. Gives the existing starBurst.fly a real
   // destination on the parent side so taps to Approve fire the full
@@ -4698,6 +4951,63 @@ function Approvals({ completions, tasks, users, decide }) {
           </Card>
         );
       })}
+
+      {/* Song-log change requests — kid-side asks to delete or edit
+          one of his own play rows. Surfaced here so a parent never
+          merges them silently and a mis-tapped kid action can't erase
+          history. Same Approve / Deny pattern as completions. */}
+      {songReqs.length > 0 && (
+        <>
+          <SectionTitle icon={<Music size={16} className="text-purple-500" />}>
+            Song log changes <span className="text-[11px] font-normal text-slate-400">· {songReqs.length}</span>
+          </SectionTitle>
+          {songReqs.map((req) => {
+            const play = songPlays.find((p) => p.id === req.playId);
+            const song = play ? songs.find((s) => s.id === play.songId) : null;
+            const songTitle = song?.canonicalTitle || song?.title || "(deleted song)";
+            const who = users.find((u) => u.id === req.by)?.name || "Reznor";
+            const kindLabel = req.kind === "remove" ? "Remove play" : "Edit play";
+            const tileBg = req.kind === "remove" ? "bg-rose-50" : "bg-indigo-50";
+            const tileFg = req.kind === "remove" ? "text-rose-700" : "text-indigo-700";
+            return (
+              <Card key={req.id} className="p-3 mb-2">
+                <div className="flex items-center gap-2">
+                  <div className={`w-9 h-9 rounded-xl ${tileBg} grid place-items-center shrink-0`}>
+                    <Music size={15} className={tileFg} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold text-slate-800 truncate">
+                      {kindLabel}: {songTitle}
+                    </div>
+                    <div className="text-[11px] text-slate-400 truncate">
+                      {play ? fmtShort(play.playedOn) : "—"}
+                      {play?.notes ? ` · "${play.notes}"` : ""}
+                      {` · asked by ${who}`}
+                    </div>
+                  </div>
+                </div>
+                {req.kind === "update" && req.payload && (
+                  <div className="mt-2 text-[11px] bg-slate-50 rounded-lg p-2">
+                    <div className="text-slate-500 mb-0.5">Wants to change to:</div>
+                    <div className="font-bold text-slate-700">
+                      {req.payload.playedOn ? fmtShort(req.payload.playedOn) : "—"}
+                      {req.payload.notes ? ` · "${req.payload.notes}"` : ""}
+                    </div>
+                  </div>
+                )}
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => decideSongPlayRequest?.(req.id, "approve")} className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1">
+                    <Check size={15} /> Approve
+                  </button>
+                  <button onClick={() => decideSongPlayRequest?.(req.id, "deny")} className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95" aria-label="Deny">
+                    <X size={15} />
+                  </button>
+                </div>
+              </Card>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }
