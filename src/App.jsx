@@ -9370,13 +9370,32 @@ function ManageActivities({ activities, addActivity, updateActivity, addTask, st
   const archived = activities.filter((a) => a.status === "archived");
   return (
     <>
+      {/* Top pillar tiles — tap to scroll the matching section into
+          view. Mike: "If you click Body it should take you to the
+          Body section." Used id-based scrollIntoView so we don't need
+          a ref-per-pillar. */}
       <div className="flex gap-2 mb-1">
-        {Object.entries(PILLARS).map(([k, p]) => <div key={k} className="flex-1 rounded-2xl p-2 text-center" style={{ background: p.color + "18" }}><div className="text-lg">{p.emoji}</div><div className="text-[11px] font-bold" style={{ color: p.color }}>{p.label}</div></div>)}
+        {Object.entries(PILLARS).map(([k, p]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => {
+              const el = document.getElementById(`pillar-${k}`);
+              if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+            className="flex-1 rounded-2xl p-2 text-center active:scale-[0.97] transition"
+            style={{ background: p.color + "18" }}
+            title={`Jump to ${p.label}`}
+          >
+            <div className="text-lg">{p.emoji}</div>
+            <div className="text-[11px] font-bold" style={{ color: p.color }}>{p.label}</div>
+          </button>
+        ))}
       </div>
       {Object.entries(PILLARS).map(([pk, p]) => {
         const list = activities.filter((a) => a.pillar === pk && a.status !== "archived");
         return (
-          <div key={pk}>
+          <div key={pk} id={`pillar-${pk}`} style={{ scrollMarginTop: 12 }}>
             <SectionTitle icon={<span className="text-base">{p.emoji}</span>}>{p.label}</SectionTitle>
             {list.length === 0 ? <p className="text-xs text-slate-400 px-1">None yet.</p> : list.map((a) => <ActivityRow key={a.id} a={a} onUpdate={updateActivity} streaks={streaks} setStreak={setStreak} stopStreak={stopStreak} bumpStreak={bumpStreak} onProgress={setProgressActId} />)}
           </div>
