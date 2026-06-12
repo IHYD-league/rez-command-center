@@ -1512,9 +1512,14 @@ export default function BoardGame({
       return;
     }
     const tm = setTimeout(() => {
-      // Quick sweep: cap at 700ms so the kid sees it but doesn't wait.
+      // Catch-up sweep — matches replayJourney "normal" pace so the
+      // first impression of the board doesn't blast past every space
+      // in a half-second. Reza and Krissie called this out: tap to
+      // replay was perfect speed, but the launch catch-up was still
+      // the old fast pace and made them think the slow setting hadn't
+      // landed.
       animateAlong(0, targetIdx, {
-        duration: Math.min(700, 320 + targetIdx * 70),
+        duration: Math.min(30000, 1200 + targetIdx * 1200),
         onLand: () => {
           seenIdsRef.current = new Set(approvedIds);
           // Catch-up reloads still need the full payoff at the end.
@@ -1550,9 +1555,12 @@ export default function BoardGame({
       return;
     }
 
-    // Animate to the new last-completed space and pop once.
+    // Animate to the new last-completed space and pop once. Pace
+    // matches replayJourney "normal" so a freshly approved chore
+    // delivers the same satisfying walk every time, instead of
+    // snapping the token a quarter-second ahead.
     animateAlong(tokenIdxRef.current, targetIdx, {
-      duration: Math.min(900, 350 + Math.max(0, targetIdx - tokenIdxRef.current) * 250),
+      duration: Math.min(6000, 900 + Math.max(0, targetIdx - tokenIdxRef.current) * 1200),
       onLand: () => {
         const landed = spaces[targetIdx];
         // Pulse the space the rocket just arrived on — visible
