@@ -5184,7 +5184,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         const c = compByTask[t.id];
         return (
           <div key={t.id} className="mb-2.5">
-            <MiniRow task={t} comp={c} tone="amber" mode={mode} priorities={priorities} users={users} activities={activities} onOpenDetail={setDetailId} undoTask={undoTask} />
+            <MiniRow task={t} comp={c} tone="amber" mode={mode} priorities={priorities} users={users} activities={activities} books={books} songs={songs} songPlays={songPlays} onOpenDetail={setDetailId} undoTask={undoTask} />
             {/* Inline approve buttons — the home banner used to be
                 a dead-end stat. Now every pending row is one tap from
                 Approve / +5⭐ bonus / Needs fix / Reject. Same decide()
@@ -5223,6 +5223,9 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
             setPriority={setPriority}
             clearPriority={clearPriority}
             activities={activities}
+            books={books}
+            songs={songs}
+            songPlays={songPlays}
             onOpenDetail={setDetailId}
             onMarkDone={setOpenTask}
             markTaskNA={markTaskNA}
@@ -5273,7 +5276,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
               const c = compByTask[t.id];
               // Done rows: tap → CompletionDetailSheet (photos, notes,
               // stats, edit). Krissie's flow lives here on the parent side.
-              return <MiniRow key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
+              return <MiniRow key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} books={books} songs={songs} songPlays={songPlays} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
             })}
             {giftedTodayList.map((g) => {
               const gTask = g.extra?.taskId ? tasks.find((t) => t.id === g.extra.taskId) : null;
