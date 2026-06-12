@@ -28,6 +28,7 @@ import LevelUpLayer from "./LevelUpLayer.jsx";
 import OnboardingOverlay from "./OnboardingOverlay.jsx";
 import { useBottomSheet } from "./lib/sheet.js";
 import { runDataAudit, auditSummary } from "./lib/dataAudit.js";
+import { lightbox } from "./lib/lightbox.js";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -168,6 +169,25 @@ const TODAY_ISO = isoLocal(today);
 const YESTERDAY_ISO = isoLocal(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
 const fmtDate = (d) => d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 const fmtShort = (d) => d ? new Date(d + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+// Bilingual day-break header — Reznor speaks Spanish + English; Mike
+// wants both languages whenever we show what day a thing happened.
+// Returns e.g. "Today / Hoy", "Yesterday / Ayer", "Monday, Jun 9 /
+// Lunes, 9 jun". Pass an ISO YYYY-MM-DD string.
+const fmtBilingualDay = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso + "T12:00");
+  const todayD = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const that = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((todayD - that) / 86400000);
+  if (diffDays === 0) return "Today / Hoy";
+  if (diffDays === 1) return "Yesterday / Ayer";
+  const en = d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  // Spanish locale: weekday + day + month, lowercased per Spanish norm.
+  const es = d.toLocaleDateString("es-ES", { weekday: "long", month: "short", day: "numeric" });
+  // Capitalize weekday (Spanish toLocaleDateString returns lowercase).
+  const esCap = es.charAt(0).toUpperCase() + es.slice(1);
+  return `${en} / ${esCap}`;
+};
 const fmtDateObj = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
 
@@ -1613,12 +1633,87 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       </div>
       <StarBurstLayer />
       <LevelUpLayer />
+      <PhotoLightboxOverlay />
       {!welcomeDismissed && (
         <OnboardingOverlay
           user={user}
           onDismiss={() => setWelcomeDismissed(true)}
         />
       )}
+    </div>
+  );
+}
+
+// Full-screen photo viewer triggered by lightbox.open({src, alt}) from
+// anywhere in the tree. Tap backdrop or the × closes. Double-tap toggles
+// 1× ↔ 2.5× zoom for desktop and tap-to-zoom mobile use. Pinch-zoom on
+// the image works natively via touch-action: pinch-zoom. Escape closes.
+function PhotoLightboxOverlay() {
+  const [photo, setPhoto] = useState(null);
+  const [zoomed, setZoomed] = useState(false);
+  useEffect(() => lightbox.subscribe((next) => {
+    setPhoto(next);
+    setZoomed(false);
+  }), []);
+  useEffect(() => {
+    if (!photo) return;
+    const onKey = (e) => { if (e.key === "Escape") lightbox.close(); };
+    window.addEventListener("keydown", onKey);
+    // Prevent page scroll while open.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [photo]);
+  if (!photo) return null;
+  return (
+    <div
+      onClick={() => lightbox.close()}
+      className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+    >
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); lightbox.close(); }}
+        aria-label="Close"
+        className="absolute top-4 right-4 z-10 w-11 h-11 rounded-full bg-white/15 backdrop-blur hover:bg-white/25 grid place-items-center text-white active:scale-95"
+      >
+        <X size={22} />
+      </button>
+      <div
+        className="relative w-full h-full overflow-auto flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+        style={{ touchAction: "pinch-zoom" }}
+      >
+        <img
+          src={photo.src}
+          alt={photo.alt || ""}
+          onDoubleClick={() => setZoomed((z) => !z)}
+          onClick={(e) => {
+            // Single-tap on image: toggle zoom too — most parents on
+            // mobile won't think to double-tap. Backdrop click is
+            // handled by the outer div via stopPropagation above.
+            e.stopPropagation();
+            setZoomed((z) => !z);
+          }}
+          style={{
+            maxWidth: "100vw",
+            maxHeight: "100vh",
+            transform: zoomed ? "scale(2.5)" : "scale(1)",
+            transformOrigin: "center center",
+            transition: "transform 220ms ease",
+            cursor: zoomed ? "zoom-out" : "zoom-in",
+            touchAction: "pinch-zoom",
+          }}
+          draggable={false}
+        />
+      </div>
+      <div className="absolute bottom-4 left-0 right-0 text-center text-white/70 text-[11px] pointer-events-none">
+        Tap to {zoomed ? "shrink" : "zoom"} · pinch to zoom · tap outside to close
+      </div>
     </div>
   );
 }
@@ -1824,11 +1919,25 @@ function Avatar({ user, size = 40, solid = false, className = "" }) {
 
 // StoredPhoto: render a photo from a storage path (preferred) or legacy URL,
 // resolving the path to a signed URL on demand.
-function StoredPhoto({ path, url, alt = "", className = "", fallback = null }) {
+function StoredPhoto({ path, url, alt = "", className = "", fallback = null, clickable = true, onClick }) {
   const signed = useSignedUrl(url ? null : path);
   const src = url || signed;
   if (!src) return fallback;
-  return <img src={src} alt={alt} className={className} />;
+  const handleClick = (e) => {
+    if (onClick) { onClick(e); return; }
+    if (!clickable) return;
+    e.stopPropagation();
+    lightbox.open({ src, alt });
+  };
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      onClick={handleClick}
+      style={clickable && !onClick ? { cursor: "zoom-in" } : undefined}
+    />
+  );
 }
 
 // Pull the first photo proof off a completion, if there is one.
@@ -1854,7 +1963,7 @@ function firstProofPhoto(c) {
 //   completion.extra.songId → cover from `songs`
 // gifted rows pass `gift` instead of `completion` and we read their
 // extra.photoPath / extra.bookId / extra.songId.
-function ProofThumb({ completion, gift, activity, task, books = [], songs = [], size = 36 }) {
+function ProofThumb({ completion, gift, activity, task, books = [], songs = [], size = 36, clickable = true }) {
   // Proof photo (from completion or gift).
   const proofPhoto = firstProofPhoto(completion);
   const giftPhotoPath = gift?.extra?.photoPath || null;
@@ -1882,7 +1991,7 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
     songCustomSigned ||
     (song?.coverUrl || null);
   const cls = "rounded-2xl shrink-0 object-cover bg-slate-100";
-  const style = { width: size, height: size };
+  const style = { width: size, height: size, ...(clickable && src ? { cursor: "zoom-in" } : {}) };
   if (src) {
     return (
       <img
@@ -1891,6 +2000,7 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
         loading="lazy"
         className={cls}
         style={style}
+        onClick={clickable ? (e) => { e.stopPropagation(); lightbox.open({ src }); } : undefined}
         onError={(e) => { e.currentTarget.style.display = "none"; }}
       />
     );
@@ -4611,28 +4721,69 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
       {gifted?.length > 0 && (
         <>
           <SectionTitle icon={<Sparkles size={16} className="text-amber-500" />}>Bonus stars 🎁</SectionTitle>
-          {gifted.map((g) => (
-            <Card key={g.id} className="p-3 mb-2 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-amber-100 grid place-items-center">✨</div>
-              <div className="flex-1 text-sm font-semibold">{g.label}<span className="block text-[11px] text-slate-400 font-normal">surprise stars!</span></div>
-              <StarPill n={g.stars} tone="emerald" />
-            </Card>
-          ))}
+          {gifted.map((g) => {
+            // Resolve the task + activity for the gift so ProofThumb
+            // can show the photo / book cover / song cover the parent
+            // attached at gift time.
+            const gTask = g.extra?.taskId ? tasks.find((t) => t.id === g.extra.taskId) : null;
+            const gAct = g.extra?.activityId
+              ? activities.find((a) => a.id === g.extra.activityId)
+              : (gTask
+                  ? activities.find((a) => a.id === (gTask.activityId
+                      || gTask.activityType?.toLowerCase().replace(/\s/g, "_")))
+                  : null);
+            return (
+              <Card key={g.id} className="p-3 mb-2 flex items-center gap-3">
+                <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} size={36} />
+                <div className="flex-1 text-sm font-semibold">{g.label}<span className="block text-[11px] text-slate-400 font-normal">{gTask?.title ? gTask.title : "surprise stars!"}</span></div>
+                <StarPill n={g.stars} tone="emerald" />
+              </Card>
+            );
+          })}
         </>
       )}
       <SectionTitle icon={<Award size={16} className="text-emerald-500" />}>Stars I've earned</SectionTitle>
       {approved.length === 0 && <p className="text-sm text-slate-400 px-1">Nothing approved yet — go finish a mission! 🚀</p>}
-      {approved.map((c) => {
-        const t = tasks.find((x) => x.id === c.taskId);
-        const d = actFor(t || { activityType: "" }, activities);
-        return (
-          <Card key={c.id} className="p-3 mb-2 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl grid place-items-center" style={{ background: d.tint }}><TaskIcon type={t?.activityType} color={d.color} /></div>
-            <div className="flex-1 text-sm font-semibold">{t?.title}{c.extra?.bookTitle && <span className="block text-[11px] text-slate-400 font-normal">{c.extra.bookTitle}</span>}</div>
-            <StarPill n={c.awardedStars} tone="emerald" />
-          </Card>
-        );
-      })}
+      {/* Grouped by completionDate, newest day first. Within a day, the
+          rows show the most recent star at the top via id-desc tiebreak
+          (ids are timestamped). Each day gets a sticky-ish header with
+          a Today/Yesterday/weekday label in both English and Spanish so
+          Reznor can read it either way + a per-day star total. */}
+      {(() => {
+        if (approved.length === 0) return null;
+        const buckets = new Map();
+        for (const c of approved) {
+          const key = c.completionDate || "";
+          if (!buckets.has(key)) buckets.set(key, []);
+          buckets.get(key).push(c);
+        }
+        const days = [...buckets.entries()].sort((a, b) => (b[0] || "").localeCompare(a[0] || ""));
+        return days.map(([iso, rows]) => {
+          const sorted = [...rows].sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+          const dayTotal = sorted.reduce((s, c) => s + (c.awardedStars || 0), 0);
+          return (
+            <div key={iso || "no-date"}>
+              <div className="flex items-baseline justify-between px-1 mt-3 mb-1.5">
+                <div className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-700">
+                  {iso ? fmtBilingualDay(iso) : "Undated / Sin fecha"}
+                </div>
+                <div className="text-[11px] font-extrabold text-emerald-700 tabular-nums">+{dayTotal}⭐</div>
+              </div>
+              {sorted.map((c) => {
+                const t = tasks.find((x) => x.id === c.taskId);
+                const a = actFor(t || { activityType: "" }, activities);
+                return (
+                  <Card key={c.id} className="p-3 mb-2 flex items-center gap-3">
+                    <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} size={36} />
+                    <div className="flex-1 text-sm font-semibold">{t?.title}{c.extra?.bookTitle && <span className="block text-[11px] text-slate-400 font-normal">{c.extra.bookTitle}</span>}</div>
+                    <StarPill n={c.awardedStars} tone="emerald" />
+                  </Card>
+                );
+              })}
+            </div>
+          );
+        });
+      })()}
     </div>
   );
 }
@@ -4657,6 +4808,10 @@ function BigStat({ label, value, onClick }) {
 // songPlays rows (ARCHITECTURE §3). No "play_count" column anywhere.
 function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, role, songPlayRequests = [], requestSongPlayChange }) {
   const [openId, setOpenId] = useState(null);
+  // Whole-section collapse. Default collapsed so the Stars view starts
+  // tight; a tap on the header expands it. Mike asked for this so
+  // Krissie / Reznor can scan the page without 10 song rows dominating.
+  const [collapsed, setCollapsed] = useState(true);
   // Per-play edit state — only one row at a time, so a single id is
   // enough. Draft holds the unsaved date + notes so cancel can bail
   // without touching the database.
@@ -4696,9 +4851,29 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
       </>
     );
   }
+  // Total plays for the chip in the collapsed header — quick scan of
+  // "how much practice is in here?" without expanding.
+  const totalPlays = songPlays.length;
   return (
     <>
-      <SectionTitle icon={<Music size={16} className="text-violet-500" />}>Most played songs <span className="text-[11px] font-normal text-slate-400">· top {ranked.length}</span></SectionTitle>
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center justify-between mt-5 mb-2 px-1 text-left"
+      >
+        <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
+          <Music size={16} className="text-violet-500" />
+          Most played songs
+          <span className="text-[11px] font-normal text-slate-400">· top {ranked.length}</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-slate-400">
+          <span className="text-[11px] font-bold text-violet-600 bg-violet-50 rounded-full px-2 py-0.5">
+            {totalPlays} {totalPlays === 1 ? "play" : "plays"}
+          </span>
+          <ChevronLeft size={14} className={`transition-transform ${collapsed ? "-rotate-90" : "rotate-90"}`} />
+        </div>
+      </button>
+      {!collapsed && (
       <div className="space-y-1.5">
         {ranked.map(({ song, count, last, plays }) => {
           const open = openId === song.id;
@@ -4835,6 +5010,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
           );
         })}
       </div>
+      )}
     </>
   );
 }
@@ -5059,7 +5235,8 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
             alt=""
             loading="lazy"
             className="w-12 shrink-0 object-cover"
-            style={{ background: d.color }}
+            style={{ background: d.color, cursor: "zoom-in" }}
+            onClick={(e) => { e.stopPropagation(); lightbox.open({ src: photoSrc }); }}
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         ) : (
