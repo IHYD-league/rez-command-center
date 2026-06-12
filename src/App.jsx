@@ -375,13 +375,21 @@ const ACHIEVEMENTS = [
   { id: "treasure14", kind: "trophy", emoji: "💎", title: "Treasure Fortnight", desc: "14 days in a row", test: (c) => c.treasureStreak >= 14, goal: 14, val: (c) => c.treasureStreak },
   { id: "treasure30", kind: "trophy", emoji: "👑", title: "Treasure King", desc: "30 days in a row — every day a clean sweep", test: (c) => c.treasureStreak >= 30, goal: 30, val: (c) => c.treasureStreak },
 ];
+// Reznor was upset that books he'd read pre-app (archived) weren't
+// counting in the finished tally. Archive entries ARE finished — the
+// status name just records that the read happened before the app
+// existed. Use this everywhere we filter for "books Reznor has
+// finished" so the count is honest. preTracking is the same concept
+// expressed on actively-tracked rows; keep both included.
+const isBookFinished = (b) => b?.status === "finished" || b?.status === "archive" || b?.preTracking;
+
 function buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books, treasureStreak = 0 }) {
   const doneToday = todaysTasks.filter((t) => ["approved", "pending"].includes(compByTask[t.id]?.status)).length;
   const allToday = todaysTasks.length > 0 && todaysTasks.every((t) => ["approved", "pending"].includes(compByTask[t.id]?.status));
   const drumsDone = !!compByTask["t_drums"];
   const photoToday = Object.values(compByTask).some((c) => (c?.proof || []).some((p) => p.type === "photo"));
-  const booksFinished = (books || []).filter((b) => b.status === "finished" || b.preTracking).length;
-  const spanishBook = (books || []).some((b) => b.status === "finished" && b.lang === "Spanish");
+  const booksFinished = (books || []).filter(isBookFinished).length;
+  const spanishBook = (books || []).some((b) => isBookFinished(b) && b.lang === "Spanish");
   return { doneToday, allToday, drumsDone, photoToday, starBank, booksFinished, spanishBook, drumStreak: streaks?.a_drums?.current || 0, spaStreak: streaks?.a_spa?.current || 0, treasureStreak };
 }
 
@@ -1394,7 +1402,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       : undefined;
     return { id: t.id, title: t.title, xp: (t.starValue || 0) * 10, done: !!c, subtasks: subs };
   };
-  const _booksFinished = (books || []).filter((b) => b.status === "finished").length;
+  const _booksFinished = (books || []).filter(isBookFinished).length;
   const _songsToday = (songPlays || []).filter((p) => p.playedOn === TODAY_ISO).length;
   // Hero XP + level — derived, never stored. See xpForLevel / levelFromXp.
   const _xp = starBank * 10;
@@ -4171,6 +4179,46 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
               </>
             )}
 
+            {/* Optional photo upload — available on EVERY task type
+                that doesn't already have a required-photo or screenshot
+                slot. Mike's rule: every chore/activity should let the
+                parent attach a photo at log time. Laundry, Make Bed,
+                Reading — they all benefit from visual proof in the
+                portfolio + done area. Uses the same `photo` state that
+                isPhoto/isDrums use, so doSubmit packs it into proof
+                regardless of task type. */}
+            {!isPhoto && !isDrums && (
+              <label className="block">
+                <div className="text-xs font-semibold text-slate-500 mb-1">Photo (optional)</div>
+                <div className="border-2 border-dashed border-slate-200 rounded-2xl p-3 flex items-center gap-2 cursor-pointer hover:bg-slate-50">
+                  {photoPreview ? (
+                    <img src={photoPreview} alt="proof" className="h-12 rounded object-cover" />
+                  ) : (
+                    <Camera size={20} className="text-slate-300" />
+                  )}
+                  <span className="text-xs text-slate-400 flex-1 truncate">
+                    {uploading ? "Uploading…" : (photo ? (photo.name || "Photo attached") : "Tap to add a photo")}
+                  </span>
+                  {photo && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPhoto(null); }}
+                      className="text-[11px] font-bold text-slate-400 shrink-0"
+                    >
+                      Remove
+                    </button>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    {...(task.category === "Chores" ? { capture: "environment" } : {})}
+                    onChange={handleFile}
+                    className="hidden"
+                  />
+                </div>
+              </label>
+            )}
+
             <Field label="Note (optional)"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="input resize-none" placeholder="Anything to tell a grown-up?" /></Field>
 
             {!ready && <div className="text-xs text-rose-500 flex items-center gap-1"><AlertCircle size={13} /> {gateMsg}</div>}
@@ -4792,7 +4840,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], familyId, addBook, addSong, updateBook }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], familyId, addBook, addSong, updateBook, todaysTopEight = [] }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
@@ -4861,8 +4909,62 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         );
       })}
 
-      <SectionTitle icon={<ClipboardList size={16} className="text-slate-400" />} right={<span className="text-[11px] text-slate-400 flex items-center gap-1"><Flag size={11} /> tap to set priority</span>}>Still to do ({todo.length})</SectionTitle>
-      {todo.map((t) => <MiniRow key={t.id} task={t} comp={compByTask[t.id]} tone="slate" mode={mode} priorities={priorities} users={users} setPriority={setPriority} clearPriority={clearPriority} activities={activities} onOpenDetail={setDetailId} onMarkDone={setOpenTask} markTaskNA={markTaskNA} />)}
+      {/* Still to do — split into "for the treasure" (Top 8 / what
+          Reznor needs to clear today to open the treasure) and "Bonus"
+          (everything else). Krissie was getting overwhelmed by a flat
+          15-row list; this surfaces the must-do at a glance and demotes
+          the rest so it doesn't read as urgent. */}
+      {(() => {
+        const topEightIds = new Set((todaysTopEight || []).map((t) => t.id));
+        const mustDo = todo.filter((t) => topEightIds.has(t.id));
+        const bonus = todo.filter((t) => !topEightIds.has(t.id));
+        const renderRow = (t) => (
+          <MiniRow
+            key={t.id}
+            task={t}
+            comp={compByTask[t.id]}
+            tone="slate"
+            mode={mode}
+            priorities={priorities}
+            users={users}
+            setPriority={setPriority}
+            clearPriority={clearPriority}
+            activities={activities}
+            onOpenDetail={setDetailId}
+            onMarkDone={setOpenTask}
+            markTaskNA={markTaskNA}
+          />
+        );
+        return (
+          <>
+            <SectionTitle
+              icon={<Trophy size={16} className="text-amber-500" />}
+              right={<span className="text-[11px] font-bold text-amber-600">for the treasure 🏆</span>}
+            >
+              Still to do ({mustDo.length})
+            </SectionTitle>
+            {mustDo.length === 0 ? (
+              <Card className="p-3 mb-2 text-center text-xs text-emerald-700 bg-emerald-50 border-emerald-200 font-bold">
+                ✨ Top 8 complete — treasure ready to open!
+              </Card>
+            ) : (
+              mustDo.map(renderRow)
+            )}
+
+            {bonus.length > 0 && (
+              <>
+                <SectionTitle
+                  icon={<Sparkles size={16} className="text-slate-300" />}
+                  right={<span className="text-[11px] text-slate-400">extra credit, not required</span>}
+                >
+                  Bonus ({bonus.length})
+                </SectionTitle>
+                {bonus.map(renderRow)}
+              </>
+            )}
+          </>
+        );
+      })()}
 
       <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Done ({done.length})</SectionTitle>
       {done.map((t) => {
@@ -4931,7 +5033,7 @@ function SummaryStat({ label, value, tone, onClick }) {
   }
   return <Card className="p-3">{body}</Card>;
 }
-function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone, markTaskNA }) {
+function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone, markTaskNA, books = [], songs = [] }) {
   const [open, setOpen] = useState(false);
   const by = comp?.approvedBy ? users?.find((u) => u.id === comp.approvedBy)?.name : null;
   const d = actFor(task, activities);
@@ -4941,10 +5043,28 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   const [pendLevel, setPendLevel] = useState(ov?.level || "today");
   const LEVELS = [["must", "Non-negotiable"], ["today", "Do today"], ["extra", "Extra credit"]];
   const SCOPES = [["today", "Today"], ["week", "This week"], ["month", "This month"], ["always", "Always"]];
+  // Photo proof on the completion? If yes, the left band becomes the
+  // photo thumbnail — Mike's rule: "if we do post a picture, I'd still
+  // like to see those posted in the done area." Falls back to the
+  // colored activity band when there's no photo (or no completion yet).
+  const proofPhoto = comp ? firstProofPhoto(comp) : null;
+  const photoSigned = useSignedUrl(proofPhoto && !proofPhoto.url ? proofPhoto.path : null);
+  const photoSrc = proofPhoto ? (proofPhoto.url || photoSigned) : null;
   return (
     <div className="rounded-2xl overflow-hidden border border-slate-100 mb-2" style={{ background: lvl === "normal" ? d.color + "12" : P.wash }}>
       <div className="flex items-stretch cursor-pointer" onClick={() => onOpenDetail?.(task.id)}>
-        <div className="w-12 shrink-0 grid place-items-center" style={{ background: d.color }}><TaskIcon type={task.activityType} color="#ffffff" /></div>
+        {photoSrc ? (
+          <img
+            src={photoSrc}
+            alt=""
+            loading="lazy"
+            className="w-12 shrink-0 object-cover"
+            style={{ background: d.color }}
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : (
+          <div className="w-12 shrink-0 grid place-items-center" style={{ background: d.color }}><TaskIcon type={task.activityType} color="#ffffff" /></div>
+        )}
         <div className="flex items-center gap-3 p-3 flex-1 min-w-0">
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold flex items-center gap-1">{task.title}<ChevronLeft size={13} className="rotate-180 text-slate-300" /></div>
@@ -5961,12 +6081,17 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
   const [focusedBookId, setFocusedBookId] = useState(null);
   const [rearranging, setRearranging] = useState(false);
   const savedOrder = libraryOrder?.books || [];
-  // Filtered views: pre-tracking books live in their own archive
-  // section so the "Reading now / Finished" lists stay date-honest.
+  // Filtered views: archive books (preTracking) ARE finished books —
+  // Reznor read them, we just don't have dates. They belong in the
+  // Finished list so the count matches reality. The Archive section
+  // stays separate for "books read pre-app" grouping (Reznor was
+  // upset earlier that they weren't counted).
   const tracked = books.filter((b) => !b.preTracking);
   const archive = books.filter((b) => b.preTracking);
   const reading = sortBooks(searchBooks(tracked.filter((b) => b.status !== "finished"), q), sort);
-  const finished = sortBooks(searchBooks(tracked.filter((b) => b.status === "finished"), q), sort);
+  // Finished list now includes pre-tracking archive books too. We use
+  // isBookFinished so any future status (e.g., "archive") is honored.
+  const finished = sortBooks(searchBooks(books.filter(isBookFinished), q), sort);
   const archiveFiltered = sortBooks(searchBooks(archive, q), sort);
   const focusedBook = books.find((b) => b.id === focusedBookId);
   // Shelf view flattens the three sections into one curated shelf.
