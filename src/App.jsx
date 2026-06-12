@@ -2278,6 +2278,18 @@ function normForMatch(s) {
     .trim();
 }
 
+// Short / common words that are NOT meaningful matches on their own.
+// "One" inside "in one sitting" was matching Metallica's "One" song
+// (whose iTunes cover is the ...And Justice for All album art),
+// stomping the actual book cover Mike picked. Same kind of bug
+// waiting to happen with "the", "vol", "two", "all", etc. so the
+// list covers common short tokens in both English and Spanish.
+const FUZZY_STOP_WORDS = new Set([
+  "one", "two", "the", "and", "for", "you", "him", "her", "his",
+  "she", "all", "are", "was", "but", "not", "yes", "vol", "vol.",
+  "ed.", "no.", "uno", "los", "las", "del", "que", "con",
+]);
+
 // Score how well a candidate title (book or song) matches a gift label.
 // Returns 0 if no useful match — caller filters those out.
 //   Direct substring (title-in-label, the strongest signal)  → 100+len
@@ -2285,13 +2297,30 @@ function normForMatch(s) {
 //   Shared significant words (5+ chars, both directions)     →  20·count
 // 0 otherwise. Higher = better. Helps a 7-volume series pick "Vol 8"
 // over "Vol" automatically (longer literal match beats shorter one).
+//
+// Floor for direct substring matches is 5 chars OR multi-word titles —
+// a single 3-letter word title can't reliably match anything. The 5+
+// floor + stop word list together prevent the "One" → "...And Justice
+// for All" leak Mike hit.
 function scoreTitleAgainstLabel(title, label) {
   const t = normForMatch(title);
   const l = normForMatch(label);
-  if (!t || t.length < 3 || !l) return 0;
-  if (l.includes(t)) return 100 + t.length;
-  if (t.includes(l) && l.length >= 4) return 80 + l.length;
-  const significantWords = (s) => new Set(s.split(/\s+/).filter((w) => w.length >= 5));
+  if (!t || !l) return 0;
+  const tIsMultiWord = t.includes(" ");
+  const tLongEnough = t.length >= 5;
+  // Direct substring — require multi-word OR 5+ chars OR not a stop
+  // word. Single short common words ("one", "the", "vol") never match.
+  if (l.includes(t)) {
+    if (!tIsMultiWord && !tLongEnough) return 0;
+    if (!tIsMultiWord && FUZZY_STOP_WORDS.has(t)) return 0;
+    return 100 + t.length;
+  }
+  if (t.includes(l) && l.length >= 5 && !FUZZY_STOP_WORDS.has(l)) {
+    return 80 + l.length;
+  }
+  const significantWords = (s) => new Set(
+    s.split(/\s+/).filter((w) => w.length >= 5 && !FUZZY_STOP_WORDS.has(w))
+  );
   const tw = significantWords(t);
   const lw = significantWords(l);
   if (tw.size === 0 || lw.size === 0) return 0;
@@ -2353,23 +2382,19 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
       || (b.canonicalTitle || "").toLowerCase() === bt
     );
   }
-  // Fallback for gifts logged without picking a book from the picker
-  // (or pre-picker historical rows): match the gift label to a known
-  // book title. Robust to:
-  //   - autocorrect mangling ("Tipos Mollo" → "Los Tipos Malos")
-  //   - accents (NFD strip)
-  //   - either direction (title in label OR label in title)
-  //   - shared significant words (5+ chars) for partial matches
-  // Picks highest-scoring book so multi-volume series still resolve
-  // ("Vol 8" wins over "Vol" because length tie-breaks longer).
-  if (!book && gift?.label && Array.isArray(books)) {
+  // Label fuzzy fallback — ONLY runs when the gift has no explicit
+  // book/song id from the picker. If the user picked something, we
+  // trust their choice and never fall back to fuzzy. This prevents
+  // the bug Mike hit where picking "Los Tipos Malos Vol 8" was
+  // getting clobbered by fuzzy-matching "one" in the label to
+  // Metallica's "One" song.
+  const userPickedBook = !!meta.bookId;
+  const userPickedSong = !!meta.songId;
+  if (!book && !userPickedBook && gift?.label && Array.isArray(books)) {
     book = findBookForGiftLabel(gift.label, books);
   }
-  // Same idea for songs — if a gift label mentions a song by name,
-  // resolve to its cover when no explicit songId is on the gift. Same
-  // strict-length floor so single-word song titles don't false-hit.
   let labelSong = null;
-  if (gift?.label && Array.isArray(songs) && !meta.songId) {
+  if (!userPickedSong && gift?.label && Array.isArray(songs)) {
     labelSong = findSongForGiftLabel(gift.label, songs);
   }
   // Activity-aware preference. The completion knows what kind of task
@@ -2416,18 +2441,22 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
   const proofSrc = proofPhoto && (proofPhoto.url || proofSigned);
   // Resolution order:
   //   Reading task → book cover preferred (the book IS what was read).
-  //                  Falls back to proof photo, then gift photo.
-  //   Drums task   → song cover preferred (the song IS what was practiced).
-  //                  Falls back to proof photo, then gift photo.
-  //   Otherwise    → proof photo (the photo IS what was done),
-  //                  then gift photo, then book / song cover, then null.
+  //                  Falls back to proof photo, then gift photo. NEVER
+  //                  falls back to a song cover — a Spanish reading
+  //                  bonus must not surface Metallica album art just
+  //                  because the label happened to contain a common
+  //                  short English word.
+  //   Drums task   → song cover preferred. Same cross-domain rule —
+  //                  never falls back to a book cover.
+  //   Otherwise    → proof photo, then gift photo, then book cover,
+  //                  then song cover, then null.
   // Mike's rule: a real cover or photo means "done"; the activity icon
   // means "not done yet or you forgot to attach proof — fix this."
   let src = null;
   if (isReading) {
-    src = bookCoverSrc || proofSrc || giftSigned || songCoverSrc;
+    src = bookCoverSrc || proofSrc || giftSigned;
   } else if (isDrums) {
-    src = songCoverSrc || proofSrc || giftSigned || bookCoverSrc;
+    src = songCoverSrc || proofSrc || giftSigned;
   } else {
     src = proofSrc || giftSigned || bookCoverSrc || songCoverSrc;
   }
@@ -5829,10 +5858,27 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   const meta = comp?.extra || {};
   const bookId = meta.bookId;
   const bookTitle = meta.bookTitle;
-  const book = bookId
-    ? books.find((b) => b.id === bookId)
-    : (bookTitle ? books.find((b) => (b.title || "").toLowerCase() === bookTitle.toLowerCase()) : null);
-  let song = meta.songId ? songs.find((s) => s.id === meta.songId) : null;
+  // Same robust id-then-title fallback as ProofThumb. The id-only
+  // lookup before this could miss when the id lookup returned undef
+  // (book renamed/recreated) — the bookTitle backup catches it.
+  let book = null;
+  if (bookId) book = books.find((b) => b.id === bookId);
+  if (!book && bookTitle) {
+    const bt = bookTitle.toLowerCase();
+    book = books.find((b) =>
+      (b.title || "").toLowerCase() === bt
+      || (b.canonicalTitle || "").toLowerCase() === bt
+    );
+  }
+  let song = null;
+  if (meta.songId) song = songs.find((s) => s.id === meta.songId);
+  if (!song && meta.songTitle) {
+    const st = meta.songTitle.toLowerCase();
+    song = songs.find((s) =>
+      (s.title || "").toLowerCase() === st
+      || (s.canonicalTitle || "").toLowerCase() === st
+    );
+  }
   if (!song && isDrumsRow && comp?.completionDate && Array.isArray(songPlays)) {
     const todayPlays = songPlays
       .filter((p) => p.playedOn === comp.completionDate)
