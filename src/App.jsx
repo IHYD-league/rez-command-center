@@ -27,6 +27,7 @@ import { levelUp } from "./lib/levelUp.js";
 import LevelUpLayer from "./LevelUpLayer.jsx";
 import OnboardingOverlay from "./OnboardingOverlay.jsx";
 import { useBottomSheet } from "./lib/sheet.js";
+import { runDataAudit, auditSummary } from "./lib/dataAudit.js";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -6806,8 +6807,86 @@ function LogACompletion({ tasks, currentTopEightIds, submitTask, setDailyTopEigh
   );
 }
 
+// DataAudit — runs runDataAudit() over the current family dataset and
+// renders the findings. Read-only: just shows what's true. The audit
+// is the safety rail for the "other parents asking to use it" pivot
+// — bank arithmetic, ISO date integrity, orphan references all surface
+// here before drift leaks into a real parent's view.
+function DataAudit(props) {
+  const findings = useMemo(() => runDataAudit({
+    completions: props.completions || [],
+    tasks: props.tasks || [],
+    gifted: props.gifted || [],
+    redemptions: props.redemptions || [],
+    songs: props.songs || [],
+    songPlays: props.songPlays || [],
+    books: props.books || [],
+    albumPhotos: props.albumPhotos || [],
+    users: props.users || [],
+    starBank: props.starBank || 0,
+    base: CHILD.starBankBase || 0,
+  }), [props.completions, props.tasks, props.gifted, props.redemptions, props.songs, props.songPlays, props.books, props.albumPhotos, props.users, props.starBank]);
+  const summary = auditSummary(findings);
+  const headerTone =
+    summary.error > 0 ? "from-rose-500 to-rose-600"
+    : summary.warn > 0 ? "from-amber-500 to-amber-600"
+    : "from-emerald-500 to-emerald-600";
+  const headerEmoji = summary.error > 0 ? "⚠️" : summary.warn > 0 ? "⚠️" : "✅";
+  const headerLabel = summary.error > 0 ? "Drift detected" : summary.warn > 0 ? "Minor warnings" : "All clean";
+  return (
+    <div className="px-4 pt-4">
+      <div className={`rounded-3xl p-4 mb-3 text-white bg-gradient-to-br ${headerTone}`}>
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur grid place-items-center text-2xl">{headerEmoji}</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">Audit result</div>
+            <div className="text-xl font-extrabold leading-tight">{headerLabel}</div>
+            <div className="text-[11px] text-white/80 mt-0.5">
+              {summary.ok} passing · {summary.warn} warning · {summary.error} error{summary.error === 1 ? "" : "s"}
+            </div>
+          </div>
+        </div>
+      </div>
+      <p className="text-[11px] text-slate-400 px-1 mb-2 leading-snug">
+        Read-only check across the whole family dataset. Architecture §3 derives totals at display time, so any drift here points at a deeper problem — a botched import, a delete that left dangling references, or a date written in the wrong format.
+      </p>
+      <div className="space-y-2">
+        {findings.map((f) => {
+          const cls =
+            f.level === "error" ? "border-rose-200 bg-rose-50"
+            : f.level === "warn" ? "border-amber-200 bg-amber-50"
+            : "border-emerald-200 bg-emerald-50";
+          const icon = f.level === "error" ? "✖" : f.level === "warn" ? "⚠️" : "✓";
+          const iconCls =
+            f.level === "error" ? "text-rose-700"
+            : f.level === "warn" ? "text-amber-700"
+            : "text-emerald-700";
+          return (
+            <Card key={f.check} className={`p-3 ${cls}`}>
+              <div className="flex items-start gap-2">
+                <div className={`text-sm font-extrabold shrink-0 ${iconCls}`}>{icon}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-bold text-slate-800">{f.message}</div>
+                  {f.details && f.details.length > 0 && (
+                    <ul className="mt-1.5 text-[11px] text-slate-600 space-y-0.5 list-disc pl-4">
+                      {f.details.map((d, i) => (
+                        <li key={i} className="break-all">{d}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MoreParent(props) {
   const [sub, setSub] = useState("menu");
+  if (sub === "audit") return <BackWrap title="Data audit" onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title="Progress Portfolio" onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title="Weekly Summary" onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
   if (sub === "handoff") return <BackWrap title="Handoff Notes" onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
@@ -6845,6 +6924,7 @@ function MoreParent(props) {
     { k: "music_library", icon: <Music size={18} />, label: "Music Library", sub: "Every song · sort · edit titles / artists / albums / covers" },
     { k: "export", icon: <Download size={18} />, label: "Export Data", sub: "CSV downloads — own your data" },
     { k: "slideshow", icon: <Play size={18} />, label: "Milestone Slideshows", sub: "Monthly · 6-month · 1-year recaps" },
+    { k: "audit", icon: <AlertCircle size={18} />, label: "Data audit", sub: "Check the math · find drift · spot orphans" },
   ];
   return (
     <div className="px-4 pt-4">
