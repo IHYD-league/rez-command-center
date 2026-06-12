@@ -7863,7 +7863,7 @@ function GradeGoals() {
         <div className="text-sm font-bold text-indigo-900 flex items-center gap-1">🤖 Auto-update (roadmap)</div>
         <div className="text-[12px] text-indigo-700 mt-1">Later, a background worker can refresh these standards and pull the latest world rankings automatically, so the targets always reflect the current best in the world — no manual updating.</div>
       </Card>
-      <div className="text-[11px] text-slate-400 px-1 mt-1">A real build can pull live official standards by state & country. This is a curated starting framework to aim high — always cross-check specifics.</div>
+      <div className="text-[11px] text-slate-400 px-1 mt-1">A curated starting framework to aim high — always cross-check specifics against your local standards.</div>
     </>
   );
 }
@@ -8081,12 +8081,19 @@ function ParentRecap(props) {
       </div>
 
       {mem && (
-        <Card className="p-4 mt-3 text-white" style={{ background: "linear-gradient(135deg,#7c3aed,#db2777)" }}>
+        // Use a plain styled div instead of Card — the Card component
+        // doesn't forward an inline `style` prop, so the gradient was
+        // silently dropped and the white text rendered against a
+        // white background. Mike screenshotted a "broken" card showing
+        // only floating emojis. This is the fix.
+        <div
+          className="rounded-3xl border border-violet-200 shadow-sm p-4 mt-3 text-white"
+          style={{ background: "linear-gradient(135deg,#7c3aed,#db2777)" }}
+        >
           <div className="flex items-center gap-2 font-extrabold"><span className="text-xl">🎂</span> On this journey</div>
           <div className="text-sm opacity-95 mt-1">🥁 {mem.daysSince} days of drums since {fmtDateObj(mem.start)}.</div>
           <div className="text-sm opacity-95">{mem.toAnniv > 0 ? `1-year drum-iversary in ${mem.toAnniv} days (${fmtDateObj(mem.anniv)}) 🎉` : `Passed his 1-year drum-iversary! 🐐`}</div>
-          <div className="text-[11px] opacity-80 mt-2">A real build resurfaces "this day last year" photos here — like his first drum video next to today's.</div>
-        </Card>
+        </div>
       )}
 
       <SectionTitle icon={<ImageIcon size={16} className="text-violet-500" />}>Photos {window.label}</SectionTitle>
@@ -8105,7 +8112,7 @@ function ParentRecap(props) {
       ))}
 
       <button onClick={share} className="w-full mt-3 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-2"><Share2 size={16} /> {copied ? "Recap copied! ✓" : "Copy / share recap"}</button>
-      <div className="text-[11px] text-slate-400 px-1 mt-2">Copies a clean text summary to share with family. A real build adds a one-tap PDF or email with the photos attached, and true week/month date ranges (this prototype counts the current session).</div>
+      <div className="text-[11px] text-slate-400 px-1 mt-2">Copies a clean text summary to share with family. Stats above are scoped to the selected window — week, month, year, or all-time.</div>
     </>
   );
 }
