@@ -4792,7 +4792,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], familyId }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], familyId, addBook, addSong, updateBook }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
@@ -4832,6 +4832,9 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         books={books}
         songs={songs}
         familyId={familyId}
+        addBook={addBook}
+        addSong={addSong}
+        updateBook={updateBook}
       />
 
       <SectionTitle icon={<Clock size={16} className="text-amber-500" />}>Needs approval ({pending.length})</SectionTitle>
@@ -5012,7 +5015,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   );
 }
 
-function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activities = [], books = [], songs = [], familyId }) {
+function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activities = [], books = [], songs = [], familyId, addBook, addSong, updateBook }) {
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState("");
   const [amt, setAmt] = useState(5);
@@ -5021,6 +5024,20 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
   const [taskId, setTaskId] = useState("");
   const [bookId, setBookId] = useState("");
   const [songId, setSongId] = useState("");
+  // Inline add-new state — parent shouldn't have to leave the gift
+  // form to add a book or song. Keeping everything in one place is
+  // the rule. Toggle a tiny inline form; on save, the new row is
+  // created via addBook/addSong and auto-selected.
+  const [addingBook, setAddingBook] = useState(false);
+  const [newBookTitle, setNewBookTitle] = useState("");
+  const [newBookAuthor, setNewBookAuthor] = useState("");
+  const [addingSong, setAddingSong] = useState(false);
+  const [newSongTitle, setNewSongTitle] = useState("");
+  const [newSongArtist, setNewSongArtist] = useState("");
+  // "Did he finish it?" — only meaningful for reading gifts when a
+  // book is picked. Marks the book finished + sets finished date on
+  // submit. Equivalent to flipping it in Reading Library, but in line.
+  const [markBookFinished, setMarkBookFinished] = useState(false);
   // Photo proof — same shape as TaskSheet's proof upload. We use the
   // family bucket so RLS applies. Path lives in extra.photoPath.
   const [photo, setPhoto] = useState(null); // { path, name }
@@ -5029,7 +5046,9 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
 
   const resetForm = () => {
     setLabel(""); setAmt(5); setTaskId(""); setBookId(""); setSongId("");
-    setPhoto(null);
+    setPhoto(null); setMarkBookFinished(false);
+    setAddingBook(false); setNewBookTitle(""); setNewBookAuthor("");
+    setAddingSong(false); setNewSongTitle(""); setNewSongArtist("");
   };
   const close = () => { setOpen(false); resetForm(); };
 
@@ -5067,6 +5086,11 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
   const submit = () => {
     const trimmed = label.trim();
     if (!trimmed) return;
+    // Mark book finished if the parent ticked the box. Runs BEFORE
+    // giftStars so the displayed book status updates the same render.
+    if (bookId && markBookFinished && updateBook) {
+      updateBook(bookId, { status: "finished", finished: TODAY_ISO });
+    }
     giftStars({
       label: trimmed,
       stars: amt,
@@ -5078,6 +5102,27 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       photoName: photo?.name || undefined,
     });
     close();
+  };
+
+  // Inline "Add new book" — auto-selects the new row so the parent
+  // doesn't have to find it in the long select after creating it.
+  const saveNewBook = () => {
+    const t = newBookTitle.trim();
+    if (!t || !addBook) return;
+    const id = "b_" + Date.now();
+    addBook({ id, title: t, author: newBookAuthor.trim() || null, status: "reading", started: TODAY_ISO });
+    setBookId(id);
+    setAddingBook(false);
+    setNewBookTitle(""); setNewBookAuthor("");
+  };
+  const saveNewSong = () => {
+    const t = newSongTitle.trim();
+    if (!t || !addSong) return;
+    // addSong dedupes by title+artist and returns the id (existing or new).
+    const id = addSong({ title: t, artist: newSongArtist.trim() || null });
+    if (id) setSongId(id);
+    setAddingSong(false);
+    setNewSongTitle(""); setNewSongArtist("");
   };
 
   if (!open) {
@@ -5167,46 +5212,159 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
         ))}
       </select>
 
-      {/* Book picker — visible only when the picked task is a reading
-          activity. Same status-priority order as the TaskSheet picker. */}
-      {isReading && bookOptions.length > 0 && (
+      {/* Book picker — visible whenever the picked task is reading.
+          "Add a new book" lives inline so the parent never has to
+          leave the gift flow to seed a missing title. "Mark finished"
+          checkbox flips the book to status=finished + finished=today,
+          equivalent to flipping it in Reading Library. */}
+      {isReading && (
         <>
           <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
             Which book? <span className="font-normal text-slate-400 normal-case">(optional)</span>
           </label>
-          <select
-            value={bookId}
-            onChange={(e) => setBookId(e.target.value)}
-            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
-          >
-            <option value="">— pick a book —</option>
-            {bookOptions.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.title}{b.status && b.status !== "reading" ? ` (${b.status})` : ""}
-              </option>
-            ))}
-          </select>
+          {!addingBook ? (
+            <>
+              <select
+                value={bookId}
+                onChange={(e) => { setBookId(e.target.value); setMarkBookFinished(false); }}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-1.5 bg-white"
+              >
+                <option value="">— pick a book —</option>
+                {bookOptions.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.title}{b.status && b.status !== "reading" ? ` (${b.status})` : ""}
+                  </option>
+                ))}
+              </select>
+              {addBook && (
+                <button
+                  type="button"
+                  onClick={() => setAddingBook(true)}
+                  className="text-[11px] font-bold text-indigo-600 mb-2 flex items-center gap-1"
+                >
+                  <Plus size={12} /> Add a new book
+                </button>
+              )}
+              {bookId && updateBook && (() => {
+                const pickedBook = books.find((b) => b.id === bookId);
+                const alreadyFinished = pickedBook?.status === "finished" || pickedBook?.status === "archive";
+                return (
+                  <label className={`flex items-center gap-2 mb-2 text-[12px] font-bold ${alreadyFinished ? "text-slate-400" : "text-emerald-700"}`}>
+                    <input
+                      type="checkbox"
+                      checked={alreadyFinished || markBookFinished}
+                      disabled={alreadyFinished}
+                      onChange={(e) => setMarkBookFinished(e.target.checked)}
+                      className="w-4 h-4"
+                    />
+                    {alreadyFinished
+                      ? "✓ Already finished"
+                      : "Reznor finished this book today 📚"}
+                  </label>
+                );
+              })()}
+            </>
+          ) : (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-2 mb-2">
+              <input
+                value={newBookTitle}
+                onChange={(e) => setNewBookTitle(e.target.value)}
+                placeholder="Book title"
+                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
+              />
+              <input
+                value={newBookAuthor}
+                onChange={(e) => setNewBookAuthor(e.target.value)}
+                placeholder="Author (optional)"
+                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
+              />
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { setAddingBook(false); setNewBookTitle(""); setNewBookAuthor(""); }}
+                  className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5 active:scale-95"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!newBookTitle.trim()}
+                  onClick={saveNewBook}
+                  className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 active:scale-95 ${newBookTitle.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}
+                >
+                  Add book
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
 
-      {/* Song picker — visible only when picked task is drums-related. */}
-      {isDrums && songOptions.length > 0 && (
+      {/* Song picker — visible when picked task is drums-related.
+          Same inline "Add a new song" affordance as books so the
+          parent can seed a missing title without leaving the flow. */}
+      {isDrums && (
         <>
           <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
             Which song? <span className="font-normal text-slate-400 normal-case">(optional)</span>
           </label>
-          <select
-            value={songId}
-            onChange={(e) => setSongId(e.target.value)}
-            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
-          >
-            <option value="">— pick a song —</option>
-            {songOptions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.canonicalTitle || s.title}{(s.canonicalArtist || s.artist) ? ` — ${s.canonicalArtist || s.artist}` : ""}
-              </option>
-            ))}
-          </select>
+          {!addingSong ? (
+            <>
+              <select
+                value={songId}
+                onChange={(e) => setSongId(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-1.5 bg-white"
+              >
+                <option value="">— pick a song —</option>
+                {songOptions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.canonicalTitle || s.title}{(s.canonicalArtist || s.artist) ? ` — ${s.canonicalArtist || s.artist}` : ""}
+                  </option>
+                ))}
+              </select>
+              {addSong && (
+                <button
+                  type="button"
+                  onClick={() => setAddingSong(true)}
+                  className="text-[11px] font-bold text-indigo-600 mb-2 flex items-center gap-1"
+                >
+                  <Plus size={12} /> Add a new song
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-2 mb-2">
+              <input
+                value={newSongTitle}
+                onChange={(e) => setNewSongTitle(e.target.value)}
+                placeholder="Song title"
+                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
+              />
+              <input
+                value={newSongArtist}
+                onChange={(e) => setNewSongArtist(e.target.value)}
+                placeholder="Artist (optional)"
+                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
+              />
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { setAddingSong(false); setNewSongTitle(""); setNewSongArtist(""); }}
+                  className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5 active:scale-95"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!newSongTitle.trim()}
+                  onClick={saveNewSong}
+                  className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 active:scale-95 ${newSongTitle.trim() ? "bg-purple-600 text-white" : "bg-slate-200 text-slate-400"}`}
+                >
+                  Add song
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
 
