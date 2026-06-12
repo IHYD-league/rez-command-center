@@ -6113,25 +6113,46 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
   const [sort, setSort] = useState("reading_order");
   const [focusedBookId, setFocusedBookId] = useState(null);
   const [rearranging, setRearranging] = useState(false);
+  // Language filter — "All" by default, narrows to English or Spanish.
+  // Persists per session so a parent scanning Reznor's Spanish progress
+  // doesn't have to re-pick it on every tab swap.
+  const [langFilter, setLangFilter] = useState("All");
   const savedOrder = libraryOrder?.books || [];
+  // Build the available-language set from data so future langs (e.g.,
+  // French) auto-populate the chip row without a code change.
+  const availableLangs = useMemo(() => {
+    const set = new Set();
+    for (const b of (books || [])) {
+      if (b.lang && b.lang.trim()) set.add(b.lang.trim());
+    }
+    // Stable order: English first, Spanish second, then anything else
+    // alphabetical — matches how Mike/Krissie think about Reznor's lineup.
+    const known = ["English", "Spanish"].filter((l) => set.has(l));
+    const others = [...set].filter((l) => !known.includes(l)).sort();
+    return [...known, ...others];
+  }, [books]);
+  // Apply the language filter at the source so every downstream list
+  // (reading, finished, archive, shelf) honors it.
+  const langMatch = (b) => langFilter === "All" || (b.lang || "").trim() === langFilter;
+  const langFiltered = (books || []).filter(langMatch);
   // Filtered views: archive books (preTracking) ARE finished books —
   // Reznor read them, we just don't have dates. They belong in the
   // Finished list so the count matches reality. The Archive section
   // stays separate for "books read pre-app" grouping (Reznor was
   // upset earlier that they weren't counted).
-  const tracked = books.filter((b) => !b.preTracking);
-  const archive = books.filter((b) => b.preTracking);
+  const tracked = langFiltered.filter((b) => !b.preTracking);
+  const archive = langFiltered.filter((b) => b.preTracking);
   const reading = sortBooks(searchBooks(tracked.filter((b) => b.status !== "finished"), q), sort);
   // Finished list now includes pre-tracking archive books too. We use
   // isBookFinished so any future status (e.g., "archive") is honored.
-  const finished = sortBooks(searchBooks(books.filter(isBookFinished), q), sort);
+  const finished = sortBooks(searchBooks(langFiltered.filter(isBookFinished), q), sort);
   const archiveFiltered = sortBooks(searchBooks(archive, q), sort);
   const focusedBook = books.find((b) => b.id === focusedBookId);
   // Shelf view flattens the three sections into one curated shelf.
   // "Hold them in your hands" metaphor doesn't map cleanly to three
   // separate stacks, so the shelf shows everything in one row, with
   // the parent's saved order applied.
-  const allFiltered = searchBooks(books, q);
+  const allFiltered = searchBooks(langFiltered, q);
   const shelfList = savedOrder.length > 0
     ? applyCustomOrder(allFiltered, savedOrder)
     : sortBooks(allFiltered, sort);
@@ -6181,6 +6202,29 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search books — title, level, language…" className="flex-1 text-sm outline-none bg-transparent" />
         {q && <button onClick={() => setQ("")} className="text-slate-300"><X size={15} /></button>}
       </div>
+
+      {/* Language filter — only renders when we actually have multiple
+          languages in the dataset, so a single-language family never
+          sees a chip row that does nothing. */}
+      {availableLangs.length > 1 && (
+        <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mr-1">Language:</span>
+          {["All", ...availableLangs].map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setLangFilter(l)}
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${
+                langFilter === l
+                  ? "bg-indigo-600 text-white"
+                  : "bg-white text-slate-500 border border-slate-200"
+              }`}
+            >
+              {l === "English" ? "🇺🇸 English" : l === "Spanish" ? "🇪🇸 Spanish" : l}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* View + sort row. View toggle stays a fixed 2-segment control;
           sort pills scroll horizontally so we don't crowd small screens. */}
