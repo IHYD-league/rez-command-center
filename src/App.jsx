@@ -2407,6 +2407,41 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
           : () => setOpenTask(t);
         return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} undoTask={undoTask} />;
       })}
+
+      {/* Extra-credit / bonus stars at the bottom — anything on today's
+          full task list that wasn't in the Top 8. Mike: "Reznor should
+          see what he can do as well." Sums the star value so the kid
+          sees how many extra stars are within reach. */}
+      {(() => {
+        const topIds = new Set((todaysTopEight || []).map((t) => t.id));
+        const extras = (todaysTasks || [])
+          .filter((t) => !topIds.has(t.id))
+          .filter((t) => {
+            const c = compByTask[t.id];
+            return !c || ["not_started", "needs_fix"].includes(c?.status);
+          });
+        if (extras.length === 0) return null;
+        const orderedExtras = sortByLevel(extras, mode, priorities);
+        const totalExtra = orderedExtras.reduce((s, t) => s + (Number(t.starValue) || 0), 0);
+        return (
+          <>
+            <SectionTitle
+              icon={<Sparkles size={16} className="text-amber-500" />}
+              right={<span className="text-[11px] font-bold text-amber-600">+{totalExtra}⭐ up for grabs</span>}
+            >
+              Extra credit ⭐ <span className="text-[11px] font-normal text-slate-400">· not required</span>
+            </SectionTitle>
+            {orderedExtras.map((t) => {
+              const c = compByTask[t.id];
+              const isApproved = c?.status === "approved";
+              const onOpen = isApproved && c?.id
+                ? () => setOpenCompletionId(c.id)
+                : () => setOpenTask(t);
+              return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} undoTask={undoTask} />;
+            })}
+          </>
+        );
+      })()}
     </div>
   );
 }
@@ -5047,7 +5082,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], familyId, addBook, addSong, updateBook, todaysTopEight = [] }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [] }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
