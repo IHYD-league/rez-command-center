@@ -353,7 +353,12 @@ export const toDb = {
     family_id: familyId,
     title: o.title,
     note: o.note ?? "",
-    status: o.status ?? "requested",
+    // DB check constraint allows 'requested' | 'approved' | 'declined'.
+    // An earlier Deny button bug saved 'denied' into local state for
+    // some rows, which then broke every subsequent batch upsert with
+    // a constraint violation. Normalize at the toDb boundary so any
+    // legacy "denied" gets coerced to the legal "declined" before sync.
+    status: (o.status === "denied" ? "declined" : (o.status ?? "requested")),
     star_cost: o.starCost ?? null,
     requested_by: o.by ?? null,
   }),

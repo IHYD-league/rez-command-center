@@ -4264,7 +4264,14 @@ function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }
   const days = need <= 0 ? 0 : Math.ceil(need / perDay);
   const pace = perDay <= 15 ? "Chill pace 🐢" : perDay <= 35 ? "Hero pace 🦸" : "Legend pace ⚡";
   let run = 0;
-  const WISH_STATUS = { requested: { label: "Waiting for Mom/Dad ⏳", cls: "bg-amber-100 text-amber-600" }, approved: { label: "Approved! 🎉", cls: "bg-emerald-100 text-emerald-600" }, denied: { label: "Not this time", cls: "bg-slate-100 text-slate-400" } };
+  const WISH_STATUS = {
+    requested: { label: "Waiting for Mom/Dad ⏳", cls: "bg-amber-100 text-amber-600" },
+    approved: { label: "Approved! 🎉", cls: "bg-emerald-100 text-emerald-600" },
+    // DB constraint uses "declined"; we accept "denied" as a legacy
+    // alias from any pre-fix saved rows so the kid view still renders.
+    declined: { label: "Not this time", cls: "bg-slate-100 text-slate-400" },
+    denied:   { label: "Not this time", cls: "bg-slate-100 text-slate-400" },
+  };
   return (
     <div className="px-4 pt-4">
       <div className="rounded-3xl p-5 text-white" style={{ background: "linear-gradient(135deg,#6366f1,#a855f7)" }}>
@@ -6618,7 +6625,7 @@ function WishApproveRow({ w, decideRewardRequest }) {
         <input type="number" value={cost} onChange={(e) => setCost(Number(e.target.value))} className="w-20 border border-slate-200 rounded-xl px-2 py-1 text-sm" />
         <span className="text-xs text-slate-500">⭐</span>
         <button onClick={() => decideRewardRequest(w.id, "approved", cost)} className="ml-auto px-3 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs">Approve</button>
-        <button onClick={() => decideRewardRequest(w.id, "denied")} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 font-bold text-xs">Deny</button>
+        <button onClick={() => decideRewardRequest(w.id, "declined")} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 font-bold text-xs">Deny</button>
       </div>
     </Card>
   );
@@ -6632,6 +6639,17 @@ function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward
   const [cost, setCost] = useState(50);
   const [cat, setCat] = useState("Treat");
   const cats = ["Everyday", "Treat", "Creative", "Big"];
+  // Sort order for the All-rewards list. "high" = priciest at top
+  // (good for scanning the big dreams). "low" = cheapest at top
+  // (good for scanning what's already in reach). Persisted in-memory
+  // only — cheap setting; Krissie/Mike each pick what they want per
+  // session.
+  const [rewardSort, setRewardSort] = useState("high");
+  const sortedRewards = [...(rewards || [])].sort((a, b) => {
+    const ac = Number(a.starCost) || 0;
+    const bc = Number(b.starCost) || 0;
+    return rewardSort === "high" ? bc - ac : ac - bc;
+  });
   return (
     <div className="px-4 pt-4">
       <h2 className="font-extrabold text-lg px-1">Rewards Store</h2>
@@ -6651,7 +6669,27 @@ function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward
         </Card>
       ))}
 
-      <SectionTitle icon={<Trophy size={16} className="text-amber-500" />} right={!adding && <button onClick={() => setAdding(true)} className="text-[11px] font-bold text-indigo-600 flex items-center gap-1"><Plus size={12} /> Add</button>}>All rewards</SectionTitle>
+      <SectionTitle
+        icon={<Trophy size={16} className="text-amber-500" />}
+        right={
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setRewardSort((s) => (s === "high" ? "low" : "high"))}
+              className="text-[11px] font-bold text-slate-500 bg-slate-100 rounded-full px-2.5 py-1 flex items-center gap-1"
+              title={rewardSort === "high" ? "Switch to lowest first" : "Switch to highest first"}
+            >
+              {rewardSort === "high" ? "★ high → low" : "★ low → high"}
+            </button>
+            {!adding && (
+              <button onClick={() => setAdding(true)} className="text-[11px] font-bold text-indigo-600 flex items-center gap-1">
+                <Plus size={12} /> Add
+              </button>
+            )}
+          </div>
+        }
+      >
+        All rewards
+      </SectionTitle>
       {adding && (
         <Card className="p-4 mb-2">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. New comic book" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
@@ -6667,7 +6705,7 @@ function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward
           </div>
         </Card>
       )}
-      {rewards.map((r) => <RewardEditRow key={r.id} r={r} updateReward={updateReward} removeReward={removeReward} />)}
+      {sortedRewards.map((r) => <RewardEditRow key={r.id} r={r} updateReward={updateReward} removeReward={removeReward} />)}
     </div>
   );
 }
