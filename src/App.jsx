@@ -1970,6 +1970,71 @@ function firstProofPhoto(c) {
 //   completion.extra.songId → cover from `songs`
 // gifted rows pass `gift` instead of `completion` and we read their
 // extra.photoPath / extra.bookId / extra.songId.
+// Normalize a string for label/title matching: lowercased, accent-
+// stripped, collapsed whitespace. NFD + strip-combining-marks handles
+// "Niño" vs "nino", "café" vs "cafe", etc.
+function normForMatch(s) {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Score how well a candidate title (book or song) matches a gift label.
+// Returns 0 if no useful match — caller filters those out.
+//   Direct substring (title-in-label, the strongest signal)  → 100+len
+//   Reverse substring (label-in-title, label is short query) →  80+len
+//   Shared significant words (5+ chars, both directions)     →  20·count
+// 0 otherwise. Higher = better. Helps a 7-volume series pick "Vol 8"
+// over "Vol" automatically (longer literal match beats shorter one).
+function scoreTitleAgainstLabel(title, label) {
+  const t = normForMatch(title);
+  const l = normForMatch(label);
+  if (!t || t.length < 3 || !l) return 0;
+  if (l.includes(t)) return 100 + t.length;
+  if (t.includes(l) && l.length >= 4) return 80 + l.length;
+  const significantWords = (s) => new Set(s.split(/\s+/).filter((w) => w.length >= 5));
+  const tw = significantWords(t);
+  const lw = significantWords(l);
+  if (tw.size === 0 || lw.size === 0) return 0;
+  let shared = 0;
+  for (const w of tw) if (lw.has(w)) shared++;
+  return shared > 0 ? 20 * shared : 0;
+}
+
+// Pick the best-matching book for a gift label across canonical and
+// raw title fields. Used when the gift has no explicit bookId (parent
+// typed the label without using the picker).
+function findBookForGiftLabel(label, books) {
+  let best = null;
+  let bestScore = 0;
+  for (const b of (books || [])) {
+    const candidates = [b.canonicalTitle, b.title].filter(Boolean);
+    for (const t of candidates) {
+      const s = scoreTitleAgainstLabel(t, label);
+      if (s > bestScore) { bestScore = s; best = b; }
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
+// Same shape for songs. Same scoring — Mike's rule covers song
+// covers identically to book covers.
+function findSongForGiftLabel(label, songs) {
+  let best = null;
+  let bestScore = 0;
+  for (const s of (songs || [])) {
+    const candidates = [s.canonicalTitle, s.title].filter(Boolean);
+    for (const t of candidates) {
+      const sc = scoreTitleAgainstLabel(t, label);
+      if (sc > bestScore) { bestScore = sc; best = s; }
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
 function ProofThumb({ completion, gift, activity, task, books = [], songs = [], songPlays = [], size = 36, clickable = true }) {
   // Proof photo (from completion or gift).
   const proofPhoto = firstProofPhoto(completion);
@@ -1978,9 +2043,28 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
   const meta = completion?.extra || gift?.extra || {};
   const bookId = meta.bookId;
   const bookTitle = meta.bookTitle;
-  const book = bookId
+  let book = bookId
     ? books.find((b) => b.id === bookId)
     : (bookTitle ? books.find((b) => (b.title || "").toLowerCase() === bookTitle.toLowerCase()) : null);
+  // Fallback for gifts logged without picking a book from the picker
+  // (or pre-picker historical rows): match the gift label to a known
+  // book title. Robust to:
+  //   - autocorrect mangling ("Tipos Mollo" → "Los Tipos Malos")
+  //   - accents (NFD strip)
+  //   - either direction (title in label OR label in title)
+  //   - shared significant words (5+ chars) for partial matches
+  // Picks highest-scoring book so multi-volume series still resolve
+  // ("Vol 8" wins over "Vol" because length tie-breaks longer).
+  if (!book && gift?.label && Array.isArray(books)) {
+    book = findBookForGiftLabel(gift.label, books);
+  }
+  // Same idea for songs — if a gift label mentions a song by name,
+  // resolve to its cover when no explicit songId is on the gift. Same
+  // strict-length floor so single-word song titles don't false-hit.
+  let labelSong = null;
+  if (gift?.label && Array.isArray(songs) && !meta.songId) {
+    labelSong = findSongForGiftLabel(gift.label, songs);
+  }
   // Activity-aware preference. The completion knows what kind of task
   // it is via task.activityType / task.proofType. Reading + Drums each
   // have a more meaningful "what was done" image than a generic proof
@@ -2001,6 +2085,10 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
     const firstPlay = todayPlays[0];
     if (firstPlay) song = songs.find((s) => s.id === firstPlay.songId);
   }
+  // Promote label-matched song to the resolved song when nothing else
+  // got us one. Gift labels like "Mastered Master of Puppets" surface
+  // the album art even without an explicit songId pick.
+  if (!song && labelSong) song = labelSong;
   // Custom uploads (storage paths). One useSignedUrl per slot — hooks
   // must be called unconditionally in stable order.
   const proofSigned = useSignedUrl(proofPhoto && !proofPhoto.url ? proofPhoto.path : null);
