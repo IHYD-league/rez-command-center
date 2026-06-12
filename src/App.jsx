@@ -1444,7 +1444,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     openCompletionId, setOpenCompletionId, updateCompletion, addCompletionPhoto, removeCompletionPhoto,
     pendingRegistrations, approveRegistration, denyRegistration, currentProfileId, setCurrentUserId,
     kidData,
-    familyId,
+    familyId, signOut, sessionEmail,
     songs, songPlays, addSong, addSongPlay, removeSong, removeSongPlay, updateSongPlay, updateSong,
     removeGift,
     setStatDetailId,
@@ -6884,8 +6884,128 @@ function DataAudit(props) {
   );
 }
 
+// PrivacySafety — surface the trust contract to a parent in one
+// scrollable page. Goals: (1) make data isolation visible — your
+// family ID, who has access, who has parent powers; (2) disclose
+// what's actually stored (photos may carry GPS); (3) make
+// own-your-data ops one tap away (export, sign out). Especially
+// important now that other parents are asking to use Command Center.
+function PrivacySafety(props) {
+  const { familyId = "", users = [], sessionEmail = "", signOut, completions = [], albumPhotos = [], gifted = [], songPlays = [], setTab } = props;
+  const fid = String(familyId || "");
+  const familyShort = fid ? fid.slice(0, 8) + "…" + fid.slice(-4) : "—";
+  const parents = users.filter((u) => u.role === "parent");
+  const helpers = users.filter((u) => u.role === "helper");
+  const kids = users.filter((u) => u.role === "kid");
+  const counts = {
+    completions: (completions || []).length,
+    photos: (albumPhotos || []).length,
+    gifts: (gifted || []).length,
+    songPlays: (songPlays || []).length,
+  };
+  const Row = ({ label, value, hint }) => (
+    <div className="flex items-baseline justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
+      <div className="text-[12px] font-bold text-slate-600">{label}</div>
+      <div className="text-right">
+        <div className="text-[12px] font-extrabold text-slate-800 tabular-nums break-all">{value}</div>
+        {hint && <div className="text-[10px] text-slate-400">{hint}</div>}
+      </div>
+    </div>
+  );
+  return (
+    <div className="px-4 pt-4">
+      <div className="rounded-3xl p-4 mb-3 text-white bg-gradient-to-br from-indigo-500 to-violet-600">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur grid place-items-center text-2xl">🔒</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">Privacy & Safety</div>
+            <div className="text-xl font-extrabold leading-tight">Your family, your data</div>
+            <div className="text-[11px] text-white/80 mt-0.5">
+              Isolated from every other family using Command Center.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <SectionTitle icon={<Lock size={16} className="text-violet-500" />}>Your family</SectionTitle>
+      <Card className="p-3 mb-3">
+        <Row label="Family ID" value={familyShort} hint="Unique to your family — used to isolate every row." />
+        <Row label="Signed in as" value={sessionEmail || "—"} />
+        <Row label="Parents" value={`${parents.length}`} hint={parents.map((u) => u.name).join(", ") || "—"} />
+        <Row label="Helpers" value={`${helpers.length}`} hint={helpers.map((u) => u.name).join(", ") || "(none)"} />
+        <Row label="Kids" value={`${kids.length}`} hint={kids.map((u) => u.name).join(", ") || "—"} />
+      </Card>
+
+      <SectionTitle icon={<Camera size={16} className="text-cyan-500" />}>What's stored</SectionTitle>
+      <Card className="p-3 mb-3">
+        <Row label="Completions" value={counts.completions} />
+        <Row label="Photos" value={counts.photos} hint="Stored in your family's bucket — never shared." />
+        <Row label="Gifts" value={counts.gifts} />
+        <Row label="Song plays" value={counts.songPlays} />
+      </Card>
+
+      <SectionTitle icon={<AlertCircle size={16} className="text-amber-500" />}>Photo location data</SectionTitle>
+      <Card className="p-3 mb-3">
+        <div className="text-[12px] text-slate-700 leading-snug">
+          When a photo is taken as proof and your device offers location, Command Center records a coarse GPS tag with the photo so a parent reviewing later knows where the chore happened. Tags stay inside your family.
+        </div>
+        <div className="text-[11px] text-slate-500 mt-2 leading-snug">
+          You can revoke location for the app at the OS level (iOS: Settings → Safari → Location; Android: Site settings) and the tag won't be saved.
+        </div>
+      </Card>
+
+      <SectionTitle icon={<Download size={16} className="text-emerald-500" />}>Own your data</SectionTitle>
+      <button
+        type="button"
+        onClick={() => setTab?.("more")}
+        className="w-full mb-2 active:scale-[0.98] transition"
+      >
+        <Card className="p-3 flex items-center gap-3 text-left">
+          <div className="w-9 h-9 rounded-xl bg-emerald-50 grid place-items-center text-emerald-600 shrink-0">
+            <Download size={16} />
+          </div>
+          <div className="flex-1">
+            <div className="text-[12px] font-bold text-slate-800">Export every row as CSV</div>
+            <div className="text-[10px] text-slate-400">More → Export Data — completions, photos, books, songs, the whole set.</div>
+          </div>
+        </Card>
+      </button>
+      <button
+        type="button"
+        onClick={() => setTab?.("more")}
+        className="w-full mb-3 active:scale-[0.98] transition"
+      >
+        <Card className="p-3 flex items-center gap-3 text-left">
+          <div className="w-9 h-9 rounded-xl bg-amber-50 grid place-items-center text-amber-600 shrink-0">
+            <AlertCircle size={16} />
+          </div>
+          <div className="flex-1">
+            <div className="text-[12px] font-bold text-slate-800">Run a data audit</div>
+            <div className="text-[10px] text-slate-400">More → Data audit — checks bank math, orphan refs, date integrity.</div>
+          </div>
+        </Card>
+      </button>
+
+      <SectionTitle icon={<LogOut size={16} className="text-rose-500" />}>Session</SectionTitle>
+      {signOut && (
+        <button
+          type="button"
+          onClick={signOut}
+          className="w-full py-3 rounded-2xl bg-rose-50 text-rose-700 font-extrabold text-sm active:scale-95 mb-2"
+        >
+          Sign out{sessionEmail ? ` (${sessionEmail})` : ""}
+        </button>
+      )}
+      <div className="text-[10px] text-slate-400 leading-snug px-1 mb-6">
+        Signing out clears the session on this device. Your family's data stays in the cloud and reappears the next time anyone signs in.
+      </div>
+    </div>
+  );
+}
+
 function MoreParent(props) {
   const [sub, setSub] = useState("menu");
+  if (sub === "privacy") return <BackWrap title="Privacy & Safety" onBack={() => setSub("menu")}><PrivacySafety {...props} /></BackWrap>;
   if (sub === "audit") return <BackWrap title="Data audit" onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title="Progress Portfolio" onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title="Weekly Summary" onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
@@ -6925,6 +7045,7 @@ function MoreParent(props) {
     { k: "export", icon: <Download size={18} />, label: "Export Data", sub: "CSV downloads — own your data" },
     { k: "slideshow", icon: <Play size={18} />, label: "Milestone Slideshows", sub: "Monthly · 6-month · 1-year recaps" },
     { k: "audit", icon: <AlertCircle size={18} />, label: "Data audit", sub: "Check the math · find drift · spot orphans" },
+    { k: "privacy", icon: <Lock size={18} />, label: "Privacy & Safety", sub: "Family isolation · what's stored · own your data" },
   ];
   return (
     <div className="px-4 pt-4">
