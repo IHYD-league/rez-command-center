@@ -1454,7 +1454,12 @@ export default function BoardGame({
     const startedAt = performance.now();
     const tick = (now) => {
       const t = Math.min(1, (now - startedAt) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
+      // Linear pacing — every space gets equal time. The previous
+      // cubic ease-out made the token cover ~70% of the path in the
+      // first 30% of time, so even a 30-second sweep felt fast at
+      // the start. For Reza & Krissie's "watch it land on each
+      // space" experience we want constant velocity.
+      const eased = t;
       const len = startLen + (endLen - startLen) * eased;
       const pt = pathEl.getPointAtLength(len);
       updateFacingFromX(pt.x);
