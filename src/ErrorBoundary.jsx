@@ -41,14 +41,33 @@ export default class ErrorBoundary extends React.Component {
           <div style={{ fontSize: 28, fontWeight: 900, marginBottom: 6 }}>
             Something broke
           </div>
-          <div style={{ fontSize: 14, color: "#7f1d1d", marginBottom: 18 }}>
-            The screen didn't render. Reload usually fixes it; if it keeps
-            happening, screenshot this and send it to Dad.
+          <div style={{ fontSize: 14, color: "#7f1d1d", marginBottom: 8 }}>
+            The screen didn't render. <strong>Your data is safe</strong> — nothing was lost.
+            Reload usually fixes it.
+          </div>
+          <div style={{ fontSize: 13, color: "#7f1d1d", marginBottom: 18 }}>
+            If it keeps happening, copy the error below and send it to your family admin so we can look at it.
           </div>
 
           <div style={{ background: "white", border: "1px solid #fecaca", borderRadius: 16, padding: 14, marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em", color: "#991b1b", marginBottom: 6 }}>
-              Error
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em", color: "#991b1b" }}>
+                Error
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const body = stack ? `${msg}\n\n${stack}` : msg;
+                  navigator.clipboard?.writeText(body).catch(() => {});
+                }}
+                style={{
+                  fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em",
+                  background: "#fee2e2", color: "#991b1b", border: 0, borderRadius: 8,
+                  padding: "4px 8px", cursor: "pointer",
+                }}
+              >
+                Copy
+              </button>
             </div>
             <pre style={{ fontSize: 13, whiteSpace: "pre-wrap", margin: 0, color: "#7f1d1d" }}>
               {msg}

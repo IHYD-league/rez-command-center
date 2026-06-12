@@ -63,7 +63,7 @@ export default function Login() {
       >
         <div className="text-5xl text-center mb-2">🚀</div>
         <h1 className="text-2xl font-extrabold text-center tracking-tight">
-          Reznor Command Center
+          Command Center
         </h1>
         <p className="text-white/70 text-sm text-center mb-5">
           {mode === "signin" ? "Family sign-in" : "Request access"}
