@@ -4434,7 +4434,13 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay }) {
                               {removeSongPlay && (
                                 <button
                                   type="button"
-                                  onClick={() => removeSongPlay(p.id)}
+                                  onClick={() => {
+                                    const songTitle = song.canonicalTitle || song.title || "this song";
+                                    const when = p.playedOn ? fmtShort(p.playedOn) : "an unknown date";
+                                    if (window.confirm(`Remove this play?\n\n"${songTitle}" — ${when}${p.notes ? `\n${p.notes}` : ""}\n\nThe play count drops by 1 and this can't be undone.`)) {
+                                      removeSongPlay(p.id);
+                                    }
+                                  }}
                                   className="text-slate-300 hover:text-rose-500"
                                   title="Remove this play"
                                 >
