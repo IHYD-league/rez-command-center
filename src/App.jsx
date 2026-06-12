@@ -870,9 +870,16 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const giftedToday = gifted.filter((g) => g.date === TODAY_ISO).reduce((s, g) => s + (Number(g.stars) || 0), 0);
   const starBank = CHILD.starBankBase + earnedAllTime + giftedTotal - redeemedTotal;
   // Today-only stats (what the labels actually say). Honest now.
+  // "Earned today" MUST include bonus gifts so the parent + kid see
+  // exactly the same total that landed in the bank today. Hiding
+  // bonus stars in a separate widget would let "Earned today" lag
+  // behind the actual bank movement and break trust the first time
+  // Reznor noticed. (Mike: "We cannot have hidden info that breaks
+  // trust." 2026-06-12.)
   const earnedToday = approvedAll
     .filter((c) => c.completionDate === TODAY_ISO)
-    .reduce((s, c) => s + (c.awardedStars || 0), 0);
+    .reduce((s, c) => s + (c.awardedStars || 0), 0)
+    + giftedToday;
   const pendingStars = completions
     .filter((c) => c.status === "pending" && c.completionDate === TODAY_ISO)
     .reduce((s, c) => s + (c.pendingStars || 0), 0);
@@ -2690,15 +2697,59 @@ function StatDetail({
   // Body — different per kind.
   let body = null;
   if (kind === "earned") {
+    // Bonus gifts are part of "earned today" now — the headline number
+    // includes them, so the detail list MUST list them too. Hiding a
+    // contributor here would put the number out of sync with what the
+    // parent can see, which is exactly the kind of hidden math that
+    // erodes trust.
+    const giftedTodayList = (gifted || []).filter((g) => g.date === TODAY_ISO);
+    const giftedTodaySum = giftedTodayList.reduce((s, g) => s + (Number(g.stars) || 0), 0);
+    const totalRowCount = todaysApproved.length + giftedTodayList.length;
     body = (
       <>
         <div className="bg-emerald-50 rounded-2xl p-4 mb-3 text-center">
           <div className="text-4xl font-extrabold text-emerald-700">{earnedToday}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">stars earned today across {todaysApproved.length} {todaysApproved.length === 1 ? "task" : "tasks"}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            stars earned today across {totalRowCount} {totalRowCount === 1 ? "thing" : "things"}
+          </div>
+          {giftedTodaySum > 0 && (
+            <div className="text-[10px] text-emerald-700/80 mt-1 font-bold">
+              includes {giftedTodaySum}⭐ in bonus gifts
+            </div>
+          )}
         </div>
-        {todaysApproved.length === 0
-          ? <Card className="p-4 text-center text-sm text-slate-400">Nothing approved yet today. 💤</Card>
-          : <Card className="p-2">{todaysApproved.map((c) => <TodayLine key={c.id} c={c} />)}</Card>}
+        {totalRowCount === 0
+          ? <Card className="p-4 text-center text-sm text-slate-400">Nothing earned yet today. 💤</Card>
+          : (
+            <Card className="p-2">
+              {todaysApproved.map((c) => <TodayLine key={c.id} c={c} />)}
+              {giftedTodayList.map((g) => {
+                const gTask = g.extra?.taskId ? (tasks || []).find((t) => t.id === g.extra.taskId) : null;
+                const gAct = g.extra?.activityId
+                  ? (activities || []).find((a) => a.id === g.extra.activityId)
+                  : (gTask
+                      ? (activities || []).find((a) => a.id === (gTask.activityId
+                          || gTask.activityType?.toLowerCase().replace(/\s/g, "_")))
+                      : null);
+                const giver = (users || []).find((u) => u.id === g.by)?.name || "—";
+                return (
+                  <div key={g.id} className="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
+                    <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} songPlays={songPlays} size={36} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-slate-800 truncate flex items-center gap-1">
+                        <Sparkles size={12} className="text-amber-500 shrink-0" />
+                        {g.label || "Bonus"}
+                      </div>
+                      <div className="text-[11px] text-slate-400 truncate">
+                        bonus stars · from {giver}{gTask?.title ? ` · ${gTask.title}` : ""}
+                      </div>
+                    </div>
+                    <StarPill n={Number(g.stars) || 0} tone="emerald" />
+                  </div>
+                );
+              })}
+            </Card>
+          )}
       </>
     );
   } else if (kind === "pending") {
@@ -5312,7 +5363,7 @@ function SummaryStat({ label, value, tone, onClick }) {
   }
   return <Card className="p-3">{body}</Card>;
 }
-function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone, markTaskNA, books = [], songs = [] }) {
+function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone, markTaskNA, books = [], songs = [], songPlays = [] }) {
   const [open, setOpen] = useState(false);
   const by = comp?.approvedBy ? users?.find((u) => u.id === comp.approvedBy)?.name : null;
   const d = actFor(task, activities);
@@ -5322,13 +5373,44 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   const [pendLevel, setPendLevel] = useState(ov?.level || "today");
   const LEVELS = [["must", "Non-negotiable"], ["today", "Do today"], ["extra", "Extra credit"]];
   const SCOPES = [["today", "Today"], ["week", "This week"], ["month", "This month"], ["always", "Always"]];
-  // Photo proof on the completion? If yes, the left band becomes the
-  // photo thumbnail — Mike's rule: "if we do post a picture, I'd still
-  // like to see those posted in the done area." Falls back to the
-  // colored activity band when there's no photo (or no completion yet).
+  // Activity-aware band thumbnail. Same resolution rules as ProofThumb:
+  //   Reading completion → book cover preferred (the book IS what was read).
+  //   Drums completion   → song cover preferred (the song IS what was practiced).
+  //   Everything else    → proof photo wins.
+  // Falls back to the colored activity band when nothing applies.
+  // Mike specifically called out English reading rows missing the book
+  // cover under Done — this is the fix.
   const proofPhoto = comp ? firstProofPhoto(comp) : null;
+  const at = (task?.activityType || "").toLowerCase();
+  const pt = (task?.proofType || "").toLowerCase();
+  const isReadingRow = pt === "reading" || /read|book/.test(at);
+  const isDrumsRow = pt === "drums" || /drum/.test(at);
+  const meta = comp?.extra || {};
+  const bookId = meta.bookId;
+  const bookTitle = meta.bookTitle;
+  const book = bookId
+    ? books.find((b) => b.id === bookId)
+    : (bookTitle ? books.find((b) => (b.title || "").toLowerCase() === bookTitle.toLowerCase()) : null);
+  let song = meta.songId ? songs.find((s) => s.id === meta.songId) : null;
+  if (!song && isDrumsRow && comp?.completionDate && Array.isArray(songPlays)) {
+    const todayPlays = songPlays
+      .filter((p) => p.playedOn === comp.completionDate)
+      .sort((a, b) => (a.id || "").localeCompare(b.id || ""));
+    const firstPlay = todayPlays[0];
+    if (firstPlay) song = songs.find((s) => s.id === firstPlay.songId);
+  }
+  // Hooks must run unconditionally + in stable order. One useSignedUrl
+  // per upload path, even if the slot ends up unused.
   const photoSigned = useSignedUrl(proofPhoto && !proofPhoto.url ? proofPhoto.path : null);
-  const photoSrc = proofPhoto ? (proofPhoto.url || photoSigned) : null;
+  const bookCustomSigned = useSignedUrl(book?.customCoverPath || null);
+  const songCustomSigned = useSignedUrl(song?.customCoverPath || null);
+  const proofResolved = proofPhoto ? (proofPhoto.url || photoSigned) : null;
+  const bookCoverResolved = bookCustomSigned || book?.coverUrl || null;
+  const songCoverResolved = songCustomSigned || song?.coverUrl || null;
+  let photoSrc = null;
+  if (isReadingRow) photoSrc = bookCoverResolved || proofResolved;
+  else if (isDrumsRow) photoSrc = songCoverResolved || proofResolved;
+  else photoSrc = proofResolved || bookCoverResolved || songCoverResolved;
   return (
     <div className="rounded-2xl overflow-hidden border border-slate-100 mb-2" style={{ background: lvl === "normal" ? d.color + "12" : P.wash }}>
       <div className="flex items-stretch cursor-pointer" onClick={() => onOpenDetail?.(task.id)}>
