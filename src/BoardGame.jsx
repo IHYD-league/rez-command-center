@@ -1073,7 +1073,52 @@ function SpaceMarker({ space, x, y, viewBoxH, onTap, theme, activities, pulseKey
   );
 }
 
-export default function BoardGame({
+// Thin wrapper that handles asset preloading + theme resolution. Renders
+// the loader while images decode, then swaps to BoardGameInner. This
+// has to be a separate component because BoardGameInner has ~30+ hooks
+// (useState/useRef/useEffect/useMemo) and an early return BEFORE those
+// hooks would violate rules-of-hooks (React error #310: "Rendered fewer
+// hooks than expected"). Mounting BoardGameInner only when ready means
+// its hook count is stable across every render.
+export default function BoardGame(props) {
+  const theme = BOARD_THEMES[props.boardTheme] || BOARD_THEMES[DEFAULT_BOARD_THEME];
+  const themeImageUrls = useMemo(() => {
+    const urls = [];
+    if (theme.bgImg) urls.push(theme.bgImg);
+    if (theme.tokenImg) urls.push(theme.tokenImg);
+    if (theme.tokenAltImg) urls.push(theme.tokenAltImg);
+    if (Array.isArray(theme.tokenWalkImgs)) urls.push(...theme.tokenWalkImgs);
+    if (theme.treasureLockedImg) urls.push(theme.treasureLockedImg);
+    if (theme.treasureOpenImg) urls.push(theme.treasureOpenImg);
+    if (theme.spaceImg) urls.push(theme.spaceImg);
+    if (theme.startImg) urls.push(theme.startImg);
+    return [...new Set(urls.filter(Boolean))];
+  }, [theme]);
+  const [assetsReady, setAssetsReady] = useState(themeImageUrls.length === 0);
+  useEffect(() => {
+    if (themeImageUrls.length === 0) {
+      setAssetsReady(true);
+      return;
+    }
+    setAssetsReady(false);
+    let cancelled = false;
+    // Parallel preload via Image() — populates the browser's HTTP cache
+    // so subsequent CSS-background and <img> uses are instant.
+    Promise.all(themeImageUrls.map((u) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(false); // broken file shouldn't block the loader forever
+      img.src = u;
+    }))).then(() => {
+      if (!cancelled) setAssetsReady(true);
+    });
+    return () => { cancelled = true; };
+  }, [themeImageUrls]);
+  if (!assetsReady) return <BoardLoader theme={theme} />;
+  return <BoardGameInner {...props} theme={theme} />;
+}
+
+function BoardGameInner({
   todaysTasks,
   todaysTopEight,
   compByTask,
@@ -1083,10 +1128,8 @@ export default function BoardGame({
   user,
   boardTheme,
   boardDailyCap,
+  theme,
 }) {
-  // Theme resolution: parent picks via familySetting("boardTheme", ...).
-  // Unknown id or missing → DEFAULT_BOARD_THEME so the board never blanks.
-  const theme = BOARD_THEMES[boardTheme] || BOARD_THEMES[DEFAULT_BOARD_THEME];
   // Source of truth: parent-curated Top 8 in order. Falls back to the
   // wider todaysTasks only if no Top 8 is set (legacy / brand-new install
   // before bootstrap), preserving back-compat. When Top 8 is in play,
@@ -1117,48 +1160,6 @@ export default function BoardGame({
       })),
     []
   );
-
-  // Preload all theme images BEFORE rendering the board so the user
-  // never sees a slow background or a half-loaded token. Mike: the
-  // board takes too long to load and breaks the fun. While we wait,
-  // a themed loader plays. Once every image is decoded the board
-  // pops in ready.
-  const themeImageUrls = useMemo(() => {
-    const urls = [];
-    if (theme.bgImg) urls.push(theme.bgImg);
-    if (theme.tokenImg) urls.push(theme.tokenImg);
-    if (theme.tokenAltImg) urls.push(theme.tokenAltImg);
-    if (Array.isArray(theme.tokenWalkImgs)) urls.push(...theme.tokenWalkImgs);
-    if (theme.treasureLockedImg) urls.push(theme.treasureLockedImg);
-    if (theme.treasureOpenImg) urls.push(theme.treasureOpenImg);
-    if (theme.spaceImg) urls.push(theme.spaceImg);
-    if (theme.startImg) urls.push(theme.startImg);
-    return [...new Set(urls.filter(Boolean))];
-  }, [theme]);
-  const [assetsReady, setAssetsReady] = useState(themeImageUrls.length === 0);
-  useEffect(() => {
-    if (themeImageUrls.length === 0) {
-      setAssetsReady(true);
-      return;
-    }
-    setAssetsReady(false);
-    let cancelled = false;
-    // Parallel preload via Image() — uses the browser's HTTP cache so
-    // subsequent CSS-background uses are instant.
-    Promise.all(themeImageUrls.map((u) => new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(true);
-      img.onerror = () => resolve(false); // broken file shouldn't block the loader forever
-      img.src = u;
-    }))).then(() => {
-      if (!cancelled) setAssetsReady(true);
-    });
-    return () => { cancelled = true; };
-  }, [themeImageUrls]);
-
-  if (!assetsReady) {
-    return <BoardLoader theme={theme} />;
-  }
 
   if (safeTasks.length === 0) {
     return (
