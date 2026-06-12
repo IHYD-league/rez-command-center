@@ -4435,6 +4435,14 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
   const [bookId, setBookId] = useState(existing?.extra?.bookId || null);
   const [markFinished, setMarkFinished] = useState(false);
   const [bookSearch, setBookSearch] = useState("");
+  // "Also use this photo as the book cover" — visible whenever the
+  // picked book has no cover yet OR a brand new book is about to be
+  // created from a typed title. Mike: the proof photo and the official
+  // book cover are different artifacts. The library should only show
+  // the official cover; the proof photo stays on the completion and
+  // shows in the "fun" places. This checkbox lets the parent declare
+  // intent in one tap when uploading.
+  const [useAsBookCover, setUseAsBookCover] = useState(false);
 
   const isReading = task.proofType === "reading";
   const isDrums = task.proofType === "drums";
@@ -4546,6 +4554,14 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
             patch.readCount = (pickedBook.readCount || 1) + 1;
           }
         }
+        // Photo declared as the book cover → stamp it onto the book
+        // row's customCoverPath so the Reading Library + every
+        // book-thumbnail surface picks it up. The same file path
+        // also stays in completion.proof (already handled above) so
+        // the Done area / Stars still show it as proof.
+        if (useAsBookCover && photo?.path && !pickedBook.customCoverPath) {
+          patch.customCoverPath = photo.path;
+        }
         if (Object.keys(patch).length > 0) updateBook(pickedBook.id, patch);
       } else if (!pickedBook && bookTitle.trim() && addBook) {
         // Free-typed title with no existing match — create a new book
@@ -4566,7 +4582,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
           coverUrl: "",
           canonicalTitle: "",
           canonicalAuthor: "",
-          customCoverPath: "",
+          customCoverPath: (useAsBookCover && photo?.path) ? photo.path : "",
           externalSource: "",
           externalId: "",
           enrichedAt: null,
@@ -4893,6 +4909,36 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
                 </div>
               </label>
             )}
+
+            {/* "Also use this as the book cover" — visible only for a
+                reading task with a photo attached and a book that has
+                no cover yet (or a brand-new typed title). Mike's rule:
+                a photo of Reznor reading and the book's official cover
+                are different artifacts; the library only shows the
+                official cover. This one tap lets the parent declare
+                intent without uploading the same file twice. */}
+            {isReading && photo && (() => {
+              const bookHasNoCover = pickedBook
+                ? !pickedBook.customCoverPath && !pickedBook.coverUrl
+                : !!bookTitle.trim(); // new book = no cover yet
+              if (!bookHasNoCover) return null;
+              return (
+                <label className="flex items-start gap-2 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl p-2.5 mt-1">
+                  <input
+                    type="checkbox"
+                    checked={useAsBookCover}
+                    onChange={(e) => setUseAsBookCover(e.target.checked)}
+                    className="w-4 h-4 mt-0.5"
+                  />
+                  <span>
+                    Also use this as the book's cover
+                    <span className="block text-[11px] font-normal text-indigo-600/80 mt-0.5">
+                      Only do this if the photo IS the book cover (not Reznor reading). The Reading Library will show it.
+                    </span>
+                  </span>
+                </label>
+              );
+            })()}
 
             <Field label="Note (optional)"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="input resize-none" placeholder="Anything to tell a grown-up?" /></Field>
 
@@ -7913,26 +7959,70 @@ function AddAwardForm({ activities, onAdd, onCancel, familyId }) {
 function ParentRecap(props) {
   const { completions, activities, streaks, books, gifted, albumPhotos = [] } = props;
   const [period, setPeriod] = useState("week");
+  // Year picker — defaults to current year, but the parent can flip
+  // back to prior years once data accumulates. Mike: "I plan to keep
+  // using this system until he is in 6th grade at least" — so we have
+  // to be honest about multi-year history.
+  const [yearPick, setYearPick] = useState(String(today.getFullYear()));
   const [copied, setCopied] = useState(false);
-  const approved = completions.filter((c) => c.status === "approved");
-  const starsEarned = approved.reduce((s, c) => s + (c.awardedStars || 0), 0) + (gifted || []).reduce((s, g) => s + (g.stars || 0), 0);
+  // Compute the date window for the current period. Inclusive ISO
+  // YYYY-MM-DD on both ends.
+  const window = (() => {
+    const todayIso = TODAY_ISO;
+    if (period === "week") {
+      const start = new Date(today); start.setDate(today.getDate() - 6);
+      return { start: isoLocal(start), end: todayIso, label: "this week" };
+    }
+    if (period === "month") {
+      const start = new Date(today); start.setDate(today.getDate() - 29);
+      return { start: isoLocal(start), end: todayIso, label: "this month" };
+    }
+    if (period === "year") {
+      return { start: `${yearPick}-01-01`, end: `${yearPick}-12-31`, label: `in ${yearPick}` };
+    }
+    return { start: "0000-01-01", end: "9999-12-31", label: "all-time" };
+  })();
+  const inWindow = (iso) => iso && iso >= window.start && iso <= window.end;
+  // Collect every year we have data in so the year picker only offers
+  // real options (not a hard-coded range).
+  const knownYears = (() => {
+    const set = new Set();
+    for (const c of (completions || [])) {
+      if (c.status === "approved" && c.completionDate) set.add(c.completionDate.slice(0, 4));
+    }
+    for (const g of (gifted || [])) if (g.date) set.add(g.date.slice(0, 4));
+    for (const p of (albumPhotos || [])) {
+      const d = p.takenAt || (p.createdAt || "").slice(0, 10);
+      if (d) set.add(d.slice(0, 4));
+    }
+    set.add(String(today.getFullYear())); // always include current year
+    return [...set].sort((a, b) => b.localeCompare(a)); // newest first
+  })();
+  const approved = (completions || []).filter((c) => c.status === "approved" && inWindow(c.completionDate));
+  const giftedInWindow = (gifted || []).filter((g) => inWindow(g.date));
+  const starsEarned = approved.reduce((s, c) => s + (c.awardedStars || 0), 0) + giftedInWindow.reduce((s, g) => s + (g.stars || 0), 0);
   // Recap photos = both proof photos attached to completions AND memory
   // photos parents uploaded via "Add a memory" in the gallery. The memory
   // ones live in album_photos with a path + takenAt; same StoredPhoto
-  // renderer works for both. Sorted newest-first so the most recent
-  // uploads sit at the top of the grid.
-  const proofPhotos = completions.flatMap((c) =>
+  // renderer works for both. Sorted newest-first + filtered to the
+  // selected window so a year recap doesn't drown the current week.
+  const proofPhotos = (completions || []).flatMap((c) =>
     (c.proof || [])
       .filter((p) => p.type === "photo" && (p.path || p.url))
       .map((p) => ({ ...p, taskId: c.taskId, _sortKey: c.completionDate || "" }))
-  );
+  ).filter((p) => inWindow(p._sortKey));
   const memoryPhotos = (albumPhotos || [])
     .filter((p) => p.path)
-    .map((p) => ({ path: p.path, caption: p.caption, taskId: null, _sortKey: p.takenAt || (p.createdAt || "").slice(0, 10) }));
+    .map((p) => ({ path: p.path, caption: p.caption, taskId: null, _sortKey: p.takenAt || (p.createdAt || "").slice(0, 10) }))
+    .filter((p) => inWindow(p._sortKey));
   const photos = [...proofPhotos, ...memoryPhotos].sort(
     (a, b) => (b._sortKey || "").localeCompare(a._sortKey || "")
   );
-  const booksDone = (books || []).filter((b) => b.status === "finished");
+  // Books finished in this window. preTracking archive books only count
+  // for all-time (they have no real dates).
+  const booksDone = period === "all"
+    ? (books || []).filter(isBookFinished)
+    : (books || []).filter((b) => b.status === "finished" && inWindow(b.finished));
   const topStreaks = Object.entries(streaks || {}).map(([id, s]) => ({ a: activities.find((x) => x.id === id), s })).filter((x) => x.a).sort((a, b) => b.s.current - a.s.current);
 
   const ds = streaks?.a_drums;
@@ -7945,8 +8035,12 @@ function ParentRecap(props) {
     mem = { daysSince, anniv, toAnniv, start };
   }
 
+  const periodLabel = period === "week" ? "This Week"
+    : period === "month" ? "This Month"
+    : period === "year" ? yearPick
+    : "All-time";
   const buildText = () => [
-    `Reznor — ${period === "week" ? "This Week" : "This Month"} Recap`, ``,
+    `Reznor — ${periodLabel} Recap`, ``,
     `⭐ Stars earned: ${starsEarned}`,
     `✅ Activities completed: ${approved.length}`,
     `📚 Books finished: ${booksDone.length}`,
@@ -7957,9 +8051,27 @@ function ParentRecap(props) {
 
   return (
     <>
-      <div className="flex gap-1.5 mb-3">
-        {[["week", "This week"], ["month", "This month"]].map(([k, l]) => <button key={k} onClick={() => setPeriod(k)} className={`flex-1 py-2 rounded-xl text-sm font-bold ${period === k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>)}
+      <div className="flex gap-1.5 mb-2">
+        {[["week", "Week"], ["month", "Month"], ["year", "Year"], ["all", "All-time"]].map(([k, l]) => (
+          <button key={k} onClick={() => setPeriod(k)} className={`flex-1 py-2 rounded-xl text-sm font-bold ${period === k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>
+        ))}
       </div>
+      {period === "year" && (
+        <div className="flex items-center gap-2 mb-3 px-1">
+          <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500">Year:</span>
+          <div className="flex gap-1 flex-wrap">
+            {knownYears.map((y) => (
+              <button
+                key={y}
+                onClick={() => setYearPick(y)}
+                className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${yearPick === y ? "bg-violet-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-amber-500">{starsEarned}</div><div className="text-[11px] text-slate-400">stars earned</div></Card>
@@ -7977,7 +8089,7 @@ function ParentRecap(props) {
         </Card>
       )}
 
-      <SectionTitle icon={<ImageIcon size={16} className="text-violet-500" />}>Photos {period === "week" ? "this week" : "this month"}</SectionTitle>
+      <SectionTitle icon={<ImageIcon size={16} className="text-violet-500" />}>Photos {window.label}</SectionTitle>
       {photos.length === 0 && <p className="text-xs text-slate-400 px-1">No photos captured yet — helpers can snap them from the checklist.</p>}
       <div className="grid grid-cols-3 gap-1.5">
         {photos.map((p, i) => <StoredPhoto key={i} path={p.path} url={p.url} alt="" className="w-full h-24 object-cover rounded-xl" fallback={<div className="w-full h-24 bg-slate-100 animate-pulse rounded-xl" />} />)}
