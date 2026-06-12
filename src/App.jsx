@@ -4808,6 +4808,10 @@ function BigStat({ label, value, onClick }) {
 // songPlays rows (ARCHITECTURE §3). No "play_count" column anywhere.
 function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, role, songPlayRequests = [], requestSongPlayChange }) {
   const [openId, setOpenId] = useState(null);
+  // Whole-section collapse. Default collapsed so the Stars view starts
+  // tight; a tap on the header expands it. Mike asked for this so
+  // Krissie / Reznor can scan the page without 10 song rows dominating.
+  const [collapsed, setCollapsed] = useState(true);
   // Per-play edit state — only one row at a time, so a single id is
   // enough. Draft holds the unsaved date + notes so cancel can bail
   // without touching the database.
@@ -4847,9 +4851,29 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
       </>
     );
   }
+  // Total plays for the chip in the collapsed header — quick scan of
+  // "how much practice is in here?" without expanding.
+  const totalPlays = songPlays.length;
   return (
     <>
-      <SectionTitle icon={<Music size={16} className="text-violet-500" />}>Most played songs <span className="text-[11px] font-normal text-slate-400">· top {ranked.length}</span></SectionTitle>
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center justify-between mt-5 mb-2 px-1 text-left"
+      >
+        <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
+          <Music size={16} className="text-violet-500" />
+          Most played songs
+          <span className="text-[11px] font-normal text-slate-400">· top {ranked.length}</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-slate-400">
+          <span className="text-[11px] font-bold text-violet-600 bg-violet-50 rounded-full px-2 py-0.5">
+            {totalPlays} {totalPlays === 1 ? "play" : "plays"}
+          </span>
+          <ChevronLeft size={14} className={`transition-transform ${collapsed ? "-rotate-90" : "rotate-90"}`} />
+        </div>
+      </button>
+      {!collapsed && (
       <div className="space-y-1.5">
         {ranked.map(({ song, count, last, plays }) => {
           const open = openId === song.id;
@@ -4986,6 +5010,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
           );
         })}
       </div>
+      )}
     </>
   );
 }

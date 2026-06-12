@@ -583,6 +583,74 @@ function buildPathD(positions) {
   return d;
 }
 
+// BoardLoader — fun preload screen shown while the theme's bg + token
+// + treasure images decode. The board itself doesn't render until
+// every asset is ready, so when the loader vanishes the board is
+// crisp and instant. Mike's rule: "we don't want to see it load,
+// that breaks the fun."
+//
+// Visual: theme gradient background (cheap CSS, no download), a big
+// emoji that wobbles, three bouncing dots, and a short message. No
+// network dependency on the loader itself — must be paint-on-render.
+function BoardLoader({ theme }) {
+  // Pick an emoji that fits the theme. Falls back to a generic sparkle
+  // if the theme doesn't suggest one.
+  const themeEmoji = (() => {
+    const t = (theme?.id || theme?.name || "").toLowerCase();
+    if (t.includes("dino")) return "🦖";
+    if (t.includes("volcano")) return "🌋";
+    if (t.includes("water")) return "🐠";
+    if (t.includes("forest")) return "🌳";
+    if (t.includes("candy")) return "🍭";
+    if (t.includes("space") || t.includes("sky")) return "🚀";
+    return "✨";
+  })();
+  return (
+    <div
+      className="min-h-screen px-4 pt-6 pb-24 text-white relative overflow-hidden flex flex-col items-center justify-center"
+      style={{
+        background: theme?.background || "linear-gradient(180deg,#0f172a,#312e81)",
+        fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
+      }}
+    >
+      <style>{`
+        @keyframes rcc-board-wobble {
+          0%, 100% { transform: translateY(0) rotate(-6deg); }
+          50%      { transform: translateY(-14px) rotate(8deg); }
+        }
+        @keyframes rcc-board-dot {
+          0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+          40%           { transform: translateY(-10px); opacity: 1; }
+        }
+      `}</style>
+      <div
+        className="text-7xl mb-4"
+        style={{ animation: "rcc-board-wobble 1.4s ease-in-out infinite" }}
+      >
+        {themeEmoji}
+      </div>
+      <div className="text-lg font-extrabold tracking-tight mb-1">
+        Loading the adventure…
+      </div>
+      <div className="text-sm text-white/70 mb-6">
+        Setting the stage for today's treasure hunt.
+      </div>
+      <div className="flex items-center gap-2">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="w-3 h-3 rounded-full bg-white"
+            style={{
+              animation: `rcc-board-dot 1.2s ease-in-out infinite`,
+              animationDelay: `${i * 0.15}s`,
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Replay pill — bottom-of-board button that lets the kid re-watch the
 // catch-up journey. Tap = normal pace (~3× slower than the original
 // fast pace; Reza & Krissie wanted to actually see the journey).
@@ -1049,6 +1117,48 @@ export default function BoardGame({
       })),
     []
   );
+
+  // Preload all theme images BEFORE rendering the board so the user
+  // never sees a slow background or a half-loaded token. Mike: the
+  // board takes too long to load and breaks the fun. While we wait,
+  // a themed loader plays. Once every image is decoded the board
+  // pops in ready.
+  const themeImageUrls = useMemo(() => {
+    const urls = [];
+    if (theme.bgImg) urls.push(theme.bgImg);
+    if (theme.tokenImg) urls.push(theme.tokenImg);
+    if (theme.tokenAltImg) urls.push(theme.tokenAltImg);
+    if (Array.isArray(theme.tokenWalkImgs)) urls.push(...theme.tokenWalkImgs);
+    if (theme.treasureLockedImg) urls.push(theme.treasureLockedImg);
+    if (theme.treasureOpenImg) urls.push(theme.treasureOpenImg);
+    if (theme.spaceImg) urls.push(theme.spaceImg);
+    if (theme.startImg) urls.push(theme.startImg);
+    return [...new Set(urls.filter(Boolean))];
+  }, [theme]);
+  const [assetsReady, setAssetsReady] = useState(themeImageUrls.length === 0);
+  useEffect(() => {
+    if (themeImageUrls.length === 0) {
+      setAssetsReady(true);
+      return;
+    }
+    setAssetsReady(false);
+    let cancelled = false;
+    // Parallel preload via Image() — uses the browser's HTTP cache so
+    // subsequent CSS-background uses are instant.
+    Promise.all(themeImageUrls.map((u) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(false); // broken file shouldn't block the loader forever
+      img.src = u;
+    }))).then(() => {
+      if (!cancelled) setAssetsReady(true);
+    });
+    return () => { cancelled = true; };
+  }, [themeImageUrls]);
+
+  if (!assetsReady) {
+    return <BoardLoader theme={theme} />;
+  }
 
   if (safeTasks.length === 0) {
     return (
