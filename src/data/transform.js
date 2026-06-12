@@ -157,6 +157,10 @@ export const toApp = {
     stars: r.stars,
     by: r.given_by,
     date: r.given_on,
+    // extra: jsonb metadata for the richer gift flow. May carry
+    // taskId / activityId / bookId / songId / photoPath / photoName.
+    // Coerced to {} so downstream display code can always destructure.
+    extra: r.extra ?? {},
   }),
 
   song: (r) => ({
@@ -388,6 +392,9 @@ export const toDb = {
     stars: o.stars,
     given_by: o.by ?? null,
     given_on: o.date ?? new Date().toISOString().slice(0, 10),
+    // Always emit extra (even as {}) so the PostgREST batch column
+    // normalization never NULL-pads an existing row's metadata.
+    extra: o.extra ?? {},
   }),
 
   song: (familyId) => (o) => ({

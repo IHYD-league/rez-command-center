@@ -413,6 +413,7 @@ create table if not exists public.gifted_stars (
   stars int not null,
   given_by text references public.profiles(id) on delete set null,
   given_on date not null default current_date,
+  extra jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 create index if not exists gifted_stars_family_idx on public.gifted_stars(family_id);
