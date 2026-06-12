@@ -8294,7 +8294,7 @@ function BackWrap({ title, onBack, children }) {
   );
 }
 
-function Portfolio({ completions, tasks, users, gifted, activities }) {
+function Portfolio({ completions, tasks, users, gifted, activities, books = [], songs = [], songPlays = [] }) {
   // Merge completions + gifts into one timeline so the most-recent
   // thing is on top regardless of which kind it is. Each item carries
   // its own `_date` (ISO YYYY-MM-DD) used for the sort. Honest display
@@ -8330,9 +8330,20 @@ function Portfolio({ completions, tasks, users, gifted, activities }) {
       {items.map((row) => {
         if (row.kind === "gift") {
           const g = row.g;
+          // Same task/activity resolution as the Earned-today and
+          // Star Ledger surfaces so the gift's photo or book/song
+          // cover lands here too. ProofThumb handles the label-fuzzy
+          // fallback for legacy gifts that didn't use the picker.
+          const gTask = g.extra?.taskId ? tasks.find((t) => t.id === g.extra.taskId) : null;
+          const gAct = g.extra?.activityId
+            ? activities.find((a) => a.id === g.extra.activityId)
+            : (gTask
+                ? activities.find((a) => a.id === (gTask.activityId
+                    || gTask.activityType?.toLowerCase().replace(/\s/g, "_")))
+                : null);
           return (
             <Card key={`g-${g.id}`} className="p-3 mb-2 flex gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-100 grid place-items-center shrink-0">✨</div>
+              <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} songPlays={songPlays} size={40} />
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-sm">{g.label} <span className="text-amber-600 font-normal">· bonus</span></div>
                 <div className="text-[11px] text-slate-400">{fmtRowDate(g.date)} · {g.stars}⭐ · gifted by {users.find((u) => u.id === g.by)?.name || "—"}</div>
@@ -8343,11 +8354,11 @@ function Portfolio({ completions, tasks, users, gifted, activities }) {
         const c = row.c;
         const t = tasks.find((x) => x.id === c.taskId);
         const by = users.find((u) => u.id === c.approvedBy)?.name;
-        const d = actFor(t || { activityType: "" }, activities);
+        const a = actFor(t || { activityType: "" }, activities);
         const ph = c.proof?.find((p) => p.path || p.url);
         return (
           <Card key={`c-${c.id}`} className="p-3 mb-2 flex gap-3">
-            {ph ? <StoredPhoto path={ph.path} url={ph.url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" fallback={<div className="w-12 h-12 rounded-xl bg-slate-100 animate-pulse shrink-0" />} /> : <div className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: d.tint }}><TaskIcon type={t?.activityType} color={d.color} /></div>}
+            <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} songPlays={songPlays} size={48} />
             <div className="flex-1 min-w-0">
               <div className="font-bold text-sm">{t?.title} {c.extra?.bookTitle && <span className="text-slate-400 font-normal">· {c.extra.bookTitle}</span>}</div>
               <div className="text-[11px] text-slate-400">{fmtRowDate(c.completionDate)} · {c.awardedStars}⭐ · approved by {by || "—"}</div>
