@@ -169,6 +169,25 @@ const TODAY_ISO = isoLocal(today);
 const YESTERDAY_ISO = isoLocal(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
 const fmtDate = (d) => d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 const fmtShort = (d) => d ? new Date(d + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+// Bilingual day-break header — Reznor speaks Spanish + English; Mike
+// wants both languages whenever we show what day a thing happened.
+// Returns e.g. "Today / Hoy", "Yesterday / Ayer", "Monday, Jun 9 /
+// Lunes, 9 jun". Pass an ISO YYYY-MM-DD string.
+const fmtBilingualDay = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso + "T12:00");
+  const todayD = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const that = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((todayD - that) / 86400000);
+  if (diffDays === 0) return "Today / Hoy";
+  if (diffDays === 1) return "Yesterday / Ayer";
+  const en = d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  // Spanish locale: weekday + day + month, lowercased per Spanish norm.
+  const es = d.toLocaleDateString("es-ES", { weekday: "long", month: "short", day: "numeric" });
+  // Capitalize weekday (Spanish toLocaleDateString returns lowercase).
+  const esCap = es.charAt(0).toUpperCase() + es.slice(1);
+  return `${en} / ${esCap}`;
+};
 const fmtDateObj = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
 
@@ -4725,17 +4744,46 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
       )}
       <SectionTitle icon={<Award size={16} className="text-emerald-500" />}>Stars I've earned</SectionTitle>
       {approved.length === 0 && <p className="text-sm text-slate-400 px-1">Nothing approved yet — go finish a mission! 🚀</p>}
-      {approved.map((c) => {
-        const t = tasks.find((x) => x.id === c.taskId);
-        const a = actFor(t || { activityType: "" }, activities);
-        return (
-          <Card key={c.id} className="p-3 mb-2 flex items-center gap-3">
-            <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} size={36} />
-            <div className="flex-1 text-sm font-semibold">{t?.title}{c.extra?.bookTitle && <span className="block text-[11px] text-slate-400 font-normal">{c.extra.bookTitle}</span>}</div>
-            <StarPill n={c.awardedStars} tone="emerald" />
-          </Card>
-        );
-      })}
+      {/* Grouped by completionDate, newest day first. Within a day, the
+          rows show the most recent star at the top via id-desc tiebreak
+          (ids are timestamped). Each day gets a sticky-ish header with
+          a Today/Yesterday/weekday label in both English and Spanish so
+          Reznor can read it either way + a per-day star total. */}
+      {(() => {
+        if (approved.length === 0) return null;
+        const buckets = new Map();
+        for (const c of approved) {
+          const key = c.completionDate || "";
+          if (!buckets.has(key)) buckets.set(key, []);
+          buckets.get(key).push(c);
+        }
+        const days = [...buckets.entries()].sort((a, b) => (b[0] || "").localeCompare(a[0] || ""));
+        return days.map(([iso, rows]) => {
+          const sorted = [...rows].sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+          const dayTotal = sorted.reduce((s, c) => s + (c.awardedStars || 0), 0);
+          return (
+            <div key={iso || "no-date"}>
+              <div className="flex items-baseline justify-between px-1 mt-3 mb-1.5">
+                <div className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-700">
+                  {iso ? fmtBilingualDay(iso) : "Undated / Sin fecha"}
+                </div>
+                <div className="text-[11px] font-extrabold text-emerald-700 tabular-nums">+{dayTotal}⭐</div>
+              </div>
+              {sorted.map((c) => {
+                const t = tasks.find((x) => x.id === c.taskId);
+                const a = actFor(t || { activityType: "" }, activities);
+                return (
+                  <Card key={c.id} className="p-3 mb-2 flex items-center gap-3">
+                    <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} size={36} />
+                    <div className="flex-1 text-sm font-semibold">{t?.title}{c.extra?.bookTitle && <span className="block text-[11px] text-slate-400 font-normal">{c.extra.bookTitle}</span>}</div>
+                    <StarPill n={c.awardedStars} tone="emerald" />
+                  </Card>
+                );
+              })}
+            </div>
+          );
+        });
+      })()}
     </div>
   );
 }
