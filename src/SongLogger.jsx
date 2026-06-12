@@ -124,15 +124,19 @@ export default function SongLogger({ songs, songPlays, addSong, addSongPlay, fuz
       }));
   }, [songs, q, fuzzyMatch, playCount, albumMap]);
 
-  // Only offer "+ Add new" when nothing matches in any field. Demoted to
-  // a small text affordance below the input so a parent doesn't
-  // accidentally create a duplicate when the canonical artist/album
-  // is what they're after.
+  // Always offer "+ Add new" when there's no exact-title match, even if
+  // fuzzy results came back. Short titles like "ATWA" share too many
+  // letters with the catalog and the matcher hallucinates hits
+  // ("I-E-A-I-A-I-O", "Forty-Six and Two"); suppressing Add behind
+  // filtered.length === 0 left no escape hatch. The visual demotion
+  // (dashed border, small font) still nudges away from accidental
+  // duplicates when the canonical artist/album is what the parent
+  // actually wanted.
   const exactMatch = q.trim() && (songs || []).find(
     (s) => (s.title || "").toLowerCase() === q.toLowerCase().trim()
       || (s.canonicalTitle || "").toLowerCase() === q.toLowerCase().trim()
   );
-  const showAdd = q.trim() && !exactMatch && filtered.length === 0;
+  const showAdd = q.trim() && !exactMatch;
 
   const focusInput = () => {
     requestAnimationFrame(() => inputRef.current?.focus());
