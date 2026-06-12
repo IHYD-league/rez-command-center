@@ -29,6 +29,7 @@ import OnboardingOverlay from "./OnboardingOverlay.jsx";
 import { useBottomSheet } from "./lib/sheet.js";
 import { runDataAudit, auditSummary } from "./lib/dataAudit.js";
 import { lightbox } from "./lib/lightbox.js";
+import { giftEditor } from "./lib/giftEditor.js";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -1178,6 +1179,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // bookId, songId, photoPath, photoName }. The richer payload stashes
   // task/activity/photo metadata into extra so every gift surface can
   // render a real thumbnail and attribute correctly.
+  //
+  // We also stamp bookTitle / songTitle alongside the ids so the
+  // ProofThumb lookup has a robust fallback if the id ever fails to
+  // match (book got renamed, recreated, etc.). Belt + suspenders.
   const giftStars = (labelOrPayload, n) => {
     const payload = typeof labelOrPayload === "object" && labelOrPayload !== null
       ? labelOrPayload
@@ -1186,8 +1191,16 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     const extra = {};
     if (taskId) extra.taskId = taskId;
     if (activityId) extra.activityId = activityId;
-    if (bookId) extra.bookId = bookId;
-    if (songId) extra.songId = songId;
+    if (bookId) {
+      extra.bookId = bookId;
+      const b = books.find((x) => x.id === bookId);
+      if (b) extra.bookTitle = b.canonicalTitle || b.title || null;
+    }
+    if (songId) {
+      extra.songId = songId;
+      const s = songs.find((x) => x.id === songId);
+      if (s) extra.songTitle = s.canonicalTitle || s.title || null;
+    }
     if (photoPath) extra.photoPath = photoPath;
     if (photoName) extra.photoName = photoName;
     setGifted((prev) => [{
@@ -1202,6 +1215,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // Remove a gift row by id. Used by the Star Ledger to correct
   // duplicates after the fact (the 'Krissie double-gifted' case).
   const removeGift = (id) => setGifted((prev) => prev.filter((g) => g.id !== id));
+  // Update an existing bonus gift in place. Mike's rule: parents can
+  // edit anything they created from any surface where they see it.
+  // Patch shape mirrors the gifted row — label / stars / extra fields.
+  const updateGift = (id, patch) =>
+    setGifted((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch, extra: { ...(g.extra || {}), ...((patch && patch.extra) || {}) } } : g)));
   const toggleTkdDay = (day) => setTkdDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   const setTkdTime = (day, time) => setTkdTimes((prev) => ({ ...prev, [day]: time }));
   const addTask = (t) => setTasks((prev) => [...prev, t]);
@@ -1641,6 +1659,18 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       <StarBurstLayer />
       <LevelUpLayer />
       <PhotoLightboxOverlay />
+      <EditGiftSheet
+        updateGift={updateGift}
+        removeGift={removeGift}
+        tasks={tasks}
+        activities={activities}
+        books={books}
+        songs={songs}
+        addBook={addBook}
+        addSong={addSong}
+        updateBook={updateBook}
+        familyId={familyId}
+      />
       {!welcomeDismissed && (
         <OnboardingOverlay
           user={user}
@@ -1720,6 +1750,272 @@ function PhotoLightboxOverlay() {
       </div>
       <div className="absolute bottom-4 left-0 right-0 text-center text-white/70 text-[11px] pointer-events-none">
         Tap to {zoomed ? "shrink" : "zoom"} · pinch to zoom · tap outside to close
+      </div>
+    </div>
+  );
+}
+
+// EditGiftSheet — universal "tap to edit a bonus gift" surface. Any
+// gift row in the app calls giftEditor.open(gift) on tap; this
+// overlay subscribes and renders a pre-filled form. Mike's rule:
+// editing must be easy + findable + confirmed.
+//
+// Form mirrors the gift create flow (label, stars, optional task →
+// book / song picker, photo). All changes go through window.confirm
+// summarizing the bank impact. Delete also confirms. Cancel discards
+// the draft.
+function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], books = [], songs = [], addBook, addSong, updateBook, familyId }) {
+  const [gift, setGift] = useState(null);
+  const [label, setLabel] = useState("");
+  const [stars, setStars] = useState(5);
+  const [taskId, setTaskId] = useState("");
+  const [bookId, setBookId] = useState("");
+  const [songId, setSongId] = useState("");
+  const [photo, setPhoto] = useState(null); // { path, name }
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+  // Inline add-new state matches the GiftStarsCard pattern so a
+  // parent editing a gift can also add a missing book or song
+  // without leaving the sheet.
+  const [addingBook, setAddingBook] = useState(false);
+  const [newBookTitle, setNewBookTitle] = useState("");
+  const [newBookAuthor, setNewBookAuthor] = useState("");
+  const [addingSong, setAddingSong] = useState(false);
+  const [newSongTitle, setNewSongTitle] = useState("");
+  const [newSongArtist, setNewSongArtist] = useState("");
+
+  useEffect(() => giftEditor.subscribe((next) => {
+    setGift(next);
+    if (next) {
+      setLabel(next.label || "");
+      setStars(Number(next.stars) || 0);
+      setTaskId(next.extra?.taskId || "");
+      setBookId(next.extra?.bookId || "");
+      setSongId(next.extra?.songId || "");
+      setPhoto(next.extra?.photoPath ? { path: next.extra.photoPath, name: next.extra.photoName || "Photo attached" } : null);
+      setAddingBook(false); setNewBookTitle(""); setNewBookAuthor("");
+      setAddingSong(false); setNewSongTitle(""); setNewSongArtist("");
+    }
+  }), []);
+  useEffect(() => {
+    if (!gift) return;
+    const onKey = (e) => { if (e.key === "Escape") giftEditor.close(); };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [gift]);
+
+  if (!gift) return null;
+
+  const selectedTask = tasks.find((t) => t.id === taskId);
+  const selectedActivity = activities.find((a) => a.id === (selectedTask?.activityId
+    || selectedTask?.activityType?.toLowerCase().replace(/\s/g, "_")));
+  const isReading = selectedActivity?.id === "books" || /book|read/i.test(selectedTask?.activityType || "");
+  const isDrums = selectedActivity?.id === "drums" || /drum/i.test(selectedTask?.activityType || "");
+
+  const handlePickPhoto = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setUploading(true);
+    try {
+      const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
+      setPhoto({ path, name });
+    } catch (err) {
+      alert("Photo upload failed: " + (err.message || err));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const saveNewBook = () => {
+    const t = newBookTitle.trim();
+    if (!t || !addBook) return;
+    const id = "b_" + Date.now();
+    addBook({ id, title: t, author: newBookAuthor.trim() || null, status: "reading", started: TODAY_ISO });
+    setBookId(id);
+    setAddingBook(false);
+    setNewBookTitle(""); setNewBookAuthor("");
+  };
+  const saveNewSong = () => {
+    const t = newSongTitle.trim();
+    if (!t || !addSong) return;
+    const id = addSong({ title: t, artist: newSongArtist.trim() || null });
+    if (id) setSongId(id);
+    setAddingSong(false);
+    setNewSongTitle(""); setNewSongArtist("");
+  };
+
+  const submit = () => {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const newStars = Number(stars) || 0;
+    const oldStars = Number(gift.stars) || 0;
+    const delta = newStars - oldStars;
+    const summary = delta === 0
+      ? `Save changes to "${trimmed}"?\n\nStar amount stays at ${newStars}.`
+      : `Save changes to "${trimmed}"?\n\nReznor's bank will ${delta > 0 ? "go up by " + delta : "drop by " + Math.abs(delta)} stars.`;
+    if (!window.confirm(summary)) return;
+    // Stamp bookTitle / songTitle alongside the ids so ProofThumb's
+    // title fallback always has data to work with, even if the book
+    // gets renamed or recreated later. Same belt+suspenders as
+    // giftStars on the create path.
+    const pickedBook = bookId ? books.find((b) => b.id === bookId) : null;
+    const pickedSong = songId ? songs.find((s) => s.id === songId) : null;
+    const patch = {
+      label: trimmed,
+      stars: newStars,
+      extra: {
+        taskId: taskId || undefined,
+        activityId: selectedActivity?.id || undefined,
+        bookId: bookId || undefined,
+        bookTitle: pickedBook ? (pickedBook.canonicalTitle || pickedBook.title) : undefined,
+        songId: songId || undefined,
+        songTitle: pickedSong ? (pickedSong.canonicalTitle || pickedSong.title) : undefined,
+        photoPath: photo?.path || undefined,
+        photoName: photo?.name || undefined,
+      },
+    };
+    updateGift(gift.id, patch);
+    giftEditor.close();
+  };
+
+  const onDelete = () => {
+    const msg = `Delete this gift?\n\n"${gift.label || "Bonus"}" (+${gift.stars}⭐)\n\nReznor's bank will drop by ${gift.stars} stars and the row goes away.`;
+    if (!window.confirm(msg)) return;
+    removeGift(gift.id);
+    giftEditor.close();
+  };
+
+  const taskOptions = [...tasks].filter((t) => t.active !== false).sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  const bookStatusOrder = { reading: 0, wishlist: 1, finished: 2, archive: 3, dropped: 4 };
+  const bookOptions = [...books].sort((a, b) =>
+    (bookStatusOrder[a.status] ?? 9) - (bookStatusOrder[b.status] ?? 9)
+    || (a.title || "").localeCompare(b.title || "")
+  );
+  const songOptions = [...songs].sort((a, b) =>
+    (a.canonicalTitle || a.title || "").localeCompare(b.canonicalTitle || b.title || "")
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-[99] flex items-end sm:items-center justify-center"
+      style={{ fontFamily: "inherit" }}
+    >
+      <div onClick={() => giftEditor.close()} className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" />
+      <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 max-h-[90vh] overflow-y-auto shadow-2xl">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest font-bold text-amber-600">Edit bonus stars</div>
+            <div className="text-lg font-extrabold text-slate-900">{gift.label || "Bonus"}</div>
+            <div className="text-[11px] text-slate-400">{gift.date} · currently {gift.stars}⭐</div>
+          </div>
+          <button onClick={() => giftEditor.close()} className="text-slate-400 p-1.5 -mr-1.5"><X size={20} /></button>
+        </div>
+
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="What did he do?" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
+
+        <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
+          For which task? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+        </label>
+        <select value={taskId} onChange={(e) => { setTaskId(e.target.value); }} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white">
+          <option value="">— general bonus —</option>
+          {taskOptions.map((t) => (<option key={t.id} value={t.id}>{t.title}</option>))}
+        </select>
+
+        {isReading && (
+          <>
+            <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
+              Which book? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+            </label>
+            {!addingBook ? (
+              <>
+                <select value={bookId} onChange={(e) => setBookId(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-1.5 bg-white">
+                  <option value="">— pick a book —</option>
+                  {bookOptions.map((b) => (<option key={b.id} value={b.id}>{b.title}{b.status && b.status !== "reading" ? ` (${b.status})` : ""}</option>))}
+                </select>
+                {addBook && (
+                  <button type="button" onClick={() => setAddingBook(true)} className="text-[11px] font-bold text-indigo-600 mb-2 flex items-center gap-1">
+                    <Plus size={12} /> Add a new book
+                  </button>
+                )}
+              </>
+            ) : (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-2 mb-2">
+                <input value={newBookTitle} onChange={(e) => setNewBookTitle(e.target.value)} placeholder="Book title" className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
+                <input value={newBookAuthor} onChange={(e) => setNewBookAuthor(e.target.value)} placeholder="Author (optional)" className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => { setAddingBook(false); setNewBookTitle(""); setNewBookAuthor(""); }} className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5">Cancel</button>
+                  <button type="button" disabled={!newBookTitle.trim()} onClick={saveNewBook} className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 ${newBookTitle.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}>Add book</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {isDrums && (
+          <>
+            <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
+              Which song? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+            </label>
+            {!addingSong ? (
+              <>
+                <select value={songId} onChange={(e) => setSongId(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-1.5 bg-white">
+                  <option value="">— pick a song —</option>
+                  {songOptions.map((s) => (<option key={s.id} value={s.id}>{s.canonicalTitle || s.title}{(s.canonicalArtist || s.artist) ? ` — ${s.canonicalArtist || s.artist}` : ""}</option>))}
+                </select>
+                {addSong && (
+                  <button type="button" onClick={() => setAddingSong(true)} className="text-[11px] font-bold text-indigo-600 mb-2 flex items-center gap-1">
+                    <Plus size={12} /> Add a new song
+                  </button>
+                )}
+              </>
+            ) : (
+              <div className="bg-purple-50 border border-purple-200 rounded-xl p-2 mb-2">
+                <input value={newSongTitle} onChange={(e) => setNewSongTitle(e.target.value)} placeholder="Song title" className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
+                <input value={newSongArtist} onChange={(e) => setNewSongArtist(e.target.value)} placeholder="Artist (optional)" className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => { setAddingSong(false); setNewSongTitle(""); setNewSongArtist(""); }} className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5">Cancel</button>
+                  <button type="button" disabled={!newSongTitle.trim()} onClick={saveNewSong} className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 ${newSongTitle.trim() ? "bg-purple-600 text-white" : "bg-slate-200 text-slate-400"}`}>Add song</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Stars</label>
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          {[3, 5, 10, 15, 20, 30].map((n) => (
+            <button key={n} type="button" onClick={() => setStars(n)} className={`px-3 py-1.5 rounded-xl text-sm font-bold ${stars === n ? "bg-amber-400 text-white" : "bg-slate-100 text-slate-500"}`}>{n}⭐</button>
+          ))}
+          <input type="number" value={stars} onChange={(e) => setStars(Number(e.target.value))} className="w-20 text-sm border border-slate-200 rounded-xl px-2 py-1.5" />
+        </div>
+
+        <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
+          Photo proof <span className="font-normal text-slate-400 normal-case">(optional)</span>
+        </label>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePickPhoto} />
+        {photo ? (
+          <div className="flex items-center gap-2 mb-3 bg-emerald-50 border border-emerald-200 rounded-xl p-2">
+            <Camera size={14} className="text-emerald-600 shrink-0" />
+            <div className="text-[11px] font-bold text-emerald-700 flex-1 truncate">{photo.name || "Photo attached"}</div>
+            <button onClick={() => setPhoto(null)} className="text-emerald-700 text-[11px] font-bold">Remove</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading} className={`w-full mb-3 py-2 rounded-xl border border-dashed text-[12px] font-bold flex items-center justify-center gap-1.5 ${uploading ? "bg-slate-50 text-slate-400 border-slate-200" : "bg-white text-indigo-600 border-indigo-300"}`}>
+            {uploading ? "Uploading…" : (<><Camera size={13} /> Add a photo</>)}
+          </button>
+        )}
+
+        <div className="flex gap-2">
+          <button type="button" onClick={onDelete} className="px-3 py-2.5 rounded-xl bg-rose-50 text-rose-700 font-bold text-sm">Delete</button>
+          <button type="button" onClick={() => giftEditor.close()} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-600 font-bold text-sm">Cancel</button>
+          <button type="button" disabled={!label.trim() || uploading} onClick={submit} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${label.trim() && !uploading ? "bg-amber-500" : "bg-slate-200 text-slate-400"}`}>Save</button>
+        </div>
       </div>
     </div>
   );
@@ -1970,17 +2266,137 @@ function firstProofPhoto(c) {
 //   completion.extra.songId → cover from `songs`
 // gifted rows pass `gift` instead of `completion` and we read their
 // extra.photoPath / extra.bookId / extra.songId.
+// Normalize a string for label/title matching: lowercased, accent-
+// stripped, collapsed whitespace. NFD + strip-combining-marks handles
+// "Niño" vs "nino", "café" vs "cafe", etc.
+function normForMatch(s) {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Short / common words that are NOT meaningful matches on their own.
+// "One" inside "in one sitting" was matching Metallica's "One" song
+// (whose iTunes cover is the ...And Justice for All album art),
+// stomping the actual book cover Mike picked. Same kind of bug
+// waiting to happen with "the", "vol", "two", "all", etc. so the
+// list covers common short tokens in both English and Spanish.
+const FUZZY_STOP_WORDS = new Set([
+  "one", "two", "the", "and", "for", "you", "him", "her", "his",
+  "she", "all", "are", "was", "but", "not", "yes", "vol", "vol.",
+  "ed.", "no.", "uno", "los", "las", "del", "que", "con",
+]);
+
+// Score how well a candidate title (book or song) matches a gift label.
+// Returns 0 if no useful match — caller filters those out.
+//   Direct substring (title-in-label, the strongest signal)  → 100+len
+//   Reverse substring (label-in-title, label is short query) →  80+len
+//   Shared significant words (5+ chars, both directions)     →  20·count
+// 0 otherwise. Higher = better. Helps a 7-volume series pick "Vol 8"
+// over "Vol" automatically (longer literal match beats shorter one).
+//
+// Floor for direct substring matches is 5 chars OR multi-word titles —
+// a single 3-letter word title can't reliably match anything. The 5+
+// floor + stop word list together prevent the "One" → "...And Justice
+// for All" leak Mike hit.
+function scoreTitleAgainstLabel(title, label) {
+  const t = normForMatch(title);
+  const l = normForMatch(label);
+  if (!t || !l) return 0;
+  const tIsMultiWord = t.includes(" ");
+  const tLongEnough = t.length >= 5;
+  // Direct substring — require multi-word OR 5+ chars OR not a stop
+  // word. Single short common words ("one", "the", "vol") never match.
+  if (l.includes(t)) {
+    if (!tIsMultiWord && !tLongEnough) return 0;
+    if (!tIsMultiWord && FUZZY_STOP_WORDS.has(t)) return 0;
+    return 100 + t.length;
+  }
+  if (t.includes(l) && l.length >= 5 && !FUZZY_STOP_WORDS.has(l)) {
+    return 80 + l.length;
+  }
+  const significantWords = (s) => new Set(
+    s.split(/\s+/).filter((w) => w.length >= 5 && !FUZZY_STOP_WORDS.has(w))
+  );
+  const tw = significantWords(t);
+  const lw = significantWords(l);
+  if (tw.size === 0 || lw.size === 0) return 0;
+  let shared = 0;
+  for (const w of tw) if (lw.has(w)) shared++;
+  return shared > 0 ? 20 * shared : 0;
+}
+
+// Pick the best-matching book for a gift label across canonical and
+// raw title fields. Used when the gift has no explicit bookId (parent
+// typed the label without using the picker).
+function findBookForGiftLabel(label, books) {
+  let best = null;
+  let bestScore = 0;
+  for (const b of (books || [])) {
+    const candidates = [b.canonicalTitle, b.title].filter(Boolean);
+    for (const t of candidates) {
+      const s = scoreTitleAgainstLabel(t, label);
+      if (s > bestScore) { bestScore = s; best = b; }
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
+// Same shape for songs. Same scoring — Mike's rule covers song
+// covers identically to book covers.
+function findSongForGiftLabel(label, songs) {
+  let best = null;
+  let bestScore = 0;
+  for (const s of (songs || [])) {
+    const candidates = [s.canonicalTitle, s.title].filter(Boolean);
+    for (const t of candidates) {
+      const sc = scoreTitleAgainstLabel(t, label);
+      if (sc > bestScore) { bestScore = sc; best = s; }
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
 function ProofThumb({ completion, gift, activity, task, books = [], songs = [], songPlays = [], size = 36, clickable = true }) {
   // Proof photo (from completion or gift).
   const proofPhoto = firstProofPhoto(completion);
   const giftPhotoPath = gift?.extra?.photoPath || null;
-  // Book + song lookups. Match by id first, fall back to title for legacy.
+  // Book + song lookups. Try every possible match path: id first, then
+  // bookTitle against raw title, then against canonical title — all
+  // case-insensitive. Bug Mike hit: when bookId was set but didn't
+  // resolve (book got renamed / re-created / id drift), the lookup
+  // gave up instead of trying the title fallback. Now bookTitle is
+  // always tried as a backup if the id miss happens.
   const meta = completion?.extra || gift?.extra || {};
   const bookId = meta.bookId;
   const bookTitle = meta.bookTitle;
-  const book = bookId
-    ? books.find((b) => b.id === bookId)
-    : (bookTitle ? books.find((b) => (b.title || "").toLowerCase() === bookTitle.toLowerCase()) : null);
+  let book = null;
+  if (bookId) book = books.find((b) => b.id === bookId);
+  if (!book && bookTitle) {
+    const bt = bookTitle.toLowerCase();
+    book = books.find((b) =>
+      (b.title || "").toLowerCase() === bt
+      || (b.canonicalTitle || "").toLowerCase() === bt
+    );
+  }
+  // Label fuzzy fallback — ONLY runs when the gift has no explicit
+  // book/song id from the picker. If the user picked something, we
+  // trust their choice and never fall back to fuzzy. This prevents
+  // the bug Mike hit where picking "Los Tipos Malos Vol 8" was
+  // getting clobbered by fuzzy-matching "one" in the label to
+  // Metallica's "One" song.
+  const userPickedBook = !!meta.bookId;
+  const userPickedSong = !!meta.songId;
+  if (!book && !userPickedBook && gift?.label && Array.isArray(books)) {
+    book = findBookForGiftLabel(gift.label, books);
+  }
+  let labelSong = null;
+  if (!userPickedSong && gift?.label && Array.isArray(songs)) {
+    labelSong = findSongForGiftLabel(gift.label, songs);
+  }
   // Activity-aware preference. The completion knows what kind of task
   // it is via task.activityType / task.proofType. Reading + Drums each
   // have a more meaningful "what was done" image than a generic proof
@@ -1992,8 +2408,17 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
   const isDrums = pt === "drums" || /drum/.test(at);
   // For drums: pull the FIRST song play that matches the completion's
   // date. We use sorted-by-id (timestamped) ascending so "first played"
-  // wins. Falls back to extra.songId if the task captured one directly.
-  let song = meta.songId ? songs.find((s) => s.id === meta.songId) : null;
+  // wins. Falls back to extra.songId, then to extra.songTitle if the
+  // id ever fails to resolve (same belt+suspenders as the book path).
+  let song = null;
+  if (meta.songId) song = songs.find((s) => s.id === meta.songId);
+  if (!song && meta.songTitle) {
+    const st = meta.songTitle.toLowerCase();
+    song = songs.find((s) =>
+      (s.title || "").toLowerCase() === st
+      || (s.canonicalTitle || "").toLowerCase() === st
+    );
+  }
   if (!song && isDrums && completion?.completionDate && Array.isArray(songPlays)) {
     const todayPlays = songPlays
       .filter((p) => p.playedOn === completion.completionDate)
@@ -2001,6 +2426,10 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
     const firstPlay = todayPlays[0];
     if (firstPlay) song = songs.find((s) => s.id === firstPlay.songId);
   }
+  // Promote label-matched song to the resolved song when nothing else
+  // got us one. Gift labels like "Mastered Master of Puppets" surface
+  // the album art even without an explicit songId pick.
+  if (!song && labelSong) song = labelSong;
   // Custom uploads (storage paths). One useSignedUrl per slot — hooks
   // must be called unconditionally in stable order.
   const proofSigned = useSignedUrl(proofPhoto && !proofPhoto.url ? proofPhoto.path : null);
@@ -2012,18 +2441,22 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
   const proofSrc = proofPhoto && (proofPhoto.url || proofSigned);
   // Resolution order:
   //   Reading task → book cover preferred (the book IS what was read).
-  //                  Falls back to proof photo, then gift photo.
-  //   Drums task   → song cover preferred (the song IS what was practiced).
-  //                  Falls back to proof photo, then gift photo.
-  //   Otherwise    → proof photo (the photo IS what was done),
-  //                  then gift photo, then book / song cover, then null.
+  //                  Falls back to proof photo, then gift photo. NEVER
+  //                  falls back to a song cover — a Spanish reading
+  //                  bonus must not surface Metallica album art just
+  //                  because the label happened to contain a common
+  //                  short English word.
+  //   Drums task   → song cover preferred. Same cross-domain rule —
+  //                  never falls back to a book cover.
+  //   Otherwise    → proof photo, then gift photo, then book cover,
+  //                  then song cover, then null.
   // Mike's rule: a real cover or photo means "done"; the activity icon
   // means "not done yet or you forgot to attach proof — fix this."
   let src = null;
   if (isReading) {
-    src = bookCoverSrc || proofSrc || giftSigned || songCoverSrc;
+    src = bookCoverSrc || proofSrc || giftSigned;
   } else if (isDrums) {
-    src = songCoverSrc || proofSrc || giftSigned || bookCoverSrc;
+    src = songCoverSrc || proofSrc || giftSigned;
   } else {
     src = proofSrc || giftSigned || bookCoverSrc || songCoverSrc;
   }
@@ -2733,7 +3166,13 @@ function StatDetail({
                       : null);
                 const giver = (users || []).find((u) => u.id === g.by)?.name || "—";
                 return (
-                  <div key={g.id} className="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => giftEditor.open(g)}
+                    className="w-full flex items-center gap-2 py-2 border-b border-slate-100 last:border-0 text-left active:scale-[0.99] transition"
+                    title="Tap to edit this bonus"
+                  >
                     <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} songPlays={songPlays} size={36} />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-bold text-slate-800 truncate flex items-center gap-1">
@@ -2741,11 +3180,11 @@ function StatDetail({
                         {g.label || "Bonus"}
                       </div>
                       <div className="text-[11px] text-slate-400 truncate">
-                        bonus stars · from {giver}{gTask?.title ? ` · ${gTask.title}` : ""}
+                        bonus stars · from {giver}{gTask?.title ? ` · ${gTask.title}` : ""} · tap to edit
                       </div>
                     </div>
                     <StarPill n={Number(g.stars) || 0} tone="emerald" />
-                  </div>
+                  </button>
                 );
               })}
             </Card>
@@ -3012,9 +3451,15 @@ function StarLedger({
               <div key={row.key} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
                 <button
                   type="button"
-                  onClick={() => row.date && setSelectedDay(row.date)}
+                  onClick={() => {
+                    // Gifts: tap to edit (per Mike's edit-everywhere
+                    // rule). Earned + redeemed rows: tap drills into
+                    // the per-day breakdown.
+                    if (row.kind === "gift" && row.gift && isParent) giftEditor.open(row.gift);
+                    else if (row.date) setSelectedDay(row.date);
+                  }}
                   className="flex-1 flex items-center gap-2 min-w-0 text-left active:scale-[0.99] transition"
-                  title={row.date ? "See everything that happened this day" : ""}
+                  title={row.kind === "gift" && isParent ? "Tap to edit this bonus" : (row.date ? "See everything that happened this day" : "")}
                 >
                   {(row.kind === "earned" && row.completion) || (row.kind === "gift" && row.gift) ? (
                     <ProofThumb
@@ -3205,21 +3650,24 @@ function DayBreakdown({
                   const gActivity = g.extra?.activityId
                     ? (activities || []).find((a) => a.id === g.extra.activityId)
                     : actByTask(gTask);
-                  const hasRichVisual = g.extra?.photoPath || g.extra?.bookId || g.extra?.songId;
                   return (
                     <div key={g.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100 last:border-0">
-                      {hasRichVisual ? (
+                      <button
+                        type="button"
+                        onClick={() => isParent && giftEditor.open(g)}
+                        className="flex-1 flex items-center gap-2 min-w-0 text-left"
+                        title={isParent ? "Tap to edit this bonus" : ""}
+                      >
                         <ProofThumb gift={g} activity={gActivity} task={gTask} books={books} songs={songs} size={28} />
-                      ) : (
-                        <div className="w-7 h-7 rounded-lg bg-pink-50 grid place-items-center shrink-0 text-sm">✨</div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[12px] font-bold text-slate-800 truncate">{g.label || "Bonus"}</div>
-                        <div className="text-[10px] text-slate-400 truncate">
-                          from {userName(g.by) || "—"}
-                          {gTask?.title ? ` · ${gTask.title}` : ""}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[12px] font-bold text-slate-800 truncate">{g.label || "Bonus"}</div>
+                          <div className="text-[10px] text-slate-400 truncate">
+                            from {userName(g.by) || "—"}
+                            {gTask?.title ? ` · ${gTask.title}` : ""}
+                            {isParent ? " · tap to edit" : ""}
+                          </div>
                         </div>
-                      </div>
+                      </button>
                       <div className="text-sm font-extrabold text-pink-700 tabular-nums shrink-0">+{Number(g.stars) || 0}⭐</div>
                       {isParent && onRemoveGift && (
                         <button
@@ -3987,6 +4435,14 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
   const [bookId, setBookId] = useState(existing?.extra?.bookId || null);
   const [markFinished, setMarkFinished] = useState(false);
   const [bookSearch, setBookSearch] = useState("");
+  // "Also use this photo as the book cover" — visible whenever the
+  // picked book has no cover yet OR a brand new book is about to be
+  // created from a typed title. Mike: the proof photo and the official
+  // book cover are different artifacts. The library should only show
+  // the official cover; the proof photo stays on the completion and
+  // shows in the "fun" places. This checkbox lets the parent declare
+  // intent in one tap when uploading.
+  const [useAsBookCover, setUseAsBookCover] = useState(false);
 
   const isReading = task.proofType === "reading";
   const isDrums = task.proofType === "drums";
@@ -4098,6 +4554,14 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
             patch.readCount = (pickedBook.readCount || 1) + 1;
           }
         }
+        // Photo declared as the book cover → stamp it onto the book
+        // row's customCoverPath so the Reading Library + every
+        // book-thumbnail surface picks it up. The same file path
+        // also stays in completion.proof (already handled above) so
+        // the Done area / Stars still show it as proof.
+        if (useAsBookCover && photo?.path && !pickedBook.customCoverPath) {
+          patch.customCoverPath = photo.path;
+        }
         if (Object.keys(patch).length > 0) updateBook(pickedBook.id, patch);
       } else if (!pickedBook && bookTitle.trim() && addBook) {
         // Free-typed title with no existing match — create a new book
@@ -4118,7 +4582,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
           coverUrl: "",
           canonicalTitle: "",
           canonicalAuthor: "",
-          customCoverPath: "",
+          customCoverPath: (useAsBookCover && photo?.path) ? photo.path : "",
           externalSource: "",
           externalId: "",
           enrichedAt: null,
@@ -4445,6 +4909,36 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
                 </div>
               </label>
             )}
+
+            {/* "Also use this as the book cover" — visible only for a
+                reading task with a photo attached and a book that has
+                no cover yet (or a brand-new typed title). Mike's rule:
+                a photo of Reznor reading and the book's official cover
+                are different artifacts; the library only shows the
+                official cover. This one tap lets the parent declare
+                intent without uploading the same file twice. */}
+            {isReading && photo && (() => {
+              const bookHasNoCover = pickedBook
+                ? !pickedBook.customCoverPath && !pickedBook.coverUrl
+                : !!bookTitle.trim(); // new book = no cover yet
+              if (!bookHasNoCover) return null;
+              return (
+                <label className="flex items-start gap-2 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl p-2.5 mt-1">
+                  <input
+                    type="checkbox"
+                    checked={useAsBookCover}
+                    onChange={(e) => setUseAsBookCover(e.target.checked)}
+                    className="w-4 h-4 mt-0.5"
+                  />
+                  <span>
+                    Also use this as the book's cover
+                    <span className="block text-[11px] font-normal text-indigo-600/80 mt-0.5">
+                      Only do this if the photo IS the book cover (not Reznor reading). The Reading Library will show it.
+                    </span>
+                  </span>
+                </label>
+              );
+            })()}
 
             <Field label="Note (optional)"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="input resize-none" placeholder="Anything to tell a grown-up?" /></Field>
 
@@ -4835,49 +5329,34 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
       </div>
       <p className="text-[11px] text-slate-400 px-1 mt-2">Win badges every single day — even before the big rewards. 🎉</p>
 
-      {gifted?.length > 0 && (
-        <>
-          <SectionTitle icon={<Sparkles size={16} className="text-amber-500" />}>Bonus stars 🎁</SectionTitle>
-          {gifted.map((g) => {
-            // Resolve the task + activity for the gift so ProofThumb
-            // can show the photo / book cover / song cover the parent
-            // attached at gift time.
-            const gTask = g.extra?.taskId ? tasks.find((t) => t.id === g.extra.taskId) : null;
-            const gAct = g.extra?.activityId
-              ? activities.find((a) => a.id === g.extra.activityId)
-              : (gTask
-                  ? activities.find((a) => a.id === (gTask.activityId
-                      || gTask.activityType?.toLowerCase().replace(/\s/g, "_")))
-                  : null);
-            return (
-              <Card key={g.id} className="p-3 mb-2 flex items-center gap-3">
-                <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} size={36} />
-                <div className="flex-1 text-sm font-semibold">{g.label}<span className="block text-[11px] text-slate-400 font-normal">{gTask?.title ? gTask.title : "surprise stars!"}</span></div>
-                <StarPill n={g.stars} tone="emerald" />
-              </Card>
-            );
-          })}
-        </>
-      )}
       <SectionTitle icon={<Award size={16} className="text-emerald-500" />}>Stars I've earned</SectionTitle>
-      {approved.length === 0 && <p className="text-sm text-slate-400 px-1">Nothing approved yet — go finish a mission! 🚀</p>}
-      {/* Grouped by completionDate, newest day first. Within a day, the
-          rows show the most recent star at the top via id-desc tiebreak
-          (ids are timestamped). Each day gets a sticky-ish header with
-          a Today/Yesterday/weekday label in both English and Spanish so
-          Reznor can read it either way + a per-day star total. */}
+      {approved.length === 0 && (gifted?.length || 0) === 0 && (
+        <p className="text-sm text-slate-400 px-1">Nothing approved yet — go finish a mission! 🚀</p>
+      )}
+      {/* Single unified timeline — completions AND bonus gifts grouped
+          by date, newest day first. Within a day, rows sort newest first
+          via id-desc. Each day gets a bilingual Today/Yesterday/weekday
+          header and a per-day star total. Mike's rule: "bonus stars
+          shouldn't be separated. They need to be included in the day
+          they were created to be grouped with everything else." */}
       {(() => {
-        if (approved.length === 0) return null;
+        const items = [];
+        for (const c of (approved || [])) {
+          items.push({ kind: "completion", date: c.completionDate || "", id: c.id, stars: c.awardedStars || 0, c });
+        }
+        for (const g of (gifted || [])) {
+          items.push({ kind: "gift", date: g.date || "", id: g.id, stars: Number(g.stars) || 0, g });
+        }
+        if (items.length === 0) return null;
         const buckets = new Map();
-        for (const c of approved) {
-          const key = c.completionDate || "";
-          if (!buckets.has(key)) buckets.set(key, []);
-          buckets.get(key).push(c);
+        for (const it of items) {
+          if (!buckets.has(it.date)) buckets.set(it.date, []);
+          buckets.get(it.date).push(it);
         }
         const days = [...buckets.entries()].sort((a, b) => (b[0] || "").localeCompare(a[0] || ""));
         return days.map(([iso, rows]) => {
           const sorted = [...rows].sort((a, b) => (b.id || "").localeCompare(a.id || ""));
-          const dayTotal = sorted.reduce((s, c) => s + (c.awardedStars || 0), 0);
+          const dayTotal = sorted.reduce((s, r) => s + (r.stars || 0), 0);
           return (
             <div key={iso || "no-date"}>
               <div className="flex items-baseline justify-between px-1 mt-3 mb-1.5">
@@ -4886,11 +5365,37 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
                 </div>
                 <div className="text-[11px] font-extrabold text-emerald-700 tabular-nums">+{dayTotal}⭐</div>
               </div>
-              {sorted.map((c) => {
+              {sorted.map((it) => {
+                if (it.kind === "gift") {
+                  const g = it.g;
+                  const gTask = g.extra?.taskId ? tasks.find((t) => t.id === g.extra.taskId) : null;
+                  const gAct = g.extra?.activityId
+                    ? activities.find((a) => a.id === g.extra.activityId)
+                    : (gTask
+                        ? activities.find((a) => a.id === (gTask.activityId
+                            || gTask.activityType?.toLowerCase().replace(/\s/g, "_")))
+                        : null);
+                  return (
+                    <Card key={`g-${g.id}`} className="p-3 mb-2 flex items-center gap-3 border-amber-100 bg-amber-50/40">
+                      <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} songPlays={songPlays} size={36} />
+                      <div className="flex-1 text-sm font-semibold flex flex-col">
+                        <span className="flex items-center gap-1">
+                          <Sparkles size={11} className="text-amber-500 shrink-0" />
+                          {g.label || "Bonus"}
+                        </span>
+                        <span className="text-[11px] text-slate-400 font-normal">
+                          bonus{gTask?.title ? ` · ${gTask.title}` : ""}
+                        </span>
+                      </div>
+                      <StarPill n={g.stars} tone="emerald" />
+                    </Card>
+                  );
+                }
+                const c = it.c;
                 const t = tasks.find((x) => x.id === c.taskId);
                 const a = actFor(t || { activityType: "" }, activities);
                 return (
-                  <Card key={c.id} className="p-3 mb-2 flex items-center gap-3">
+                  <Card key={`c-${c.id}`} className="p-3 mb-2 flex items-center gap-3">
                     <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} songPlays={songPlays} size={36} />
                     <div className="flex-1 text-sm font-semibold">{t?.title}{c.extra?.bookTitle && <span className="block text-[11px] text-slate-400 font-normal">{c.extra.bookTitle}</span>}</div>
                     <StarPill n={c.awardedStars} tone="emerald" />
@@ -5288,19 +5793,27 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
                     : null);
               const giver = users.find((u) => u.id === g.by)?.name || "—";
               return (
-                <Card key={g.id} className="p-3 mb-2 flex items-center gap-3 border-amber-100 bg-amber-50/40">
-                  <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} songPlays={songPlays} size={36} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-slate-800 truncate flex items-center gap-1">
-                      <Sparkles size={12} className="text-amber-500 shrink-0" />
-                      {g.label || "Bonus"}
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => giftEditor.open(g)}
+                  className="w-full text-left active:scale-[0.99] transition"
+                  title="Tap to edit this bonus"
+                >
+                  <Card className="p-3 mb-2 flex items-center gap-3 border-amber-100 bg-amber-50/40">
+                    <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} songPlays={songPlays} size={36} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-slate-800 truncate flex items-center gap-1">
+                        <Sparkles size={12} className="text-amber-500 shrink-0" />
+                        {g.label || "Bonus"}
+                      </div>
+                      <div className="text-[11px] text-slate-400 truncate">
+                        bonus stars · from {giver}{gTask?.title ? ` · ${gTask.title}` : ""} · tap to edit
+                      </div>
                     </div>
-                    <div className="text-[11px] text-slate-400 truncate">
-                      bonus stars · from {giver}{gTask?.title ? ` · ${gTask.title}` : ""}
-                    </div>
-                  </div>
-                  <StarPill n={Number(g.stars) || 0} tone="emerald" />
-                </Card>
+                    <StarPill n={Number(g.stars) || 0} tone="emerald" />
+                  </Card>
+                </button>
               );
             })}
           </>
@@ -5391,10 +5904,27 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   const meta = comp?.extra || {};
   const bookId = meta.bookId;
   const bookTitle = meta.bookTitle;
-  const book = bookId
-    ? books.find((b) => b.id === bookId)
-    : (bookTitle ? books.find((b) => (b.title || "").toLowerCase() === bookTitle.toLowerCase()) : null);
-  let song = meta.songId ? songs.find((s) => s.id === meta.songId) : null;
+  // Same robust id-then-title fallback as ProofThumb. The id-only
+  // lookup before this could miss when the id lookup returned undef
+  // (book renamed/recreated) — the bookTitle backup catches it.
+  let book = null;
+  if (bookId) book = books.find((b) => b.id === bookId);
+  if (!book && bookTitle) {
+    const bt = bookTitle.toLowerCase();
+    book = books.find((b) =>
+      (b.title || "").toLowerCase() === bt
+      || (b.canonicalTitle || "").toLowerCase() === bt
+    );
+  }
+  let song = null;
+  if (meta.songId) song = songs.find((s) => s.id === meta.songId);
+  if (!song && meta.songTitle) {
+    const st = meta.songTitle.toLowerCase();
+    song = songs.find((s) =>
+      (s.title || "").toLowerCase() === st
+      || (s.canonicalTitle || "").toLowerCase() === st
+    );
+  }
   if (!song && isDrumsRow && comp?.completionDate && Array.isArray(songPlays)) {
     const todayPlays = songPlays
       .filter((p) => p.playedOn === comp.completionDate)
@@ -7429,26 +7959,70 @@ function AddAwardForm({ activities, onAdd, onCancel, familyId }) {
 function ParentRecap(props) {
   const { completions, activities, streaks, books, gifted, albumPhotos = [] } = props;
   const [period, setPeriod] = useState("week");
+  // Year picker — defaults to current year, but the parent can flip
+  // back to prior years once data accumulates. Mike: "I plan to keep
+  // using this system until he is in 6th grade at least" — so we have
+  // to be honest about multi-year history.
+  const [yearPick, setYearPick] = useState(String(today.getFullYear()));
   const [copied, setCopied] = useState(false);
-  const approved = completions.filter((c) => c.status === "approved");
-  const starsEarned = approved.reduce((s, c) => s + (c.awardedStars || 0), 0) + (gifted || []).reduce((s, g) => s + (g.stars || 0), 0);
+  // Compute the date window for the current period. Inclusive ISO
+  // YYYY-MM-DD on both ends.
+  const window = (() => {
+    const todayIso = TODAY_ISO;
+    if (period === "week") {
+      const start = new Date(today); start.setDate(today.getDate() - 6);
+      return { start: isoLocal(start), end: todayIso, label: "this week" };
+    }
+    if (period === "month") {
+      const start = new Date(today); start.setDate(today.getDate() - 29);
+      return { start: isoLocal(start), end: todayIso, label: "this month" };
+    }
+    if (period === "year") {
+      return { start: `${yearPick}-01-01`, end: `${yearPick}-12-31`, label: `in ${yearPick}` };
+    }
+    return { start: "0000-01-01", end: "9999-12-31", label: "all-time" };
+  })();
+  const inWindow = (iso) => iso && iso >= window.start && iso <= window.end;
+  // Collect every year we have data in so the year picker only offers
+  // real options (not a hard-coded range).
+  const knownYears = (() => {
+    const set = new Set();
+    for (const c of (completions || [])) {
+      if (c.status === "approved" && c.completionDate) set.add(c.completionDate.slice(0, 4));
+    }
+    for (const g of (gifted || [])) if (g.date) set.add(g.date.slice(0, 4));
+    for (const p of (albumPhotos || [])) {
+      const d = p.takenAt || (p.createdAt || "").slice(0, 10);
+      if (d) set.add(d.slice(0, 4));
+    }
+    set.add(String(today.getFullYear())); // always include current year
+    return [...set].sort((a, b) => b.localeCompare(a)); // newest first
+  })();
+  const approved = (completions || []).filter((c) => c.status === "approved" && inWindow(c.completionDate));
+  const giftedInWindow = (gifted || []).filter((g) => inWindow(g.date));
+  const starsEarned = approved.reduce((s, c) => s + (c.awardedStars || 0), 0) + giftedInWindow.reduce((s, g) => s + (g.stars || 0), 0);
   // Recap photos = both proof photos attached to completions AND memory
   // photos parents uploaded via "Add a memory" in the gallery. The memory
   // ones live in album_photos with a path + takenAt; same StoredPhoto
-  // renderer works for both. Sorted newest-first so the most recent
-  // uploads sit at the top of the grid.
-  const proofPhotos = completions.flatMap((c) =>
+  // renderer works for both. Sorted newest-first + filtered to the
+  // selected window so a year recap doesn't drown the current week.
+  const proofPhotos = (completions || []).flatMap((c) =>
     (c.proof || [])
       .filter((p) => p.type === "photo" && (p.path || p.url))
       .map((p) => ({ ...p, taskId: c.taskId, _sortKey: c.completionDate || "" }))
-  );
+  ).filter((p) => inWindow(p._sortKey));
   const memoryPhotos = (albumPhotos || [])
     .filter((p) => p.path)
-    .map((p) => ({ path: p.path, caption: p.caption, taskId: null, _sortKey: p.takenAt || (p.createdAt || "").slice(0, 10) }));
+    .map((p) => ({ path: p.path, caption: p.caption, taskId: null, _sortKey: p.takenAt || (p.createdAt || "").slice(0, 10) }))
+    .filter((p) => inWindow(p._sortKey));
   const photos = [...proofPhotos, ...memoryPhotos].sort(
     (a, b) => (b._sortKey || "").localeCompare(a._sortKey || "")
   );
-  const booksDone = (books || []).filter((b) => b.status === "finished");
+  // Books finished in this window. preTracking archive books only count
+  // for all-time (they have no real dates).
+  const booksDone = period === "all"
+    ? (books || []).filter(isBookFinished)
+    : (books || []).filter((b) => b.status === "finished" && inWindow(b.finished));
   const topStreaks = Object.entries(streaks || {}).map(([id, s]) => ({ a: activities.find((x) => x.id === id), s })).filter((x) => x.a).sort((a, b) => b.s.current - a.s.current);
 
   const ds = streaks?.a_drums;
@@ -7461,8 +8035,12 @@ function ParentRecap(props) {
     mem = { daysSince, anniv, toAnniv, start };
   }
 
+  const periodLabel = period === "week" ? "This Week"
+    : period === "month" ? "This Month"
+    : period === "year" ? yearPick
+    : "All-time";
   const buildText = () => [
-    `Reznor — ${period === "week" ? "This Week" : "This Month"} Recap`, ``,
+    `Reznor — ${periodLabel} Recap`, ``,
     `⭐ Stars earned: ${starsEarned}`,
     `✅ Activities completed: ${approved.length}`,
     `📚 Books finished: ${booksDone.length}`,
@@ -7473,9 +8051,27 @@ function ParentRecap(props) {
 
   return (
     <>
-      <div className="flex gap-1.5 mb-3">
-        {[["week", "This week"], ["month", "This month"]].map(([k, l]) => <button key={k} onClick={() => setPeriod(k)} className={`flex-1 py-2 rounded-xl text-sm font-bold ${period === k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>)}
+      <div className="flex gap-1.5 mb-2">
+        {[["week", "Week"], ["month", "Month"], ["year", "Year"], ["all", "All-time"]].map(([k, l]) => (
+          <button key={k} onClick={() => setPeriod(k)} className={`flex-1 py-2 rounded-xl text-sm font-bold ${period === k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>
+        ))}
       </div>
+      {period === "year" && (
+        <div className="flex items-center gap-2 mb-3 px-1">
+          <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500">Year:</span>
+          <div className="flex gap-1 flex-wrap">
+            {knownYears.map((y) => (
+              <button
+                key={y}
+                onClick={() => setYearPick(y)}
+                className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${yearPick === y ? "bg-violet-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-amber-500">{starsEarned}</div><div className="text-[11px] text-slate-400">stars earned</div></Card>
@@ -7493,7 +8089,7 @@ function ParentRecap(props) {
         </Card>
       )}
 
-      <SectionTitle icon={<ImageIcon size={16} className="text-violet-500" />}>Photos {period === "week" ? "this week" : "this month"}</SectionTitle>
+      <SectionTitle icon={<ImageIcon size={16} className="text-violet-500" />}>Photos {window.label}</SectionTitle>
       {photos.length === 0 && <p className="text-xs text-slate-400 px-1">No photos captured yet — helpers can snap them from the checklist.</p>}
       <div className="grid grid-cols-3 gap-1.5">
         {photos.map((p, i) => <StoredPhoto key={i} path={p.path} url={p.url} alt="" className="w-full h-24 object-cover rounded-xl" fallback={<div className="w-full h-24 bg-slate-100 animate-pulse rounded-xl" />} />)}
@@ -8294,7 +8890,7 @@ function BackWrap({ title, onBack, children }) {
   );
 }
 
-function Portfolio({ completions, tasks, users, gifted, activities }) {
+function Portfolio({ completions, tasks, users, gifted, activities, books = [], songs = [], songPlays = [] }) {
   // Merge completions + gifts into one timeline so the most-recent
   // thing is on top regardless of which kind it is. Each item carries
   // its own `_date` (ISO YYYY-MM-DD) used for the sort. Honest display
@@ -8330,24 +8926,43 @@ function Portfolio({ completions, tasks, users, gifted, activities }) {
       {items.map((row) => {
         if (row.kind === "gift") {
           const g = row.g;
+          // Same task/activity resolution as the Earned-today and
+          // Star Ledger surfaces so the gift's photo or book/song
+          // cover lands here too. ProofThumb handles the label-fuzzy
+          // fallback for legacy gifts that didn't use the picker.
+          const gTask = g.extra?.taskId ? tasks.find((t) => t.id === g.extra.taskId) : null;
+          const gAct = g.extra?.activityId
+            ? activities.find((a) => a.id === g.extra.activityId)
+            : (gTask
+                ? activities.find((a) => a.id === (gTask.activityId
+                    || gTask.activityType?.toLowerCase().replace(/\s/g, "_")))
+                : null);
           return (
-            <Card key={`g-${g.id}`} className="p-3 mb-2 flex gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-100 grid place-items-center shrink-0">✨</div>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-sm">{g.label} <span className="text-amber-600 font-normal">· bonus</span></div>
-                <div className="text-[11px] text-slate-400">{fmtRowDate(g.date)} · {g.stars}⭐ · gifted by {users.find((u) => u.id === g.by)?.name || "—"}</div>
-              </div>
-            </Card>
+            <button
+              key={`g-${g.id}`}
+              type="button"
+              onClick={() => giftEditor.open(g)}
+              className="w-full text-left active:scale-[0.99] transition"
+              title="Tap to edit this bonus"
+            >
+              <Card className="p-3 mb-2 flex gap-3">
+                <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} songPlays={songPlays} size={40} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm">{g.label} <span className="text-amber-600 font-normal">· bonus</span></div>
+                  <div className="text-[11px] text-slate-400">{fmtRowDate(g.date)} · {g.stars}⭐ · gifted by {users.find((u) => u.id === g.by)?.name || "—"} · tap to edit</div>
+                </div>
+              </Card>
+            </button>
           );
         }
         const c = row.c;
         const t = tasks.find((x) => x.id === c.taskId);
         const by = users.find((u) => u.id === c.approvedBy)?.name;
-        const d = actFor(t || { activityType: "" }, activities);
+        const a = actFor(t || { activityType: "" }, activities);
         const ph = c.proof?.find((p) => p.path || p.url);
         return (
           <Card key={`c-${c.id}`} className="p-3 mb-2 flex gap-3">
-            {ph ? <StoredPhoto path={ph.path} url={ph.url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" fallback={<div className="w-12 h-12 rounded-xl bg-slate-100 animate-pulse shrink-0" />} /> : <div className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: d.tint }}><TaskIcon type={t?.activityType} color={d.color} /></div>}
+            <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} songPlays={songPlays} size={48} />
             <div className="flex-1 min-w-0">
               <div className="font-bold text-sm">{t?.title} {c.extra?.bookTitle && <span className="text-slate-400 font-normal">· {c.extra.bookTitle}</span>}</div>
               <div className="text-[11px] text-slate-400">{fmtRowDate(c.completionDate)} · {c.awardedStars}⭐ · approved by {by || "—"}</div>
