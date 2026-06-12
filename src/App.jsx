@@ -1179,6 +1179,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // bookId, songId, photoPath, photoName }. The richer payload stashes
   // task/activity/photo metadata into extra so every gift surface can
   // render a real thumbnail and attribute correctly.
+  //
+  // We also stamp bookTitle / songTitle alongside the ids so the
+  // ProofThumb lookup has a robust fallback if the id ever fails to
+  // match (book got renamed, recreated, etc.). Belt + suspenders.
   const giftStars = (labelOrPayload, n) => {
     const payload = typeof labelOrPayload === "object" && labelOrPayload !== null
       ? labelOrPayload
@@ -1187,8 +1191,16 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     const extra = {};
     if (taskId) extra.taskId = taskId;
     if (activityId) extra.activityId = activityId;
-    if (bookId) extra.bookId = bookId;
-    if (songId) extra.songId = songId;
+    if (bookId) {
+      extra.bookId = bookId;
+      const b = books.find((x) => x.id === bookId);
+      if (b) extra.bookTitle = b.canonicalTitle || b.title || null;
+    }
+    if (songId) {
+      extra.songId = songId;
+      const s = songs.find((x) => x.id === songId);
+      if (s) extra.songTitle = s.canonicalTitle || s.title || null;
+    }
     if (photoPath) extra.photoPath = photoPath;
     if (photoName) extra.photoName = photoName;
     setGifted((prev) => [{
@@ -1848,6 +1860,12 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
       ? `Save changes to "${trimmed}"?\n\nStar amount stays at ${newStars}.`
       : `Save changes to "${trimmed}"?\n\nReznor's bank will ${delta > 0 ? "go up by " + delta : "drop by " + Math.abs(delta)} stars.`;
     if (!window.confirm(summary)) return;
+    // Stamp bookTitle / songTitle alongside the ids so ProofThumb's
+    // title fallback always has data to work with, even if the book
+    // gets renamed or recreated later. Same belt+suspenders as
+    // giftStars on the create path.
+    const pickedBook = bookId ? books.find((b) => b.id === bookId) : null;
+    const pickedSong = songId ? songs.find((s) => s.id === songId) : null;
     const patch = {
       label: trimmed,
       stars: newStars,
@@ -1855,7 +1873,9 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
         taskId: taskId || undefined,
         activityId: selectedActivity?.id || undefined,
         bookId: bookId || undefined,
+        bookTitle: pickedBook ? (pickedBook.canonicalTitle || pickedBook.title) : undefined,
         songId: songId || undefined,
+        songTitle: pickedSong ? (pickedSong.canonicalTitle || pickedSong.title) : undefined,
         photoPath: photo?.path || undefined,
         photoName: photo?.name || undefined,
       },
@@ -2315,13 +2335,24 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
   // Proof photo (from completion or gift).
   const proofPhoto = firstProofPhoto(completion);
   const giftPhotoPath = gift?.extra?.photoPath || null;
-  // Book + song lookups. Match by id first, fall back to title for legacy.
+  // Book + song lookups. Try every possible match path: id first, then
+  // bookTitle against raw title, then against canonical title — all
+  // case-insensitive. Bug Mike hit: when bookId was set but didn't
+  // resolve (book got renamed / re-created / id drift), the lookup
+  // gave up instead of trying the title fallback. Now bookTitle is
+  // always tried as a backup if the id miss happens.
   const meta = completion?.extra || gift?.extra || {};
   const bookId = meta.bookId;
   const bookTitle = meta.bookTitle;
-  let book = bookId
-    ? books.find((b) => b.id === bookId)
-    : (bookTitle ? books.find((b) => (b.title || "").toLowerCase() === bookTitle.toLowerCase()) : null);
+  let book = null;
+  if (bookId) book = books.find((b) => b.id === bookId);
+  if (!book && bookTitle) {
+    const bt = bookTitle.toLowerCase();
+    book = books.find((b) =>
+      (b.title || "").toLowerCase() === bt
+      || (b.canonicalTitle || "").toLowerCase() === bt
+    );
+  }
   // Fallback for gifts logged without picking a book from the picker
   // (or pre-picker historical rows): match the gift label to a known
   // book title. Robust to:
@@ -2352,8 +2383,17 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
   const isDrums = pt === "drums" || /drum/.test(at);
   // For drums: pull the FIRST song play that matches the completion's
   // date. We use sorted-by-id (timestamped) ascending so "first played"
-  // wins. Falls back to extra.songId if the task captured one directly.
-  let song = meta.songId ? songs.find((s) => s.id === meta.songId) : null;
+  // wins. Falls back to extra.songId, then to extra.songTitle if the
+  // id ever fails to resolve (same belt+suspenders as the book path).
+  let song = null;
+  if (meta.songId) song = songs.find((s) => s.id === meta.songId);
+  if (!song && meta.songTitle) {
+    const st = meta.songTitle.toLowerCase();
+    song = songs.find((s) =>
+      (s.title || "").toLowerCase() === st
+      || (s.canonicalTitle || "").toLowerCase() === st
+    );
+  }
   if (!song && isDrums && completion?.completionDate && Array.isArray(songPlays)) {
     const todayPlays = songPlays
       .filter((p) => p.playedOn === completion.completionDate)
