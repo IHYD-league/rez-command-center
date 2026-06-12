@@ -28,6 +28,7 @@ import LevelUpLayer from "./LevelUpLayer.jsx";
 import OnboardingOverlay from "./OnboardingOverlay.jsx";
 import { useBottomSheet } from "./lib/sheet.js";
 import { runDataAudit, auditSummary } from "./lib/dataAudit.js";
+import { lightbox } from "./lib/lightbox.js";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -1613,12 +1614,87 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       </div>
       <StarBurstLayer />
       <LevelUpLayer />
+      <PhotoLightboxOverlay />
       {!welcomeDismissed && (
         <OnboardingOverlay
           user={user}
           onDismiss={() => setWelcomeDismissed(true)}
         />
       )}
+    </div>
+  );
+}
+
+// Full-screen photo viewer triggered by lightbox.open({src, alt}) from
+// anywhere in the tree. Tap backdrop or the × closes. Double-tap toggles
+// 1× ↔ 2.5× zoom for desktop and tap-to-zoom mobile use. Pinch-zoom on
+// the image works natively via touch-action: pinch-zoom. Escape closes.
+function PhotoLightboxOverlay() {
+  const [photo, setPhoto] = useState(null);
+  const [zoomed, setZoomed] = useState(false);
+  useEffect(() => lightbox.subscribe((next) => {
+    setPhoto(next);
+    setZoomed(false);
+  }), []);
+  useEffect(() => {
+    if (!photo) return;
+    const onKey = (e) => { if (e.key === "Escape") lightbox.close(); };
+    window.addEventListener("keydown", onKey);
+    // Prevent page scroll while open.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [photo]);
+  if (!photo) return null;
+  return (
+    <div
+      onClick={() => lightbox.close()}
+      className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+    >
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); lightbox.close(); }}
+        aria-label="Close"
+        className="absolute top-4 right-4 z-10 w-11 h-11 rounded-full bg-white/15 backdrop-blur hover:bg-white/25 grid place-items-center text-white active:scale-95"
+      >
+        <X size={22} />
+      </button>
+      <div
+        className="relative w-full h-full overflow-auto flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+        style={{ touchAction: "pinch-zoom" }}
+      >
+        <img
+          src={photo.src}
+          alt={photo.alt || ""}
+          onDoubleClick={() => setZoomed((z) => !z)}
+          onClick={(e) => {
+            // Single-tap on image: toggle zoom too — most parents on
+            // mobile won't think to double-tap. Backdrop click is
+            // handled by the outer div via stopPropagation above.
+            e.stopPropagation();
+            setZoomed((z) => !z);
+          }}
+          style={{
+            maxWidth: "100vw",
+            maxHeight: "100vh",
+            transform: zoomed ? "scale(2.5)" : "scale(1)",
+            transformOrigin: "center center",
+            transition: "transform 220ms ease",
+            cursor: zoomed ? "zoom-out" : "zoom-in",
+            touchAction: "pinch-zoom",
+          }}
+          draggable={false}
+        />
+      </div>
+      <div className="absolute bottom-4 left-0 right-0 text-center text-white/70 text-[11px] pointer-events-none">
+        Tap to {zoomed ? "shrink" : "zoom"} · pinch to zoom · tap outside to close
+      </div>
     </div>
   );
 }
@@ -1824,11 +1900,25 @@ function Avatar({ user, size = 40, solid = false, className = "" }) {
 
 // StoredPhoto: render a photo from a storage path (preferred) or legacy URL,
 // resolving the path to a signed URL on demand.
-function StoredPhoto({ path, url, alt = "", className = "", fallback = null }) {
+function StoredPhoto({ path, url, alt = "", className = "", fallback = null, clickable = true, onClick }) {
   const signed = useSignedUrl(url ? null : path);
   const src = url || signed;
   if (!src) return fallback;
-  return <img src={src} alt={alt} className={className} />;
+  const handleClick = (e) => {
+    if (onClick) { onClick(e); return; }
+    if (!clickable) return;
+    e.stopPropagation();
+    lightbox.open({ src, alt });
+  };
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      onClick={handleClick}
+      style={clickable && !onClick ? { cursor: "zoom-in" } : undefined}
+    />
+  );
 }
 
 // Pull the first photo proof off a completion, if there is one.
@@ -1854,7 +1944,7 @@ function firstProofPhoto(c) {
 //   completion.extra.songId → cover from `songs`
 // gifted rows pass `gift` instead of `completion` and we read their
 // extra.photoPath / extra.bookId / extra.songId.
-function ProofThumb({ completion, gift, activity, task, books = [], songs = [], size = 36 }) {
+function ProofThumb({ completion, gift, activity, task, books = [], songs = [], size = 36, clickable = true }) {
   // Proof photo (from completion or gift).
   const proofPhoto = firstProofPhoto(completion);
   const giftPhotoPath = gift?.extra?.photoPath || null;
@@ -1882,7 +1972,7 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
     songCustomSigned ||
     (song?.coverUrl || null);
   const cls = "rounded-2xl shrink-0 object-cover bg-slate-100";
-  const style = { width: size, height: size };
+  const style = { width: size, height: size, ...(clickable && src ? { cursor: "zoom-in" } : {}) };
   if (src) {
     return (
       <img
@@ -1891,6 +1981,7 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
         loading="lazy"
         className={cls}
         style={style}
+        onClick={clickable ? (e) => { e.stopPropagation(); lightbox.open({ src }); } : undefined}
         onError={(e) => { e.currentTarget.style.display = "none"; }}
       />
     );
@@ -4611,23 +4702,35 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
       {gifted?.length > 0 && (
         <>
           <SectionTitle icon={<Sparkles size={16} className="text-amber-500" />}>Bonus stars 🎁</SectionTitle>
-          {gifted.map((g) => (
-            <Card key={g.id} className="p-3 mb-2 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-amber-100 grid place-items-center">✨</div>
-              <div className="flex-1 text-sm font-semibold">{g.label}<span className="block text-[11px] text-slate-400 font-normal">surprise stars!</span></div>
-              <StarPill n={g.stars} tone="emerald" />
-            </Card>
-          ))}
+          {gifted.map((g) => {
+            // Resolve the task + activity for the gift so ProofThumb
+            // can show the photo / book cover / song cover the parent
+            // attached at gift time.
+            const gTask = g.extra?.taskId ? tasks.find((t) => t.id === g.extra.taskId) : null;
+            const gAct = g.extra?.activityId
+              ? activities.find((a) => a.id === g.extra.activityId)
+              : (gTask
+                  ? activities.find((a) => a.id === (gTask.activityId
+                      || gTask.activityType?.toLowerCase().replace(/\s/g, "_")))
+                  : null);
+            return (
+              <Card key={g.id} className="p-3 mb-2 flex items-center gap-3">
+                <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} size={36} />
+                <div className="flex-1 text-sm font-semibold">{g.label}<span className="block text-[11px] text-slate-400 font-normal">{gTask?.title ? gTask.title : "surprise stars!"}</span></div>
+                <StarPill n={g.stars} tone="emerald" />
+              </Card>
+            );
+          })}
         </>
       )}
       <SectionTitle icon={<Award size={16} className="text-emerald-500" />}>Stars I've earned</SectionTitle>
       {approved.length === 0 && <p className="text-sm text-slate-400 px-1">Nothing approved yet — go finish a mission! 🚀</p>}
       {approved.map((c) => {
         const t = tasks.find((x) => x.id === c.taskId);
-        const d = actFor(t || { activityType: "" }, activities);
+        const a = actFor(t || { activityType: "" }, activities);
         return (
           <Card key={c.id} className="p-3 mb-2 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl grid place-items-center" style={{ background: d.tint }}><TaskIcon type={t?.activityType} color={d.color} /></div>
+            <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} size={36} />
             <div className="flex-1 text-sm font-semibold">{t?.title}{c.extra?.bookTitle && <span className="block text-[11px] text-slate-400 font-normal">{c.extra.bookTitle}</span>}</div>
             <StarPill n={c.awardedStars} tone="emerald" />
           </Card>
@@ -5059,7 +5162,8 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
             alt=""
             loading="lazy"
             className="w-12 shrink-0 object-cover"
-            style={{ background: d.color }}
+            style={{ background: d.color, cursor: "zoom-in" }}
+            onClick={(e) => { e.stopPropagation(); lightbox.open({ src: photoSrc }); }}
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         ) : (
