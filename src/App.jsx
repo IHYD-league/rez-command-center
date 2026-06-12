@@ -983,8 +983,33 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // a chore that was already submitted. updateCompletion routes through
   // setCompletions so the Supabase sync layer picks it up the same way
   // it does for submit/decide/undo.
-  const updateCompletion = (completionId, patch) => {
-    setCompletions((prev) => prev.map((c) => (c.id === completionId ? { ...c, ...patch } : c)));
+  // updateCompletion patches the row + optionally appends an audit
+  // entry. meta = { by, summary } turns a silent patch into a tracked
+  // edit: the History tab in CompletionDetailSheet renders these so
+  // weeks later "why does this row say +10 instead of +5?" has an
+  // answer. Audit lives in extra.history (jsonb, no migration).
+  const updateCompletion = (completionId, patch, meta) => {
+    setCompletions((prev) => prev.map((c) => {
+      if (c.id !== completionId) return c;
+      const next = { ...c, ...patch };
+      if (meta && meta.summary) {
+        const prevHistory = Array.isArray(c.extra?.history) ? c.extra.history : [];
+        const entry = {
+          at: new Date().toISOString(),
+          by: meta.by || null,
+          summary: meta.summary,
+          // Snapshot only the keys actually patched so the row stays
+          // readable. Stringified values keep the jsonb compact.
+          changes: Object.keys(patch).map((k) => ({
+            field: k,
+            before: c[k] === undefined ? null : c[k],
+            after: patch[k] === undefined ? null : patch[k],
+          })),
+        };
+        next.extra = { ...(next.extra || {}), history: [entry, ...prevHistory] };
+      }
+      return next;
+    }));
   };
   // Append-only helper to add a single photo proof onto a completion.
   // Keeps existing proof entries (notes, prior photos) intact. Used by
@@ -1475,6 +1500,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
             updateBook={updateBook}
             addBook={addBook}
             updateCompletion={updateCompletion}
+            actorId={user?.id}
           />
         )}
         {celebrate && <CelebrateOverlay data={celebrate} onClose={() => setCelebrate(null)} />}
@@ -1496,7 +1522,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
               onClose={() => setOpenCompletionId(null)}
               onAddPhoto={(photo) => addCompletionPhoto(c.id, photo)}
               onRemovePhoto={(path) => removeCompletionPhoto(c.id, path)}
-              onUpdateNotes={(notes) => updateCompletion(c.id, { notes })}
+              onUpdateNotes={(notes) => updateCompletion(c.id, { notes }, { by: currentUserId, summary: "Edited notes" })}
               onUndo={() => undoTask(c.taskId)}
               onEditTask={(taskId) => setDetailId(taskId)}
               onEditDetails={() => { setOpenCompletionId(null); setOpenTask(t); }}
@@ -3221,6 +3247,45 @@ function CompletionDetailSheet({
               </>
             )}
             <StatRow label="Photos" value={`${photos.length} attached`} />
+
+            {/* Edit history — appended by updateCompletion whenever a
+                parent edits this row. Answers "why does this completion
+                say what it says now?" weeks after the fact. Newest first
+                so the most recent change is at the top. */}
+            {Array.isArray(completion?.extra?.history) && completion.extra.history.length > 0 && (
+              <div className="mt-3">
+                <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 mb-1">
+                  Edit history
+                </div>
+                <div className="rounded-2xl bg-slate-50 border border-slate-100 divide-y divide-slate-200">
+                  {completion.extra.history.map((h, i) => {
+                    const whoName = users?.find((u) => u.id === h.by)?.name || "—";
+                    const when = h.at ? new Date(h.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+                    return (
+                      <div key={i} className="p-2.5">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <div className="text-[12px] font-bold text-slate-700">{h.summary || "Edit"}</div>
+                          <div className="text-[10px] text-slate-400 shrink-0">{when}</div>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">by {whoName}</div>
+                        {Array.isArray(h.changes) && h.changes.length > 0 && (
+                          <div className="mt-1.5 space-y-0.5">
+                            {h.changes.map((ch, j) => (
+                              <div key={j} className="text-[10px] text-slate-500">
+                                <span className="font-bold text-slate-600">{ch.field}:</span>{" "}
+                                <span className="line-through text-slate-400">{formatHistoryValue(ch.before)}</span>
+                                <span className="mx-1">→</span>
+                                <span className="text-slate-700">{formatHistoryValue(ch.after)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -3263,6 +3328,25 @@ function CompletionDetailSheet({
       </div>
     </div>
   );
+}
+
+// Render a before/after value from the edit history into something a
+// human can scan. Objects (extra, proof) collapse to their shape; long
+// strings get truncated; nullish becomes "—" so the diff stays legible.
+function formatHistoryValue(v) {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "string") {
+    if (!v.trim()) return "(empty)";
+    return v.length > 32 ? v.slice(0, 32) + "…" : v;
+  }
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return `[${v.length} item${v.length === 1 ? "" : "s"}]`;
+  if (typeof v === "object") {
+    const keys = Object.keys(v);
+    if (keys.length === 0) return "{}";
+    return `{${keys.slice(0, 3).join(", ")}${keys.length > 3 ? "…" : ""}}`;
+  }
+  return String(v);
 }
 
 function StatRow({ label, value }) {
@@ -3500,7 +3584,7 @@ function StreakCard({ e, hero }) {
 }
 
 // ===================== TASK SHEET (submit flow) =====================
-function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, songPlays, addSong, addSongPlay, books = [], updateBook, addBook, updateCompletion }) {
+function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, songPlays, addSong, addSongPlay, books = [], updateBook, addBook, updateCompletion, actorId }) {
   const [notes, setNotes] = useState(existing?.notes || "");
   const [bookTitle, setBookTitle] = useState(existing?.extra?.bookTitle || "");
   const [lang, setLang] = useState(existing?.extra?.lang || "English");
@@ -3665,7 +3749,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
       // Skips streak bump, juice, celebrate — those already fired on
       // the original submit. Clean way to fix the book pick or
       // minutes hours later without an undo+resubmit round trip.
-      updateCompletion(existing.id, { notes, proof, extra });
+      updateCompletion(existing.id, { notes, proof, extra }, { by: actorId, summary: "Edited completion details" });
       onClose();
     } else {
       onSubmit(task.id, { notes, proof, extra });
@@ -4177,6 +4261,20 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
                       <label className="flex-1 text-[11px] font-semibold text-slate-500">Current<input type="number" value={s.current} onChange={(e) => setStreak(aid, { current: Number(e.target.value) })} className="w-full mt-0.5 border border-slate-200 rounded-lg px-2 py-1 text-sm" /></label>
                       <label className="flex-1 text-[11px] font-semibold text-slate-500">Best<input type="number" value={s.longest} onChange={(e) => setStreak(aid, { longest: Number(e.target.value) })} className="w-full mt-0.5 border border-slate-200 rounded-lg px-2 py-1 text-sm" /></label>
                     </div>
+                    {/* Since date — visible + editable. Pinning a real
+                        start date makes the streak honest: a kid will ask
+                        "since when?" and the parent can answer with the
+                        right Sunday instead of a guess. */}
+                    <label className="block text-[11px] font-semibold text-slate-500 mt-2">
+                      Since
+                      <input
+                        type="date"
+                        value={s.since || ""}
+                        max={TODAY_ISO}
+                        onChange={(e) => setStreak(aid, { since: e.target.value })}
+                        className="w-full mt-0.5 border border-slate-200 rounded-lg px-2 py-1 text-sm"
+                      />
+                    </label>
                     <div className="flex gap-2 mt-2">
                       <button onClick={() => bumpStreak(aid)} className="flex-1 py-1.5 rounded-lg bg-orange-500 text-white text-xs font-bold">+1 day today</button>
                       <button onClick={() => stopStreak(aid)} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">Stop</button>
