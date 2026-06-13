@@ -5894,7 +5894,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
     <div className="px-4 pt-4">
       <div className="flex items-center justify-between px-1">
         <div className="text-xs text-slate-400">{fmtDate(today)}</div>
-        {onEasy && <button onClick={onEasy} className="text-[11px] font-bold text-amber-600 bg-amber-50 rounded-full px-2.5 py-1 flex items-center gap-1">😴 Easy mode</button>}
+        {onEasy && <button onClick={onEasy} className="text-[11px] font-bold text-amber-600 bg-amber-50 rounded-full px-2.5 py-1 flex items-center gap-1">{i18nTOf("pt_easy_mode", "😴 Easy mode")}</button>}
       </div>
       <div className="grid grid-cols-2 gap-2 mt-2">
         <SummaryStat label={i18nTOf("stat_stars_available", "Stars available today")} value={availableToday} tone="slate" onClick={() => setStatDetailId?.("available")} />
@@ -5907,12 +5907,12 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
 
       <Card className="p-4 mt-3">
         <div className="flex items-center justify-between text-sm">
-          <span className="font-bold">Next reward</span><span className="text-slate-500">{CHILD.nextReward} @ {CHILD.nextRewardCost} ⭐</span>
+          <span className="font-bold">{i18nTOf("pt_next_reward", "Next reward")}</span><span className="text-slate-500">{i18nTOf("pt_at_cost", "{name} @ {n} ⭐").replace("{name}", CHILD.nextReward).replace("{n}", CHILD.nextRewardCost)}</span>
         </div>
         <div className="h-2 bg-slate-100 rounded-full mt-2 overflow-hidden"><div className="h-full bg-amber-400" style={{ width: `${Math.min(100, (starBank / CHILD.nextRewardCost) * 100)}%` }} /></div>
         <div className="flex items-center justify-between text-xs mt-3 text-slate-400">
-          <span>Big goal: {CHILD.bigReward} @ {CHILD.bigRewardCost} ⭐</span>
-          <button onClick={() => setMode(mode === "summer" ? "school" : "summer")} className="font-semibold text-indigo-600">Switch to {mode === "summer" ? "School" : "Summer"} mode</button>
+          <span>{i18nTOf("pt_big_goal", "Big goal: {name} @ {n} ⭐").replace("{name}", CHILD.bigReward).replace("{n}", CHILD.bigRewardCost)}</span>
+          <button onClick={() => setMode(mode === "summer" ? "school" : "summer")} className="font-semibold text-indigo-600">{i18nTOf("pt_switch_mode", "Switch to {mode} mode").replace("{mode}", mode === "summer" ? i18nTOf("pt_mode_school", "School") : i18nTOf("pt_mode_summer", "Summer"))}</button>
         </div>
       </Card>
 
@@ -5946,8 +5946,8 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
               <div className="flex gap-2 mt-1.5 px-1">
                 <button onClick={() => decide(c.id, "approve")} className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={15} />{i18nTOf("act_approve", "Approve")}</button>
                 <button onClick={() => decide(c.id, "approve", 5)} className="px-3 py-2 rounded-2xl bg-violet-500 text-white font-bold text-sm active:scale-95">+5⭐</button>
-                <button onClick={() => decide(c.id, "needs_fix")} className="px-3 py-2 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm active:scale-95" aria-label="Needs fix"><RotateCcw size={15} /></button>
-                <button onClick={() => decide(c.id, "reject")} className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95" aria-label="Reject"><X size={15} /></button>
+                <button onClick={() => decide(c.id, "needs_fix")} className="px-3 py-2 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm active:scale-95" aria-label={i18nTOf("pt_needs_fix_aria", "Needs fix")}><RotateCcw size={15} /></button>
+                <button onClick={() => decide(c.id, "reject")} className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95" aria-label={i18nTOf("pt_reject_aria", "Reject")}><X size={15} /></button>
               </div>
             )}
           </div>
@@ -5993,7 +5993,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
             </SectionTitle>
             {mustDo.length === 0 ? (
               <Card className="p-3 mb-2 text-center text-xs text-emerald-700 bg-emerald-50 border-emerald-200 font-bold">
-                ✨ Top 8 complete — treasure ready to open!
+                {i18nTOf("pt_top8_complete", "✨ Top 8 complete — treasure ready to open!")}
               </Card>
             ) : (
               mustDo.map(renderRow)
@@ -6039,23 +6039,26 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
                         || gTask.activityType?.toLowerCase().replace(/\s/g, "_")))
                     : null);
               const giver = users.find((u) => u.id === g.by)?.name || "—";
+              const taskSuffix = gTask
+                ? i18nTOf("pt_bonus_row_task_suffix", " · {title}").replace("{title}", i18nTitleOf(gTask))
+                : "";
               return (
                 <button
                   key={g.id}
                   type="button"
                   onClick={() => giftEditor.open(g)}
                   className="w-full text-left active:scale-[0.99] transition"
-                  title="Tap to edit this bonus"
+                  title={i18nTOf("pt_bonus_edit_title", "Tap to edit this bonus")}
                 >
                   <Card className="p-3 mb-2 flex items-center gap-3 border-amber-100 bg-amber-50/40">
                     <ProofThumb gift={g} activity={gAct} task={gTask} books={books} songs={songs} songPlays={songPlays} size={36} />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold text-slate-800 truncate flex items-center gap-1">
                         <Sparkles size={12} className="text-amber-500 shrink-0" />
-                        {g.label || "Bonus"}
+                        {g.label || i18nTOf("pt_bonus_fallback", "Bonus")}
                       </div>
                       <div className="text-[11px] text-slate-400 truncate">
-                        bonus stars · from {giver}{gTask?.title ? ` · ${gTask.title}` : ""} · tap to edit
+                        {i18nTOf("pt_bonus_row_meta", "bonus stars · from {giver}{task} · tap to edit").replace("{giver}", giver).replace("{task}", taskSuffix)}
                       </div>
                     </div>
                     <StarPill n={Number(g.stars) || 0} tone="emerald" />
@@ -6086,7 +6089,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
                   type="button"
                   onClick={() => restoreTaskFromNA && restoreTaskFromNA(TODAY_ISO, t.id)}
                   className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200 active:scale-95 flex items-center gap-1.5"
-                  title={`Restore "${t.title}" to today's list`}
+                  title={i18nTOf("pt_restore_title", "Restore \"{title}\" to today's list").replace("{title}", i18nTitleOf(t))}
                 >
                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: d.color }} />
                   {i18nTitleOf(t)}
@@ -6134,8 +6137,17 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   const P = PRIORITY[lvl];
   const ov = priorities?.[task.id];
   const [pendLevel, setPendLevel] = useState(ov?.level || "today");
-  const LEVELS = [["must", "Non-negotiable"], ["today", "Do today"], ["extra", "Extra credit"]];
-  const SCOPES = [["today", "Today"], ["week", "This week"], ["month", "This month"], ["always", "Always"]];
+  const LEVELS = [
+    ["must",  i18nTOf("mr_level_must", "Non-negotiable")],
+    ["today", i18nTOf("mr_level_today", "Do today")],
+    ["extra", i18nTOf("mr_level_extra", "Extra credit")],
+  ];
+  const SCOPES = [
+    ["today",  i18nTOf("mr_scope_today", "Today")],
+    ["week",   i18nTOf("mr_scope_week", "This week")],
+    ["month",  i18nTOf("mr_scope_month", "This month")],
+    ["always", i18nTOf("mr_scope_always", "Always")],
+  ];
   // Activity-aware band thumbnail. Same resolution rules as ProofThumb:
   //   Reading completion → book cover preferred (the book IS what was read).
   //   Drums completion   → song cover preferred (the song IS what was practiced).

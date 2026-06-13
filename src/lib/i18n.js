@@ -716,6 +716,32 @@ const STRINGS = {
   br_backlog_kicker:          { en: "Backlog entry · no real date needed",       es: "Entrada del histórico · sin fecha real" },
   br_add_to_backlog:          { en: "Add to backlog",                            es: "Añadir al histórico" },
 
+  // ParentToday (parent landing)
+  pt_easy_mode:               { en: "😴 Easy mode",                              es: "😴 Modo fácil" },
+  pt_next_reward:             { en: "Next reward",                               es: "Próximo premio" },
+  pt_at_cost:                 { en: "{name} @ {n} ⭐",                            es: "{name} @ {n} ⭐" },
+  pt_big_goal:                { en: "Big goal: {name} @ {n} ⭐",                  es: "Meta grande: {name} @ {n} ⭐" },
+  pt_switch_mode:             { en: "Switch to {mode} mode",                     es: "Cambiar a modo {mode}" },
+  pt_mode_school:             { en: "School",                                    es: "Escuela" },
+  pt_mode_summer:             { en: "Summer",                                    es: "Verano" },
+  pt_needs_fix_aria:          { en: "Needs fix",                                 es: "Necesita arreglo" },
+  pt_reject_aria:             { en: "Reject",                                    es: "Rechazar" },
+  pt_top8_complete:           { en: "✨ Top 8 complete — treasure ready to open!", es: "✨ Top 8 completo — ¡el tesoro está listo!" },
+  pt_bonus_fallback:          { en: "Bonus",                                     es: "Bono" },
+  pt_bonus_row_meta:          { en: "bonus stars · from {giver}{task} · tap to edit", es: "estrellas bonus · de {giver}{task} · toca para editar" },
+  pt_bonus_row_task_suffix:   { en: " · {title}",                                es: " · {title}" },
+  pt_bonus_edit_title:        { en: "Tap to edit this bonus",                    es: "Toca para editar este bono" },
+  pt_restore_title:           { en: "Restore \"{title}\" to today's list",       es: "Restaurar \"{title}\" a la lista de hoy" },
+
+  // MiniRow priority sheet
+  mr_level_must:              { en: "Non-negotiable",                            es: "No negociable" },
+  mr_level_today:             { en: "Do today",                                  es: "Hacer hoy" },
+  mr_level_extra:             { en: "Extra credit",                              es: "Crédito extra" },
+  mr_scope_today:             { en: "Today",                                     es: "Hoy" },
+  mr_scope_week:              { en: "This week",                                 es: "Esta semana" },
+  mr_scope_month:             { en: "This month",                                es: "Este mes" },
+  mr_scope_always:            { en: "Always",                                    es: "Siempre" },
+
   // Summary stat tile labels (parent Today + kid Stars)
   stat_stars_available:       { en: "Stars available today",                 es: "Estrellas disponibles hoy" },
   stat_earned_today:          { en: "Earned today",                          es: "Ganadas hoy" },
