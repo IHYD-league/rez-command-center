@@ -47,6 +47,11 @@ export const toApp = {
     days: r.days,
     subtasks: r.subtasks,
     active: r.active,
+    // Per-task generic stat field schema (Phase 1 of the activity-
+    // stats system). Empty {} on rows that pre-date the migration.
+    // TaskSheet's iteration-2 reader will use this when present and
+    // fall back to the proofType branches otherwise.
+    statSchema: r.stat_schema ?? {},
   }),
 
   reward: (r) => ({
@@ -279,6 +284,12 @@ export const toDb = {
     days: o.days ?? null,
     subtasks: o.subtasks ?? null,
     active: o.active ?? true,
+    // Schema is intentionally not pruned to keep the postgrest batch
+    // upsert NULL-padding rule happy (per memory:
+    // feedback_postgrest_batch_column_normalization). Always send it
+    // even when empty so the column normalizer doesn't blank out
+    // existing rows in the same batch.
+    stat_schema: o.statSchema ?? {},
   }),
 
   reward: (familyId) => (o) => ({
