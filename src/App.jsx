@@ -763,29 +763,60 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const user = users.find((u) => u.id === currentUserId);
 
   // ---- derived ----
+  // Pinned-today set — Mike's hard rules:
+  //   "If the calendar shows Taekwondo today, it must at least be in
+  //    the bonus."
+  //   "If I add it to the board game, it must move into the to-do
+  //    today list."
+  // Two parents complained the calendar TKD-day picker and board
+  // game additions silently dropped because the underlying task was
+  // mode="school" while the family was in summer. Now: any task
+  // pinned to today (via topPriorities.daily — that's where the
+  // board game writes — OR via tkdDays + Taekwondo) bypasses the
+  // mode/days filter and forces its way into todaysTasks. Board-
+  // game items also enter the must-do list because they're already
+  // in topEightIds; calendar TKD picks land as bonus (in todaysTasks
+  // but not topEight) — exactly matching Mike's "at least bonus"
+  // floor and "must-do for board" ceiling.
+  const pinnedToday = useMemo(() => {
+    const set = new Set();
+    const daily = topPriorities?.daily?.[TODAY_ISO];
+    if (Array.isArray(daily)) daily.forEach((id) => set.add(id));
+    // Calendar TKD pick: today's weekday is in tkdDays → pin the
+    // Taekwondo task even if its mode/days say otherwise.
+    if (Array.isArray(tkdDays) && tkdDays.includes(WEEKDAY)) set.add("t_tkd");
+    return set;
+  }, [topPriorities, tkdDays]);
+
   const todaysTasks = useMemo(() => {
     const naSet = new Set(taskNaDays?.[TODAY_ISO] || []);
-    return tasks.filter((t) =>
-      (t.mode === "both" || t.mode === mode)
-      && (!t.days || t.days.includes(WEEKDAY))
-      && t.active !== false
-      && !naSet.has(t.id)
-    );
-  }, [tasks, mode, taskNaDays]);
+    return tasks.filter((t) => {
+      if (t.active === false) return false;
+      if (naSet.has(t.id)) return false;
+      // Pinned bypass: calendar / board-game additions always show.
+      if (pinnedToday.has(t.id)) return true;
+      // Otherwise apply the standard schedule filter.
+      return (t.mode === "both" || t.mode === mode)
+        && (!t.days || t.days.includes(WEEKDAY));
+    });
+  }, [tasks, mode, taskNaDays, pinnedToday]);
   // Tasks the parent marked N/A today — surfaced as a small restore
   // strip so the action is recoverable in one tap. Same source-of-
   // truth filter as todaysTasks above (so we never show a deleted or
-  // off-schedule task as "N/A today").
+  // off-schedule task as "N/A today"). The pinned-today bypass also
+  // applies here so a parent who NA'd a pinned task can still
+  // restore it.
   const todaysNATasks = useMemo(() => {
     const naIds = new Set(taskNaDays?.[TODAY_ISO] || []);
     if (naIds.size === 0) return [];
-    return tasks.filter((t) =>
-      naIds.has(t.id)
-      && (t.mode === "both" || t.mode === mode)
-      && (!t.days || t.days.includes(WEEKDAY))
-      && t.active !== false
-    );
-  }, [tasks, mode, taskNaDays]);
+    return tasks.filter((t) => {
+      if (!naIds.has(t.id)) return false;
+      if (t.active === false) return false;
+      if (pinnedToday.has(t.id)) return true;
+      return (t.mode === "both" || t.mode === mode)
+        && (!t.days || t.days.includes(WEEKDAY));
+    });
+  }, [tasks, mode, taskNaDays, pinnedToday]);
   // The parent-curated Top 8 in canonical task-object form. Source of
   // truth for the board, kid missions, kid home quests. Sparse entries
   // (deleted tasks, inactive tasks) are dropped silently so the board
@@ -10812,7 +10843,7 @@ function ParentTodayHome(props) {
 }
 
 // Big, calm, must-dos-only view for a tired grandma babysitting.
-function EasyChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, mode, priorities, activities, onFull, familyId }) {
+function EasyChecklist({ todaysTasks, todaysTopEight = [], compByTask, submitTask, undoTask, user, mode, priorities, activities, onFull, familyId }) {
   const onPhoto = async (t, file) => {
     if (!file) return;
     try {
@@ -10823,8 +10854,21 @@ function EasyChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, mo
       toast.error("Photo upload failed: " + (err.message || err));
     }
   };
+  // Easy Mode source list — Mike's rule: "for Easy Mode, it should
+  // include all Board Game required items. If it's 8 it should show
+  // all 8." Top 8 is the canonical "what matters today" list, so
+  // Easy Mode mirrors it. Falls back to must/today priorities when
+  // there's no Top 8 set (early-onboarding family), then to required
+  // tasks (older grandparent flow). This way a babysitter sees the
+  // SAME plan the parent curated on the board, not a separately-
+  // derived priority slice that might miss items.
+  const top8Ids = new Set((todaysTopEight || []).map((t) => t.id));
+  const fromTop8 = todaysTasks.filter((t) => top8Ids.has(t.id));
   const essentials = todaysTasks.filter((t) => { const lvl = levelOf(t, mode, priorities); return lvl === "must" || lvl === "today"; });
-  const ordered = sortByLevel(essentials.length ? essentials : todaysTasks.filter((t) => t.required), mode, priorities);
+  const sourceList = fromTop8.length > 0
+    ? fromTop8
+    : (essentials.length ? essentials : todaysTasks.filter((t) => t.required));
+  const ordered = sortByLevel(sourceList, mode, priorities);
   const remaining = ordered.filter((t) => { const c = compByTask[t.id]; return !(c?.status === "approved" || c?.status === "pending"); });
   const allDone = remaining.length === 0;
   return (
