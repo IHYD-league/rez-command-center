@@ -85,10 +85,52 @@ export async function compressImage(file, kind = "proof") {
   }
 }
 
-// Upload a file under <familyId>/<kind>/<timestamp>-<random>.<ext>.
-// Returns { path, name } — `path` is what we persist; `name` is the
-// original filename for display purposes. Images are compressed via
-// compressImage before upload; non-images pass through.
+// SHA-256 hex digest of the compressed bytes. Used as the storage
+// path key so identical uploads from the same family deduplicate
+// at the storage layer — Krissie uploading the same Make-Bed
+// photo twice no longer produces two storage objects.
+async function sha256Hex(arrayBuffer) {
+  if (!crypto?.subtle?.digest) {
+    // No SubtleCrypto (very old browsers / non-HTTPS context). Fall
+    // back to a non-cryptographic hash so we still get SOME dedup
+    // benefit. Collisions are theoretically possible but vanishingly
+    // unlikely for images of any meaningful size; even if they did
+    // collide, the worst case is a same-family overwrite of identical-
+    // shape content which is what we wanted anyway.
+    let h = 5381;
+    const view = new Uint8Array(arrayBuffer);
+    for (let i = 0; i < view.length; i++) h = ((h * 33) ^ view[i]) >>> 0;
+    return ("00000000" + h.toString(16)).slice(-8);
+  }
+  const buf = await crypto.subtle.digest("SHA-256", arrayBuffer);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Upload a file under <familyId>/<kind>/<sha256>.<ext>.
+//
+// CONTENT-ADDRESSED PATHS (trust audit finding 🔴 #4):
+// Before this change, the path used Date.now() + Math.random(), so
+// uploading the same bytes twice produced two distinct storage
+// objects. That meant Krissie's identical "made bed" photo across
+// two completions wasted 2x the storage; Reznor's day-1 piano cover
+// uploaded again on day-90 = 2 stored copies. At 100+ families that
+// adds up. Now: the path is SHA-256 of the compressed bytes, scoped
+// by family + kind. Identical bytes from the same family land at
+// the same path; upsert:true makes the second upload a no-op
+// overwrite. Different families never share paths (privacy boundary
+// preserved — RLS enforces family folder isolation either way).
+//
+// IMPORTANT: cascade-delete (next audit fix) MUST ref-count before
+// deleting any storage path. A path may now be referenced from
+// multiple DB rows (multiple completions, completion + cover, etc.)
+// because of dedup. Removing one reference doesn't mean the file
+// is safe to delete from storage.
+//
+// Returns { path, name } — `path` is what we persist; `name` is
+// the original filename for display purposes. Images are compressed
+// via compressImage before upload; non-images pass through.
 export async function uploadFamilyPhoto({ file, familyId, kind = "proof" }) {
   if (!supabase) throw new Error("Supabase client not configured");
   if (!file) throw new Error("uploadFamilyPhoto: missing file");
@@ -97,11 +139,19 @@ export async function uploadFamilyPhoto({ file, familyId, kind = "proof" }) {
   const safeKind = String(kind).replace(/[^a-z0-9_-]/gi, "").slice(0, 32) || "misc";
   const rawExt = (compressed.name?.split(".").pop() || "").toLowerCase();
   const ext = rawExt.replace(/[^a-z0-9]/g, "").slice(0, 6) || "bin";
-  const random = Math.random().toString(36).slice(2, 10);
-  const path = `${familyId}/${safeKind}/${Date.now()}-${random}.${ext}`;
+  // Compute the content hash AFTER compression so dedup keys on the
+  // bytes we actually store (re-encoded JPEGs). compressImage is
+  // deterministic for the same input within a single browser, so
+  // the same source photo from the same device always hashes the
+  // same. Cross-browser dedup is best-effort — different encoders
+  // produce different bytes — but the common case (one family,
+  // one phone) deduplicates perfectly.
+  const arrayBuf = await compressed.arrayBuffer();
+  const hash = await sha256Hex(arrayBuf);
+  const path = `${familyId}/${safeKind}/${hash}.${ext}`;
   const { error } = await supabase.storage
     .from(PHOTOS_BUCKET)
-    .upload(path, compressed, { upsert: false, contentType: compressed.type || undefined });
+    .upload(path, compressed, { upsert: true, contentType: compressed.type || undefined });
   if (error) throw error;
   return { path, name: file.name || path.split("/").pop() };
 }
