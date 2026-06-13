@@ -48,6 +48,10 @@ const STRINGS = {
   sec_extra_credit:     { en: "Extra credit",      es: "Crédito extra" },
   sec_needs_approval:   { en: "Needs approval",    es: "Falta aprobar" },
 
+  // KidGameHome quest tile labels
+  quest_label:    { en: "Quest",    es: "Misión" },
+  quest_complete: { en: "Complete", es: "Completa" },
+
   // Common pillar labels
   pillar_brain: { en: "Brain", es: "Mente" },
   pillar_body:  { en: "Body",  es: "Cuerpo" },
@@ -103,6 +107,24 @@ const ACTIVITY_NAMES = {
   a_field:    { en: "Field trips",  es: "Excursiones" },
   a_church:   { en: "Church",       es: "Iglesia" },
 };
+
+// Module-level current-langs holder so any component can call the
+// translate helpers without prop-drilling `langs` through every
+// signature. The App seeds this from a useEffect whenever the
+// family setting changes. Components read from it via the
+// no-arg shorthand functions below (titleOf / nameOf / tOf).
+let _currentLangs = ["en"];
+export function setCurrentLangs(next) {
+  _currentLangs = Array.isArray(next) && next.length > 0 ? next : ["en"];
+}
+export function getCurrentLangs() { return _currentLangs; }
+
+// Convenience: same as taskTitle/activityName/tt but read the
+// module-level current langs. Use these in JSX so a screen doesn't
+// need to thread langs from App down through 6 components.
+export function titleOf(task) { return taskTitle(task, _currentLangs); }
+export function nameOf(activity) { return activityName(activity, _currentLangs); }
+export function tOf(key, fallback) { return tt(key, _currentLangs, fallback); }
 
 export function activeLangs(prefs) {
   const raw = (prefs && prefs.displayLangs) || ["en"];
