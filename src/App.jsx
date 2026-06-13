@@ -4928,11 +4928,11 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     automatically. Type a new title in the field below
                     when nothing matches. */}
                 <div>
-                  <div className="text-xs font-semibold text-slate-500 mb-1">Pick from library, or type a new one below</div>
+                  <div className="text-xs font-semibold text-slate-500 mb-1">{i18nTOf("field_book_pick_or_type", "Pick from library, or type a new one below")}</div>
                   <input
                     value={bookSearch}
                     onChange={(e) => setBookSearch(e.target.value)}
-                    placeholder="Search books he's read or is reading…"
+                    placeholder={i18nTOf("field_book_search_placeholder", "Search books he's read or is reading…")}
                     className="input"
                   />
                   {bookSearch.trim() && pickerBooks.length > 0 && (
@@ -4982,7 +4982,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-2">
                       <Check size={14} className="text-emerald-600 shrink-0" />
                       <div className="flex-1 text-[12px] text-emerald-800 font-bold truncate">
-                        Picked: {pickedBook.canonicalTitle || pickedBook.title || "(untitled)"}
+                        {i18nTOf("field_picked", "Picked")}: {pickedBook.canonicalTitle || pickedBook.title || "(untitled)"}
                         {(pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped") && (
                           <span className="text-[10px] text-amber-700 ml-1">(this will be Round {(pickedBook.readCount || 1) + 1})</span>
                         )}
@@ -4993,7 +4993,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     </div>
                   )}
                 </div>
-                <Field label={pickedBook ? "Title (synced from pick)" : "Book title *"}>
+                <Field label={pickedBook ? i18nTOf("field_book_title_synced", "Title (synced from pick)") : i18nTOf("field_book_title_required", "Book title *")}>
                   <input
                     value={bookTitle}
                     onChange={(e) => { setBookTitle(e.target.value); if (pickedBook) setBookId(null); }}
@@ -5025,7 +5025,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
 
             {isPhoto && (
               <>
-                <Field label="Title (optional)"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Name your work" className="input" /></Field>
+                <Field label={i18nTOf("field_title_optional", "Title (optional)")}><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={i18nTOf("field_name_your_work", "Name your work")} className="input" /></Field>
                 <div>
                   <div className="text-xs font-semibold text-slate-500 mb-1">
                     {i18nTOf("field_photos_of_your_work", "Photos of your work *")} <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
@@ -5054,10 +5054,10 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
             {isDrums && (
               <>
                 <div className="grid grid-cols-2 gap-2">
-                  <Field label="Drumeo min"><input type="number" value={drumeo} onChange={(e) => setDrumeo(e.target.value)} className="input" /></Field>
-                  <Field label="Melodics min"><input type="number" value={melodics} onChange={(e) => setMelodics(e.target.value)} className="input" /></Field>
+                  <Field label={i18nTOf("field_drumeo_min", "Drumeo min")}><input type="number" value={drumeo} onChange={(e) => setDrumeo(e.target.value)} className="input" /></Field>
+                  <Field label={i18nTOf("field_melodics_min", "Melodics min")}><input type="number" value={melodics} onChange={(e) => setMelodics(e.target.value)} className="input" /></Field>
                 </div>
-                <Field label="Drumscribe / YouTube songs"><input value={songList} onChange={(e) => setSongList(e.target.value)} placeholder="Song 1, Song 2…" className="input" /></Field>
+                <Field label={i18nTOf("field_drumscribe_songs", "Drumscribe / YouTube songs")}><input value={songList} onChange={(e) => setSongList(e.target.value)} placeholder={i18nTOf("field_drumscribe_placeholder", "Song 1, Song 2…")} className="input" /></Field>
                 {addSongPlay && (
                   <SongLogger
                     songs={songs || []}
@@ -5067,7 +5067,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     fuzzyMatch={fuzzyMatch}
                   />
                 )}
-                <div className="bg-amber-50 rounded-2xl p-3 text-xs text-amber-700">🎯 Goal: 1 hour · Stretch: 2 hours. Parent can adjust stars for effort.</div>
+                <div className="bg-amber-50 rounded-2xl p-3 text-xs text-amber-700">{i18nTOf("field_drums_goal_hint", "🎯 Goal: 1 hour · Stretch: 2 hours. Parent can adjust stars for effort.")}</div>
                 <div>
                   <div className="text-xs font-semibold text-slate-500 mb-1">
                     {i18nTOf("field_screenshots", "Screenshots / photos")} <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
@@ -5293,7 +5293,7 @@ function HistoryCalendar({ activityId, color, streaks }) {
       </Card>
       <div className="grid grid-cols-3 gap-2 mt-3">
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold" style={{ color }}>{weekDone}</div><div className="text-[11px] text-slate-400">this week</div></Card>
-        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-slate-700">{monthDone}</div><div className="text-[11px] text-slate-400">this month</div></Card>
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-slate-700">{monthDone}</div><div className="text-[11px] text-slate-400">{i18nTOf("ril_this_month", "this month")}</div></Card>
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-orange-500">🔥{s?.current ?? 0}</div><div className="text-[11px] text-slate-400">streak</div></Card>
       </div>
     </>
@@ -6703,8 +6703,8 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
           }
         }
       `}</style>
-      <h2 className="font-extrabold text-lg px-1">Approval Queue</h2>
-      <p className="text-xs text-slate-400 px-1 mb-2">Stars stay pending until you approve.</p>
+      <h2 className="font-extrabold text-lg px-1">{i18nTOf("app_queue_title", "Approval Queue")}</h2>
+      <p className="text-xs text-slate-400 px-1 mb-2">{i18nTOf("app_queue_hint", "Stars stay pending until you approve.")}</p>
       {/* Today's tally — also the destination for the star-burst fly
           animation. Persistent presence so the parent watches their
           impact accumulate as they work through the queue. */}
@@ -6718,7 +6718,7 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
             <Star size={24} className="fill-amber-300 text-amber-300" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">Approved Today</div>
+            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">{i18nTOf("app_approved_today", "Approved Today")}</div>
             <div className="flex items-baseline gap-2">
               <span
                 ref={tallyRef}
@@ -6728,7 +6728,7 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
               >
                 {approvedToday}
               </span>
-              <span className="text-sm font-bold text-white/70">⭐ banked</span>
+              <span className="text-sm font-bold text-white/70">{i18nTOf("app_banked", "⭐ banked")}</span>
             </div>
           </div>
         </div>
@@ -7359,8 +7359,8 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
     <>
       <div className="grid grid-cols-3 gap-2 mb-3">
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-emerald-500">{finishedTotal}</div><div className="text-[11px] text-slate-400">finished</div></Card>
-        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-indigo-500">{thisMonth}</div><div className="text-[11px] text-slate-400">this month</div></Card>
-        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-amber-500">{avgPace ? `${avgPace}d` : "—"}</div><div className="text-[11px] text-slate-400">avg / book</div></Card>
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-indigo-500">{thisMonth}</div><div className="text-[11px] text-slate-400">{i18nTOf("ril_this_month", "this month")}</div></Card>
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-amber-500">{avgPace ? `${avgPace}d` : "—"}</div><div className="text-[11px] text-slate-400">{i18nTOf("ril_avg_per_book", "avg / book")}</div></Card>
       </div>
 
       <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-3 py-2 mb-3">
@@ -8347,7 +8347,7 @@ function ParentRecap(props) {
       <div className="grid grid-cols-2 gap-2">
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-amber-500">{starsEarned}</div><div className="text-[11px] text-slate-400">stars earned</div></Card>
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-emerald-500">{approved.length}</div><div className="text-[11px] text-slate-400">completed</div></Card>
-        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-sky-500">{booksDone.length}</div><div className="text-[11px] text-slate-400">books finished</div></Card>
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-sky-500">{booksDone.length}</div><div className="text-[11px] text-slate-400">{i18nTOf("ril_books_finished_lower", "books finished")}</div></Card>
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-violet-500">{photos.length}</div><div className="text-[11px] text-slate-400">photos</div></Card>
       </div>
 
