@@ -17,6 +17,7 @@ import SongLogger from "./SongLogger.jsx";
 import BoardGame, { BOARD_THEMES, DEFAULT_BOARD_THEME } from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
+import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel } from "./lib/statTemplates.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { supabase } from "./lib/supabase.js";
 import { toApp } from "./data/transform.js";
@@ -10517,6 +10518,9 @@ function TaskEditRow({ t, activities, updateTask, removeTask }) {
                 Shows in Spanish / Both mode. Leave blank to keep English everywhere.
               </div>
             </div>
+
+            <StatTemplatePicker t={t} updateTask={updateTask} />
+
             <div className="flex gap-2 mt-2">
               <button onClick={() => updateTask(t.id, { active: t.active === false })} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">{t.active === false ? i18nTOf("manage_act_un_pause", "Un-pause") : i18nTOf("manage_act_pause", "Pause")}</button>
               <button onClick={() => removeTask(t.id)} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center gap-1"><X size={14} /> {i18nTOf("act_remove", "Remove")}</button>
@@ -10524,6 +10528,85 @@ function TaskEditRow({ t, activities, updateTask, removeTask }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// StatTemplatePicker — surfaces in TaskEditRow's expanded panel.
+// Lets a parent assign a pre-built stat schema (drums, piano,
+// basketball, soccer, hockey, etc.) to a task. When set, iteration
+// 2 of the activity-stats system will render submit-sheet inputs +
+// the Stats hero card directly from this schema instead of branching
+// on hard-coded proofType strings.
+//
+// v1 design choices:
+//   - Templates only, no custom field editor yet (Plan B iter 3).
+//   - Drums / Reading / Photo tasks (proofType set) keep the
+//     existing special-case branches; a template assignment is
+//     additive metadata until iteration 2 wires it in.
+//   - Picking a template overwrites statSchema in place. We don't
+//     merge — keeping the operation predictable for the parent.
+//   - "None" clears the schema. Useful when a parent picks the
+//     wrong template by accident.
+function StatTemplatePicker({ t, updateTask }) {
+  const [open, setOpen] = useState(false);
+  const currentId = t.statSchema?.templateId || null;
+  const currentLabel = currentId ? templateLabel(currentId) : null;
+  return (
+    <div className="mt-2 bg-slate-50 rounded-xl p-2.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <div>
+          <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            Stats template <span className="font-normal text-slate-400 normal-case">(optional)</span>
+          </div>
+          <div className="text-[12px] font-bold text-slate-700 mt-0.5">
+            {currentLabel || "None — basic notes + photo only"}
+          </div>
+        </div>
+        <ChevronLeft
+          size={14}
+          className={`text-slate-400 transition-transform ${open ? "-rotate-90" : "rotate-180"}`}
+        />
+      </button>
+      {open && (
+        <div className="mt-2 grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={() => { updateTask(t.id, { statSchema: {} }); setOpen(false); }}
+            className={`text-[11px] font-bold px-2 py-1.5 rounded-lg border ${
+              !currentId ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200"
+            }`}
+          >
+            None
+          </button>
+          {STAT_TEMPLATE_LIST.map((tmpl) => {
+            const active = currentId === tmpl.id;
+            return (
+              <button
+                key={tmpl.id}
+                type="button"
+                onClick={() => { updateTask(t.id, { statSchema: schemaFromTemplate(tmpl.id) }); setOpen(false); }}
+                className={`text-[11px] font-bold px-2 py-1.5 rounded-lg border flex items-center gap-1.5 ${
+                  active ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200"
+                }`}
+                title={`${tmpl.label} — ${tmpl.practice.length} practice field${tmpl.practice.length === 1 ? "" : "s"}${tmpl.game ? ` + game stats` : ""}`}
+              >
+                <span>{tmpl.icon}</span>
+                <span className="truncate">{tmpl.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {currentId && !open && (
+        <div className="text-[10px] text-slate-400 mt-1.5 leading-snug">
+          Iteration 2 wires the submit sheet + stats hero to this schema. For now it's set as metadata.
+        </div>
+      )}
     </div>
   );
 }
