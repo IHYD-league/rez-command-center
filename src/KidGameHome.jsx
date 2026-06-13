@@ -3,6 +3,7 @@ import { Star, Flame, Trophy, Crown, Target, Sparkles, MapPin, Menu, Map } from 
 import { useSignedUrl } from "./lib/storage.js";
 import { starBurst } from "./lib/starBurst.js";
 import { prefersReducedMotion } from "./lib/motion.js";
+import { tOf as i18nTOf, getCurrentLangs } from "./lib/i18n.js";
 
 /* =====================================================================
    KidGameHome — Reznor's "game mode" home.
@@ -189,7 +190,9 @@ function MainQuestTile({ q, onTap }) {
             {q.title}
           </div>
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mt-0.5">
-            {done ? "Complete" : "Quest"}
+            {done
+              ? i18nTOf("quest_complete", "Complete")
+              : i18nTOf("quest_label", "Quest")}
           </div>
         </div>
         <div

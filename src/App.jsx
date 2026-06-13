@@ -30,6 +30,7 @@ import { useBottomSheet } from "./lib/sheet.js";
 import { runDataAudit, auditSummary } from "./lib/dataAudit.js";
 import { lightbox } from "./lib/lightbox.js";
 import { giftEditor } from "./lib/giftEditor.js";
+import { activeLangs, tt as i18nTt, taskTitle as i18nTaskTitle, activityName as i18nActivityName, LANG_LABELS, setCurrentLangs, titleOf as i18nTitleOf, nameOf as i18nNameOf, tOf as i18nTOf } from "./lib/i18n.js";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -656,6 +657,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // saved curation. Reorder writes through the synced setter so both
   // parents see the same shelf.
   const [libraryOrder, setLibraryOrder] = familySetting("libraryOrder", { songs: [], books: [] });
+  // displayLangs lives at the family level (not per-user) because Mike's
+  // intent when he toggles it is "set this for Reznor + everyone in the
+  // family." Per-user would mean Mike sets Both on his profile but
+  // Reznor's view still defaults to English because his profile has no
+  // setting — confusing and what was happening before. Default ["en"].
+  const [displayLangs, setDisplayLangs] = familySetting("displayLangs", ["en"]);
   const [tkdDays, setTkdDays] = familySetting("tkdDays", ["Monday"]);
   const [tkdTimes, setTkdTimes] = familySetting(
     "tkdTimes",
@@ -1394,6 +1401,16 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }));
   };
 
+  // Display languages — family-wide setting so a parent's toggle covers
+  // every member's view (parent, kid, helper). Drives bilingual rendering
+  // of task names, activity names, nav labels, and section headers.
+  // Default is English-only; the parent flips it from More → Languages.
+  const langs = activeLangs({ displayLangs });
+  // Mirror to the module-level holder so deeply nested components can
+  // call i18nTitleOf(task) / i18nNameOf(activity) without prop-drilling
+  // langs through every signature.
+  useEffect(() => { setCurrentLangs(langs); }, [langs.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Apply font-scale globally — set root font-size %, Tailwind's rem-based
   // text classes inherit it, every screen scales together.
   useEffect(() => {
@@ -1482,7 +1499,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     const subs = t.subtasks
       ? t.subtasks.map((s) => ({ id: s.id, label: s.label, done: !!c?.extra?.subsDone?.includes(s.id) }))
       : undefined;
-    return { id: t.id, title: t.title, xp: (t.starValue || 0) * 10, done: !!c, subtasks: subs };
+    // Bilingual title — KidGameHome renders q.title directly, so the
+    // translation has to happen here at the source. Falls back to raw
+    // title for any custom task without a seeded translation.
+    return { id: t.id, title: i18nTitleOf(t), xp: (t.starValue || 0) * 10, done: !!c, subtasks: subs };
   };
   const _booksFinished = (books || []).filter(isBookFinished).length;
   const _songsToday = (songPlays || []).filter((p) => p.playedOn === TODAY_ISO).length;
@@ -1551,7 +1571,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   const shared = {
-    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, rewards, completions, compByTask, events, handoff, redemptions,
+    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, langs, displayLangs, setDisplayLangs, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
@@ -1599,7 +1619,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
         <div className="flex-1 overflow-y-auto pb-24">
           <Router tab={tab} {...shared} />
         </div>
-        <BottomNav user={user} tab={tab} setTab={setTab} />
+        <BottomNav user={user} tab={tab} setTab={setTab} langs={langs} />
         {openTask && (
           <TaskSheet
             task={openTask}
@@ -1962,7 +1982,7 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
         </label>
         <select value={taskId} onChange={(e) => { setTaskId(e.target.value); }} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white">
           <option value="">— general bonus —</option>
-          {taskOptions.map((t) => (<option key={t.id} value={t.id}>{t.title}</option>))}
+          {taskOptions.map((t) => (<option key={t.id} value={t.id}>{i18nTitleOf(t)}</option>))}
         </select>
 
         {isReading && (
@@ -2956,7 +2976,7 @@ function MissionCard({ task, comp, onOpen, mode, priorities, users, activities, 
           </div>
           <div className="flex items-center gap-3 p-3.5 flex-1 min-w-0">
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-sm flex items-center gap-2 flex-wrap">{task.title}{doneish && <Check size={14} className="text-emerald-500" />}</div>
+              <div className="font-bold text-sm flex items-center gap-2 flex-wrap">{i18nTitleOf(task)}{doneish && <Check size={14} className="text-emerald-500" />}</div>
               <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: d.color + "22", color: d.color }}>{d.label}</span>
                 <span className="text-[11px] text-slate-400">{subs ? `${subDone}/${subs.length} parts` : `${task.minutes} min${task.proofRequired ? " · proof" : ""}`}</span>
@@ -3115,7 +3135,7 @@ function StatDetail({
         <div className="w-2 self-stretch rounded-full" style={{ background: a?.color || "#cbd5e1" }} />
         <div className="flex-1 min-w-0 flex flex-col justify-between">
           <div>
-            <div className="text-sm font-bold text-slate-800 truncate">{t?.title || taskId}</div>
+            <div className="text-sm font-bold text-slate-800 truncate">{i18nTitleOf(t) || taskId}</div>
             <div className="text-[10px] text-slate-400 truncate">{a?.short || a?.name || t?.activityType}</div>
           </div>
           <div className="h-1 bg-slate-100 rounded-full overflow-hidden mt-1" title={`${c.week} this week`}>
@@ -3151,7 +3171,7 @@ function StatDetail({
       <div className="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
         <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} songPlays={songPlays} size={36} />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-slate-800 truncate">{t?.title || c.taskId}</div>
+          <div className="text-sm font-bold text-slate-800 truncate">{i18nTitleOf(t) || c.taskId}</div>
           <div className="text-[11px] text-slate-400 truncate">
             {a?.short || a?.name || t?.activityType}
             {submittedBy ? ` · by ${submittedBy.name}` : ""}
@@ -3328,7 +3348,7 @@ function StatDetail({
               <div key={t.id} className="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
                 <div className="w-2 self-stretch rounded-full" style={{ background: a?.color || "#cbd5e1" }} />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold text-slate-800 truncate">{t.title}</div>
+                  <div className="text-sm font-bold text-slate-800 truncate">{i18nTitleOf(t)}</div>
                   <div className="text-[11px] text-slate-400 truncate">{a?.short || a?.name || t.activityType}</div>
                 </div>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusCls}`}>{status}</span>
@@ -4011,7 +4031,7 @@ function CompletionDetailSheet({
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-xs font-bold uppercase tracking-wider text-emerald-600">Completed ✓</div>
-            <div className="font-extrabold text-slate-900 leading-tight truncate">{task.title}</div>
+            <div className="font-extrabold text-slate-900 leading-tight truncate">{i18nTitleOf(task)}</div>
             <div className="text-[11px] text-slate-400">
               {activity?.name || task.activityType || "Task"} · {task.starValue || 0} ⭐
             </div>
@@ -4812,7 +4832,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
         <div className="flex items-center gap-3 mb-1">
           <div className="w-11 h-11 rounded-2xl bg-amber-100 grid place-items-center"><TaskIcon type={task.activityType} /></div>
           <div>
-            <div className="font-extrabold text-lg">{task.title}</div>
+            <div className="font-extrabold text-lg">{i18nTitleOf(task)}</div>
             <div className="text-xs text-slate-400">{task.minutes} min · worth {task.starValue} ⭐{task.bonusStarValue ? ` (+${task.bonusStarValue} bonus possible)` : ""}</div>
           </div>
         </div>
@@ -5231,7 +5251,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
           <div className="p-4 pt-2 text-white flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-white/20 grid place-items-center"><TaskIcon type={task.activityType} color="#ffffff" /></div>
             <div className="flex-1 min-w-0">
-              <div className="font-extrabold text-lg leading-tight">{task.title}</div>
+              <div className="font-extrabold text-lg leading-tight">{i18nTitleOf(task)}</div>
               <div className="text-[12px] opacity-90">{d.label} · {task.starValue}⭐{task.required ? " · required" : " · optional"}</div>
             </div>
             <button onClick={handleClose} className="w-8 h-8 rounded-full bg-white/20 grid place-items-center"><X size={18} /></button>
@@ -5536,7 +5556,7 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
                 return (
                   <Card key={`c-${c.id}`} className="p-3 mb-2 flex items-center gap-3">
                     <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} songPlays={songPlays} size={36} />
-                    <div className="flex-1 text-sm font-semibold">{t?.title}{c.extra?.bookTitle && <span className="block text-[11px] text-slate-400 font-normal">{c.extra.bookTitle}</span>}</div>
+                    <div className="flex-1 text-sm font-semibold">{i18nTitleOf(t)}{c.extra?.bookTitle && <span className="block text-[11px] text-slate-400 font-normal">{c.extra.bookTitle}</span>}</div>
                     <StarPill n={c.awardedStars} tone="emerald" />
                   </Card>
                 );
@@ -5777,7 +5797,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [] }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"] }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix", "draft"].includes(compByTask[t.id]?.status));
@@ -5828,7 +5848,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         const c = compByTask[t.id];
         return (
           <div key={t.id} className="mb-2.5">
-            <MiniRow task={t} comp={c} tone="amber" mode={mode} priorities={priorities} users={users} activities={activities} books={books} songs={songs} songPlays={songPlays} onOpenDetail={setDetailId} undoTask={undoTask} />
+            <MiniRow langs={langs} task={t} comp={c} tone="amber" mode={mode} priorities={priorities} users={users} activities={activities} books={books} songs={songs} songPlays={songPlays} onOpenDetail={setDetailId} undoTask={undoTask} />
             {/* Inline approve buttons — the home banner used to be
                 a dead-end stat. Now every pending row is one tap from
                 Approve / +5⭐ bonus / Needs fix / Reject. Same decide()
@@ -5856,7 +5876,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         const mustDo = todo.filter((t) => topEightIds.has(t.id));
         const bonus = todo.filter((t) => !topEightIds.has(t.id));
         const renderRow = (t) => (
-          <MiniRow
+          <MiniRow langs={langs}
             key={t.id}
             task={t}
             comp={compByTask[t.id]}
@@ -5920,7 +5940,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
               const c = compByTask[t.id];
               // Done rows: tap → CompletionDetailSheet (photos, notes,
               // stats, edit). Krissie's flow lives here on the parent side.
-              return <MiniRow key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} books={books} songs={songs} songPlays={songPlays} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
+              return <MiniRow langs={langs} key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} books={books} songs={songs} songPlays={songPlays} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
             })}
             {giftedTodayList.map((g) => {
               const gTask = g.extra?.taskId ? tasks.find((t) => t.id === g.extra.taskId) : null;
@@ -5981,7 +6001,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
                   title={`Restore "${t.title}" to today's list`}
                 >
                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: d.color }} />
-                  {t.title}
+                  {i18nTitleOf(t)}
                   <RotateCcw size={11} className="text-slate-400" />
                 </button>
               );
@@ -6018,7 +6038,7 @@ function SummaryStat({ label, value, tone, onClick }) {
   }
   return <Card className="p-3">{body}</Card>;
 }
-function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone, markTaskNA, books = [], songs = [], songPlays = [] }) {
+function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone, markTaskNA, books = [], songs = [], songPlays = [], langs = ["en"] }) {
   const [open, setOpen] = useState(false);
   const by = comp?.approvedBy ? users?.find((u) => u.id === comp.approvedBy)?.name : null;
   const d = actFor(task, activities);
@@ -6101,7 +6121,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
         )}
         <div className="flex items-center gap-3 p-3 flex-1 min-w-0">
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold flex items-center gap-1">{task.title}<ChevronLeft size={13} className="rotate-180 text-slate-300" /></div>
+            <div className="text-sm font-semibold flex items-center gap-1">{i18nTaskTitle(task, langs)}<ChevronLeft size={13} className="rotate-180 text-slate-300" /></div>
             {by && <span className="block text-[11px] text-slate-400 font-normal">✓ by {by}</span>}
             <div className="flex items-center gap-1.5 flex-wrap mt-1">
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: d.color + "22", color: d.color }}>{d.label}</span>
@@ -6132,7 +6152,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (window.confirm(`Mark "${task.title}" as N/A for today?\n\nIt won't show on Reznor's board and the treasure-day streak will ignore it. You can restore it from the "N/A today" strip below.`)) {
+                if (window.confirm(`Mark "${i18nTitleOf(task)}" as N/A for today?\n\nIt won't show on Reznor's board and the treasure-day streak will ignore it. You can restore it from the "N/A today" strip below.`)) {
                   markTaskNA(TODAY_ISO, task.id);
                 }
               }}
@@ -6148,7 +6168,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
                 e.stopPropagation();
                 const wasApproved = comp.status === "approved";
                 const stars = comp.awardedStars || comp.pendingStars || 0;
-                const msg = `Mark "${task.title}" as NOT done?` +
+                const msg = `Mark "${i18nTitleOf(task)}" as NOT done?` +
                   (wasApproved && stars ? `\n\nThis will remove ${stars} ⭐ from Reznor's bank.` : "") +
                   (wasApproved ? "\nIf the streak was bumped today, it walks back too." : "");
                 if (window.confirm(msg)) undoTask(task.id);
@@ -6371,7 +6391,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       >
         <option value="">— general bonus —</option>
         {taskOptions.map((t) => (
-          <option key={t.id} value={t.id}>{t.title}</option>
+          <option key={t.id} value={t.id}>{i18nTitleOf(t)}</option>
         ))}
       </select>
 
@@ -6650,7 +6670,7 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-amber-100 grid place-items-center"><TaskIcon type={t.activityType} /></div>
               <div className="flex-1">
-                <div className="font-bold text-sm">{t.title}</div>
+                <div className="font-bold text-sm">{i18nTitleOf(t)}</div>
                 <div className="text-[11px] text-slate-400">Submitted by {who?.name}</div>
               </div>
               <StarPill n={c.pendingStars} tone="amber" />
@@ -8457,7 +8477,7 @@ function DailyAdventureBoardPlan(props) {
               <div key={t.id} className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-2">
                 <span className="w-6 text-right text-[11px] font-bold text-slate-400 shrink-0">{i + 1}.</span>
                 <span className="text-base shrink-0">{actEmoji(t)}</span>
-                <span className="flex-1 text-sm font-bold text-slate-800 truncate">{t.title}</span>
+                <span className="flex-1 text-sm font-bold text-slate-800 truncate">{i18nTitleOf(t)}</span>
                 <button
                   onClick={() => move(i, -1)}
                   disabled={i === 0}
@@ -8490,7 +8510,7 @@ function DailyAdventureBoardPlan(props) {
                 className="w-full flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-2 active:scale-[0.99] text-left"
               >
                 <span className="text-base shrink-0">{actEmoji(t)}</span>
-                <span className="flex-1 text-sm text-slate-700 truncate">{t.title}</span>
+                <span className="flex-1 text-sm text-slate-700 truncate">{i18nTitleOf(t)}</span>
                 {t.required && <span className="text-[9px] font-bold uppercase tracking-wider text-rose-500">required</span>}
                 <span className="text-indigo-600 font-bold">+</span>
               </button>
@@ -8603,7 +8623,7 @@ function LogACompletion({ tasks, currentTopEightIds, submitTask, setDailyTopEigh
                 >
                   <span className="text-[11px] text-slate-500 shrink-0">drop →</span>
                   <span className="text-sm shrink-0">{actEmoji(t)}</span>
-                  <span className="flex-1 text-[12px] font-semibold text-slate-700 truncate">{t.title}</span>
+                  <span className="flex-1 text-[12px] font-semibold text-slate-700 truncate">{i18nTitleOf(t)}</span>
                 </button>
               );
             })}
@@ -8621,7 +8641,7 @@ function LogACompletion({ tasks, currentTopEightIds, submitTask, setDailyTopEigh
             className="w-full flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-2 active:scale-[0.99] text-left"
           >
             <span className="text-base shrink-0">{actEmoji(t)}</span>
-            <span className="flex-1 text-sm text-slate-700 truncate">{t.title}</span>
+            <span className="flex-1 text-sm text-slate-700 truncate">{i18nTitleOf(t)}</span>
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Log done</span>
           </button>
         ))}
@@ -8716,6 +8736,73 @@ function DataAudit(props) {
 // what's actually stored (photos may carry GPS); (3) make
 // own-your-data ops one tap away (export, sign out). Especially
 // important now that other parents are asking to use Command Center.
+// LanguagesPage — parent toggle for which languages render across the
+// app. Phase 1 ships en + es. Mike's rule: keep some English around
+// when Spanish is on so Reznor (still learning) doesn't get lost.
+// "Both" is the default-friendly recommendation; "Spanish only" is
+// available for full immersion days.
+function LanguagesPage({ displayLangs = ["en"], setDisplayLangs }) {
+  const current = Array.isArray(displayLangs) && displayLangs.length > 0 ? displayLangs : ["en"];
+  const isEnglishOnly = current.length === 1 && current[0] === "en";
+  const isSpanishOnly = current.length === 1 && current[0] === "es";
+  const isBoth = current.length === 2 || (current.includes("en") && current.includes("es"));
+  const apply = (next) => setDisplayLangs?.(next);
+  const OptionCard = ({ active, onClick, primary, secondary, hint }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full mb-2 text-left rounded-2xl border-2 p-4 transition ${active ? "border-indigo-500 bg-indigo-50" : "border-slate-100 bg-white"}`}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="text-sm font-extrabold text-slate-800">{primary}</div>
+        {active && <Check size={16} className="text-indigo-600 shrink-0" />}
+      </div>
+      <div className="text-[12px] font-semibold text-slate-500 mt-0.5">{secondary}</div>
+      <div className="text-[11px] text-slate-400 mt-1 leading-snug">{hint}</div>
+    </button>
+  );
+  return (
+    <div className="px-4 pt-4">
+      <div className="rounded-3xl p-4 mb-3 text-white bg-gradient-to-br from-indigo-500 to-violet-600">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur grid place-items-center text-2xl">🌐</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">Languages</div>
+            <div className="text-xl font-extrabold leading-tight">For Reznor + you</div>
+            <div className="text-[11px] text-white/80 mt-0.5">
+              Bilingual task names and labels everywhere they fit.
+            </div>
+          </div>
+        </div>
+      </div>
+      <OptionCard
+        active={isEnglishOnly}
+        onClick={() => apply(["en"])}
+        primary="🇺🇸 English only"
+        secondary="The original."
+        hint="Every label and task name in English. Pick this if Spanish makes the screens feel busy."
+      />
+      <OptionCard
+        active={isBoth}
+        onClick={() => apply(["en", "es"])}
+        primary="🇺🇸 / 🇪🇸 Both — recommended"
+        secondary="English first, Spanish alongside."
+        hint='Task names and labels render together — "Make Bed / Hacer la cama". Lets Reznor read in Spanish without getting lost.'
+      />
+      <OptionCard
+        active={isSpanishOnly}
+        onClick={() => apply(["es"])}
+        primary="🇪🇸 Spanish only"
+        secondary="Sólo en español."
+        hint="Full immersion. A few brand names (Duolingo, Drumeo) stay as they are."
+      />
+      <div className="text-[11px] text-slate-400 px-1 mt-3 leading-snug">
+        Custom tasks you've added show up in whatever language you typed them in — a future update will let you add a Spanish name on the task editor.
+      </div>
+    </div>
+  );
+}
+
 function PrivacySafety(props) {
   const { familyId = "", users = [], sessionEmail = "", signOut, completions = [], albumPhotos = [], gifted = [], songPlays = [], setTab } = props;
   const fid = String(familyId || "");
@@ -8833,6 +8920,7 @@ function MoreParent(props) {
   const [sub, setSub] = useState("menu");
   if (sub === "privacy") return <BackWrap title="Privacy & Safety" onBack={() => setSub("menu")}><PrivacySafety {...props} /></BackWrap>;
   if (sub === "audit") return <BackWrap title="Data audit" onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
+  if (sub === "languages") return <BackWrap title="Languages" onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title="Progress Portfolio" onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title="Weekly Summary" onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
   if (sub === "handoff") return <BackWrap title="Handoff Notes" onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
@@ -8872,6 +8960,7 @@ function MoreParent(props) {
     { k: "slideshow", icon: <Play size={18} />, label: "Milestone Slideshows", sub: "Monthly · 6-month · 1-year recaps" },
     { k: "audit", icon: <AlertCircle size={18} />, label: "Data audit", sub: "Check the math · find drift · spot orphans" },
     { k: "privacy", icon: <Lock size={18} />, label: "Privacy & Safety", sub: "Family isolation · what's stored · own your data" },
+    { k: "languages", icon: <GraduationCap size={18} />, label: "Languages", sub: "English / Spanish / Both — for Reznor + you" },
   ];
   // Apply per-parent saved order. Items not in the saved list slot in
   // at the end so a new menu entry shows up automatically. The setting
@@ -9273,7 +9362,7 @@ function Portfolio({ completions, tasks, users, gifted, activities, books = [], 
           <Card key={`c-${c.id}`} className="p-3 mb-2 flex gap-3">
             <ProofThumb completion={c} activity={a} task={t} books={books} songs={songs} songPlays={songPlays} size={48} />
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-sm">{t?.title} {c.extra?.bookTitle && <span className="text-slate-400 font-normal">· {c.extra.bookTitle}</span>}</div>
+              <div className="font-bold text-sm">{i18nTitleOf(t)} {c.extra?.bookTitle && <span className="text-slate-400 font-normal">· {c.extra.bookTitle}</span>}</div>
               <div className="text-[11px] text-slate-400">{fmtRowDate(c.completionDate)} · {c.awardedStars}⭐ · approved by {by || "—"}</div>
               {ph?.geo && <div className="text-[11px] text-slate-400">📍 {ph.geo.label}{ph.time ? ` · ${ph.time}` : ""}{ph.by ? ` · by ${users.find((u) => u.id === ph.by)?.name || "helper"}` : ""}</div>}
             </div>
@@ -9864,7 +9953,7 @@ function TaskEditRow({ t, activities, updateTask, removeTask }) {
         <div className="flex items-center gap-2">
           {edit
             ? <input value={t.title} onChange={(e) => updateTask(t.id, { title: e.target.value })} className="font-bold text-sm flex-1 min-w-0 border border-slate-200 rounded px-1.5 py-0.5" />
-            : <div className="font-bold text-sm flex-1 min-w-0">{t.title}</div>}
+            : <div className="font-bold text-sm flex-1 min-w-0">{i18nTitleOf(t)}</div>}
           <div className="flex items-center gap-1 shrink-0"><input type="number" value={t.starValue} onChange={(e) => updateTask(t.id, { starValue: Number(e.target.value) })} className="w-12 border border-slate-200 rounded px-1.5 py-0.5 text-sm" /><span className="text-xs">⭐</span></div>
           <button onClick={() => setEdit((v) => !v)} className="p-1 text-slate-400 shrink-0"><Pencil size={15} /></button>
         </div>
@@ -9985,7 +10074,7 @@ function EasyChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, mo
               <div key={t.id} className={`rounded-3xl p-5 border-2 ${done ? "border-emerald-200 bg-emerald-50" : "border-slate-100 bg-white"}`}>
                 <div className="flex items-center gap-3">
                   <div className={`w-16 h-16 rounded-2xl grid place-items-center shrink-0 ${done ? "opacity-60" : ""}`} style={{ background: d.color }}><TaskIcon type={t.activityType} color="#ffffff" /></div>
-                  <div className="flex-1 min-w-0"><div className={`text-xl font-extrabold leading-tight ${done ? "text-slate-400 line-through" : ""}`}>{t.title}</div><div className="text-sm text-slate-400 mt-0.5">{done ? "Done ✓" : `${t.minutes} min`}</div></div>
+                  <div className="flex-1 min-w-0"><div className={`text-xl font-extrabold leading-tight ${done ? "text-slate-400 line-through" : ""}`}>{i18nTitleOf(t)}</div><div className="text-sm text-slate-400 mt-0.5">{done ? "Done ✓" : `${t.minutes} min`}</div></div>
                   {done && <button onClick={() => undoTask(t.id)} className="shrink-0 px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-500 text-sm font-bold flex items-center gap-1"><RotateCcw size={16} /> Undo</button>}
                 </div>
                 {!done && (
@@ -10056,7 +10145,7 @@ function HelperChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, 
                 {done ? <Check size={16} /> : canMark ? null : <span className="text-[9px] text-slate-300">parent</span>}
               </button>
               <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm">{t.title}</div>
+                <div className="font-semibold text-sm">{i18nTitleOf(t)}</div>
                 <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                   <PriorityBadge level={lvl} scope={ov?.scope} />
                   <span className="text-[11px] text-slate-400">{c ? STATUS_META[c.status].label : `${t.minutes} min`}</span>
@@ -10096,26 +10185,30 @@ function CareInfo() {
 }
 
 // ===================== BOTTOM NAV =====================
-function BottomNav({ user, tab, setTab }) {
+function BottomNav({ user, tab, setTab, langs = ["en"] }) {
+  // Bilingual labels — when the parent enables "Both" or "Spanish",
+  // tab labels render as "Today / Hoy" etc. Brand-ish labels (Coach,
+  // Quest, Duolingo) stay short so the bar doesn't blow out.
+  const T = (k) => i18nTt(k, langs);
   const sets = {
     kid: [
-      { k: "today", icon: Trophy, label: "Missions" },
-      { k: "board", icon: MapIcon, label: "Board" },
-      { k: "streaks", icon: Flame, label: "Streaks" },
-      { k: "dream", icon: Target, label: "Dream" },
-      { k: "rewards", icon: Gift, label: "Rewards" },
-      { k: "stars", icon: Star, label: "Stars" },
-      { k: "school", icon: GraduationCap, label: "Quest" },
+      { k: "today", icon: Trophy, label: T("nav_missions") },
+      { k: "board", icon: MapIcon, label: T("nav_board") },
+      { k: "streaks", icon: Flame, label: T("nav_streaks") },
+      { k: "dream", icon: Target, label: T("nav_dream") },
+      { k: "rewards", icon: Gift, label: T("nav_rewards") },
+      { k: "stars", icon: Star, label: T("nav_stars") },
+      { k: "school", icon: GraduationCap, label: T("nav_quest") },
     ],
     parent: [
-      { k: "today", icon: Home, label: "Today" },
-      { k: "approvals", icon: Check, label: "Approve" },
-      { k: "rewards", icon: Gift, label: "Rewards" },
-      { k: "calendar", icon: CalIcon, label: "Calendar" },
-      { k: "more", icon: ClipboardList, label: "More" },
+      { k: "today", icon: Home, label: T("nav_today") },
+      { k: "approvals", icon: Check, label: T("nav_approve") },
+      { k: "rewards", icon: Gift, label: T("nav_rewards") },
+      { k: "calendar", icon: CalIcon, label: T("nav_calendar") },
+      { k: "more", icon: ClipboardList, label: T("nav_more") },
       // "Coach" → Coach Mode (parent companion). The kid still calls it
       // Quest in his nav; the parent's nav surfaces the coaching seam.
-      { k: "school", icon: GraduationCap, label: "Coach" },
+      { k: "school", icon: GraduationCap, label: T("nav_coach") },
     ],
     grandparent: [
       { k: "today", icon: ClipboardList, label: "Checklist" },
