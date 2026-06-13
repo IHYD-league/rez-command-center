@@ -50,6 +50,12 @@ async function loadEntities(familyId) {
     })
   );
   const out = Object.fromEntries(reads);
+  // Soft-delete filter — drop gifts that have been marked deleted
+  // so the bonus ledger / Done section never surfaces them. Rows
+  // stay in the DB for audit (deleted_at + deleted_by recorded).
+  if (Array.isArray(out.gifted)) {
+    out.gifted = out.gifted.filter((g) => !g.deletedAt);
+  }
   // Streaks are keyed by activity_id, separate query/shape.
   const { data: streaks, error: streaksErr } = await supabase
     .from("streaks")

@@ -584,7 +584,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const [rewards, _setRewards] = useState(() => (initial?.rewards?.length ? initial.rewards : SEED_REWARDS));
   const [completions, _setCompletions] = useState(() => initial?.completions ?? SEED_COMPLETIONS);
   const [redemptions, _setRedemptions] = useState(() => initial?.redemptions ?? []);
-  const [gifted, _setGifted] = useState(() => initial?.gifted ?? []);
+  const [giftedRaw, _setGifted] = useState(() => initial?.gifted ?? []);
+  // Hide soft-deleted gifts from every read site. The raw array
+  // keeps deleted rows for audit (deletedAt + deletedBy stamped),
+  // and the sync layer pushes them so they persist; this view is
+  // the one rendered.
+  const gifted = useMemo(() => (giftedRaw || []).filter((g) => !g.deletedAt), [giftedRaw]);
   const [streaks, _setStreaks] = useState(() => (initial?.streaks && Object.keys(initial.streaks).length ? initial.streaks : SEED_STREAKS));
   const [books, _setBooks] = useState(() => initial?.books ?? SEED_BOOKS);
   const [awards, _setAwards] = useState(() => initial?.awards ?? SEED_AWARDS);
@@ -1381,14 +1386,61 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       extra,
     }, ...prev]);
   };
-  // Remove a gift row by id. Used by the Star Ledger to correct
-  // duplicates after the fact (the 'Krissie double-gifted' case).
-  const removeGift = (id) => setGifted((prev) => prev.filter((g) => g.id !== id));
+  // Soft-delete a gift row by id. Used by the Star Ledger to
+  // correct duplicates after the fact (the 'Krissie double-gifted'
+  // case). Trust audit finding #3: destructive removes had no
+  // record of who did it or when. Now we stamp deletedAt + deletedBy
+  // on the row instead of dropping it, and append an audit entry
+  // to extra.history so the "who removed the +10⭐ gift?" question
+  // always has an answer. DataProvider filters deleted rows out
+  // before they reach the app, so the UX is identical to before.
+  const removeGift = (id) => setGifted((prev) => prev.map((g) => {
+    if (g.id !== id) return g;
+    const actor = currentProfileId || currentUserId;
+    const prevHistory = Array.isArray(g.extra?.history) ? g.extra.history : [];
+    const entry = {
+      at: new Date().toISOString(),
+      by: actor,
+      summary: `Removed bonus (-${g.stars}⭐: ${g.label || "Bonus"})`,
+      changes: [{ field: "deletedAt", before: null, after: "<now>" }],
+    };
+    return {
+      ...g,
+      deletedAt: new Date().toISOString(),
+      deletedBy: actor,
+      extra: { ...(g.extra || {}), history: [entry, ...prevHistory] },
+    };
+  }));
   // Update an existing bonus gift in place. Mike's rule: parents can
   // edit anything they created from any surface where they see it.
   // Patch shape mirrors the gifted row — label / stars / extra fields.
+  // Trust audit finding #4: silent edits had no audit. Now we
+  // snapshot label / stars changes into extra.history so a future
+  // dispute ("I swear I gave +10, not +5") has a paper trail.
   const updateGift = (id, patch) =>
-    setGifted((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch, extra: { ...(g.extra || {}), ...((patch && patch.extra) || {}) } } : g)));
+    setGifted((prev) => prev.map((g) => {
+      if (g.id !== id) return g;
+      const trackedKeys = ["label", "stars"];
+      const changes = trackedKeys
+        .filter((k) => patch && k in patch && patch[k] !== g[k])
+        .map((k) => ({ field: k, before: g[k] ?? null, after: patch[k] ?? null }));
+      const next = { ...g, ...patch, extra: { ...(g.extra || {}), ...((patch && patch.extra) || {}) } };
+      if (changes.length === 0) return next;
+      const prevHistory = Array.isArray(next.extra?.history) ? next.extra.history : [];
+      const summary = changes.length === 1
+        ? `Edited ${changes[0].field}`
+        : `Edited ${changes.map((c) => c.field).join(" + ")}`;
+      next.extra = {
+        ...next.extra,
+        history: [{
+          at: new Date().toISOString(),
+          by: currentProfileId || currentUserId,
+          summary,
+          changes,
+        }, ...prevHistory],
+      };
+      return next;
+    }));
   const toggleTkdDay = (day) => setTkdDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   const setTkdTime = (day, time) => setTkdTimes((prev) => ({ ...prev, [day]: time }));
   const addTask = (t) => setTasks((prev) => [...prev, t]);
