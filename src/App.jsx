@@ -673,6 +673,15 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // in topPriorities.daily / Top 8). Removing the pin restores the
   // standing schedule's behavior for that day.
   const [pinnedBonus, setPinnedBonus] = familySetting("pinnedBonus", {});
+  // todayOrder: parent-curated row order per section on the Today
+  // page. Mike asked for the same drag/drop pattern the More menu
+  // has, applied to Still-to-do + Bonus. Listed task IDs render in
+  // the saved order at the top of their section; anything not in
+  // the list falls in after, in its natural sort order. Cleared
+  // entries (deleted tasks, items that moved sections) are dropped
+  // silently so the order stays clean.
+  //   { mustDo: [taskId, ...], bonus: [taskId, ...] }
+  const [todayOrder, setTodayOrder] = familySetting("todayOrder", { mustDo: [], bonus: [] });
   // songPlayRequests: kid-initiated change requests against existing
   // song_plays. Reznor (6yo) can SEE every play row in the Most Played
   // card but should NOT be able to silently delete or re-attribute one
@@ -1659,7 +1668,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   const shared = {
-    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, pinnedBonus, pinTaskToToday, unpinTaskFromToday, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, langs, displayLangs, setDisplayLangs, rewards, completions, compByTask, events, handoff, redemptions,
+    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, pinnedBonus, pinTaskToToday, unpinTaskFromToday, todayOrder, setTodayOrder, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, langs, displayLangs, setDisplayLangs, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
@@ -6455,8 +6464,47 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"] }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"] }) {
   const [showAddPicker, setShowAddPicker] = useState(false);
+  // Reorder mode is per-section so flipping it on for Bonus
+  // doesn't add nudge buttons to Still-to-do too. Same pattern as
+  // the MusicLibrary/ReadingLibrary shelf "Rearrange" toggle.
+  const [reorderMustDo, setReorderMustDo] = useState(false);
+  const [reorderBonus, setReorderBonus] = useState(false);
+  // Apply the parent's saved per-section order. Listed IDs come
+  // first in the saved order; unsaved tasks fall after, in natural
+  // order. Missing tasks (deleted, moved sections) are silently
+  // skipped.
+  const applyOrder = (list, savedIds) => {
+    if (!Array.isArray(savedIds) || savedIds.length === 0) return list;
+    const byId = Object.fromEntries(list.map((t) => [t.id, t]));
+    const seen = new Set();
+    const out = [];
+    for (const id of savedIds) {
+      const t = byId[id];
+      if (t && !seen.has(id)) { out.push(t); seen.add(id); }
+    }
+    for (const t of list) {
+      if (!seen.has(t.id)) { out.push(t); seen.add(t.id); }
+    }
+    return out;
+  };
+  // moveInSection — used by the ↑ / ↓ nudge buttons in reorder mode.
+  // Writes a fresh ordered ID array to todayOrder.section so the
+  // saved order updates instantly.
+  const moveInSection = (section, list, fromIdx, toIdx) => {
+    if (!setTodayOrder) return;
+    if (fromIdx === toIdx || toIdx < 0 || toIdx >= list.length) return;
+    const next = list.slice();
+    const [m] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, m);
+    const ids = next.map((t) => t.id);
+    setTodayOrder({ ...(todayOrder || {}), [section]: ids });
+  };
+  const resetSectionOrder = (section) => {
+    if (!setTodayOrder) return;
+    setTodayOrder({ ...(todayOrder || {}), [section]: [] });
+  };
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix", "draft"].includes(compByTask[t.id]?.status));
@@ -6532,8 +6580,34 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
           the rest so it doesn't read as urgent. */}
       {(() => {
         const topEightIds = new Set((todaysTopEight || []).map((t) => t.id));
-        const mustDo = todo.filter((t) => topEightIds.has(t.id));
-        const bonus = todo.filter((t) => !topEightIds.has(t.id));
+        const mustDoRaw = todo.filter((t) => topEightIds.has(t.id));
+        const bonusRaw = todo.filter((t) => !topEightIds.has(t.id));
+        // Apply the parent's saved custom order to each section
+        // independently so a reorder in Bonus doesn't ripple into
+        // Still-to-do. Reorder mode uses these ordered arrays for
+        // the up/down nudges so the saved index = display index.
+        const mustDo = applyOrder(mustDoRaw, todayOrder?.mustDo);
+        const bonus = applyOrder(bonusRaw, todayOrder?.bonus);
+        const renderEditRow = (t, section, idx, list) => (
+          <Card key={t.id} className="p-2 mb-2 flex items-center gap-2">
+            <div className="text-slate-400 select-none px-1" title="Drag to reorder">☰</div>
+            <div className="flex-1 min-w-0 text-sm font-bold text-slate-700 truncate">{i18nTitleOf(t)}</div>
+            <button
+              type="button"
+              onClick={() => moveInSection(section, list, idx, idx - 1)}
+              disabled={idx === 0}
+              className={`w-8 h-8 rounded-lg grid place-items-center ${idx === 0 ? "text-slate-200" : "text-slate-500 hover:bg-slate-100"}`}
+              title="Move up"
+            >▲</button>
+            <button
+              type="button"
+              onClick={() => moveInSection(section, list, idx, idx + 1)}
+              disabled={idx === list.length - 1}
+              className={`w-8 h-8 rounded-lg grid place-items-center ${idx === list.length - 1 ? "text-slate-200" : "text-slate-500 hover:bg-slate-100"}`}
+              title="Move down"
+            >▼</button>
+          </Card>
+        );
         const renderRow = (t) => (
           <MiniRow langs={langs}
             key={t.id}
@@ -6554,74 +6628,130 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
             markTaskNA={markTaskNA}
           />
         );
+        const SectionEditButtons = ({ active, onToggle, onReset, hasSaved }) => (
+          <span className="flex items-center gap-1.5">
+            {active && hasSaved && (
+              <button
+                type="button"
+                onClick={onReset}
+                className="text-[11px] font-bold text-slate-500"
+                title="Clear custom order, return to default"
+              >Reset</button>
+            )}
+            <button
+              type="button"
+              onClick={onToggle}
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${active ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-700"}`}
+            >
+              {active ? i18nTOf("act_done", "Done") : i18nTOf("more_edit_order", "Edit order")}
+            </button>
+          </span>
+        );
+        const hasMustDoOrder = (todayOrder?.mustDo || []).length > 0;
+        const hasBonusOrder = (todayOrder?.bonus || []).length > 0;
         return (
           <>
             <SectionTitle
               icon={<Trophy size={16} className="text-amber-500" />}
-              right={<span className="text-[11px] font-bold text-amber-600">{i18nTOf("hint_for_treasure", "for the treasure 🏆")}</span>}
+              right={
+                mustDo.length > 1 ? (
+                  <SectionEditButtons
+                    active={reorderMustDo}
+                    onToggle={() => setReorderMustDo((v) => !v)}
+                    onReset={() => resetSectionOrder("mustDo")}
+                    hasSaved={hasMustDoOrder}
+                  />
+                ) : (
+                  <span className="text-[11px] font-bold text-amber-600">{i18nTOf("hint_for_treasure", "for the treasure 🏆")}</span>
+                )
+              }
             >
               {i18nTOf("sec_for_treasure", "Still to do")} ({mustDo.length})
             </SectionTitle>
+            {reorderMustDo && (
+              <div className="text-[11px] text-slate-500 px-1 mb-2">
+                {i18nTOf("more_reorder_hint", "Drag the ☰ handle to reorder, or tap ↑ / ↓. Changes save instantly.")}
+              </div>
+            )}
             {mustDo.length === 0 ? (
               <Card className="p-3 mb-2 text-center text-xs text-emerald-700 bg-emerald-50 border-emerald-200 font-bold">
                 {i18nTOf("pt_top8_complete", "✨ Top 8 complete — treasure ready to open!")}
               </Card>
             ) : (
-              mustDo.map(renderRow)
+              reorderMustDo
+                ? mustDo.map((t, idx) => renderEditRow(t, "mustDo", idx, mustDo))
+                : mustDo.map(renderRow)
             )}
 
             <SectionTitle
               icon={<Sparkles size={16} className="text-slate-300" />}
               right={
-                <button
-                  type="button"
-                  onClick={() => setShowAddPicker(true)}
-                  className="text-[11px] font-bold text-indigo-600 bg-indigo-50 rounded-full px-2.5 py-1 flex items-center gap-1 active:scale-95"
-                  title="Add a task to today's bonus"
-                >
-                  <Plus size={11} /> Add to today
-                </button>
+                <span className="flex items-center gap-1.5">
+                  {bonus.length > 1 && (
+                    <SectionEditButtons
+                      active={reorderBonus}
+                      onToggle={() => setReorderBonus((v) => !v)}
+                      onReset={() => resetSectionOrder("bonus")}
+                      hasSaved={hasBonusOrder}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowAddPicker(true)}
+                    className="text-[11px] font-bold text-indigo-600 bg-indigo-50 rounded-full px-2.5 py-1 flex items-center gap-1 active:scale-95"
+                    title="Add a task to today's bonus"
+                  >
+                    <Plus size={11} /> Add to today
+                  </button>
+                </span>
               }
             >
               {i18nTOf("sec_bonus", "Bonus")} ({bonus.length})
             </SectionTitle>
+            {reorderBonus && (
+              <div className="text-[11px] text-slate-500 px-1 mb-2">
+                {i18nTOf("more_reorder_hint", "Drag the ☰ handle to reorder, or tap ↑ / ↓. Changes save instantly.")}
+              </div>
+            )}
             {bonus.length === 0 && (
               <p className="text-xs text-slate-400 px-1 mb-2">{i18nTOf("hint_extra_credit_not_required", "extra credit, not required")}</p>
             )}
-            {bonus.map((t) => {
-              const isPinnedBonus = (pinnedBonus?.[TODAY_ISO] || []).includes(t.id);
-              return (
-                <div key={t.id} className="mb-2.5">
-                  <MiniRow langs={langs}
-                    task={t}
-                    comp={compByTask[t.id]}
-                    tone="slate"
-                    mode={mode}
-                    priorities={priorities}
-                    users={users}
-                    setPriority={setPriority}
-                    clearPriority={clearPriority}
-                    activities={activities}
-                    books={books}
-                    songs={songs}
-                    songPlays={songPlays}
-                    onOpenDetail={setDetailId}
-                    onMarkDone={setOpenTask}
-                    markTaskNA={markTaskNA}
-                  />
-                  {isPinnedBonus && unpinTaskFromToday && (
-                    <button
-                      type="button"
-                      onClick={() => unpinTaskFromToday(TODAY_ISO, t.id)}
-                      className="text-[10px] font-bold text-slate-400 hover:text-rose-500 mt-0.5 px-1 flex items-center gap-1"
-                      title="Remove this task from today's bonus"
-                    >
-                      <X size={10} /> remove from today
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+            {reorderBonus
+              ? bonus.map((t, idx) => renderEditRow(t, "bonus", idx, bonus))
+              : bonus.map((t) => {
+                  const isPinnedBonus = (pinnedBonus?.[TODAY_ISO] || []).includes(t.id);
+                  return (
+                    <div key={t.id} className="mb-2.5">
+                      <MiniRow langs={langs}
+                        task={t}
+                        comp={compByTask[t.id]}
+                        tone="slate"
+                        mode={mode}
+                        priorities={priorities}
+                        users={users}
+                        setPriority={setPriority}
+                        clearPriority={clearPriority}
+                        activities={activities}
+                        books={books}
+                        songs={songs}
+                        songPlays={songPlays}
+                        onOpenDetail={setDetailId}
+                        onMarkDone={setOpenTask}
+                        markTaskNA={markTaskNA}
+                      />
+                      {isPinnedBonus && unpinTaskFromToday && (
+                        <button
+                          type="button"
+                          onClick={() => unpinTaskFromToday(TODAY_ISO, t.id)}
+                          className="text-[10px] font-bold text-slate-400 hover:text-rose-500 mt-0.5 px-1 flex items-center gap-1"
+                          title="Remove this task from today's bonus"
+                        >
+                          <X size={10} /> remove from today
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
           </>
         );
       })()}
