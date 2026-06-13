@@ -6359,7 +6359,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
       setPhoto({ path, name });
     } catch (err) {
-      toast.error("Photo upload failed: " + (err.message || err));
+      toast.error(i18nTOf("gs_photo_upload_fail", "Photo upload failed: {msg}").replace("{msg}", err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -6412,10 +6412,10 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
     return (
       <div className="mt-3">
         <button onClick={() => setOpen(true)} className="w-full py-3 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#f59e0b,#ec4899)" }}>
-          <Sparkles size={16} /> Gift bonus stars
+          <Sparkles size={16} /> {i18nTOf("gs_cta", "Gift bonus stars")}
           {todayTotal > 0 && (
             <span className="ml-1 text-[11px] font-extrabold bg-white/25 rounded-full px-2 py-0.5">
-              {todayTotal}⭐ today
+              {i18nTOf("gs_today_pill", "{n}⭐ today").replace("{n}", todayTotal)}
             </span>
           )}
         </button>
@@ -6423,7 +6423,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
             never accidentally double-gifts the same activity. */}
         {giftedToday.length > 0 && (
           <div className="mt-2 bg-amber-50 border border-amber-200 rounded-2xl p-2.5">
-            <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">Already gifted today</div>
+            <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">{i18nTOf("gs_already_gifted_short", "Already gifted today")}</div>
             <div className="space-y-1">
               {giftedToday.map((g) => {
                 const giver = users.find((u) => u.id === g.by)?.name || "—";
@@ -6461,35 +6461,35 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
 
   return (
     <Card className="p-4 mt-3">
-      <div className="font-bold text-sm mb-1 flex items-center gap-2"><Sparkles size={15} className="text-amber-500" /> Gift bonus stars</div>
-      <div className="text-[11px] text-slate-400 mb-2">For great stuff that isn't on the list — extra reading, helping others, kindness.</div>
+      <div className="font-bold text-sm mb-1 flex items-center gap-2"><Sparkles size={15} className="text-amber-500" /> {i18nTOf("gs_cta", "Gift bonus stars")}</div>
+      <div className="text-[11px] text-slate-400 mb-2">{i18nTOf("gs_intro", "For great stuff that isn't on the list — extra reading, helping others, kindness.")}</div>
       {giftedToday.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-2 mb-2">
-          <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">Already gifted today ({todayTotal}⭐)</div>
+          <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">{i18nTOf("gs_already_gifted", "Already gifted today ({n}⭐)").replace("{n}", todayTotal)}</div>
           {giftedToday.map((g) => (
             <div key={g.id} className="flex items-center gap-2 text-[11px]">
               <span className="font-bold text-amber-700 tabular-nums shrink-0">+{g.stars}⭐</span>
               <span className="flex-1 text-slate-700 truncate">{g.label}</span>
             </div>
           ))}
-          <div className="text-[10px] text-amber-700 mt-1 font-bold">Don't double-gift — pick a different reason or amount.</div>
+          <div className="text-[10px] text-amber-700 mt-1 font-bold">{i18nTOf("gs_no_double", "Don't double-gift — pick a different reason or amount.")}</div>
         </div>
       )}
 
-      <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="What did he do? e.g. Extra 30 min reading" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
+      <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={i18nTOf("gs_label_ph", "What did they do? e.g. Extra 30 min reading")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
 
       {/* Optional task picker — credits the gift to a specific task so
           Insights, per-day breakdown, and the Star Ledger can attribute
           it. Leave blank for "general bonus." */}
       <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-        For which task? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+        {i18nTOf("gs_for_task", "For which task?")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
       </label>
       <select
         value={taskId}
         onChange={(e) => { setTaskId(e.target.value); setBookId(""); setSongId(""); }}
         className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
       >
-        <option value="">— general bonus —</option>
+        <option value="">{i18nTOf("gs_general_bonus", "— general bonus —")}</option>
         {taskOptions.map((t) => (
           <option key={t.id} value={t.id}>{i18nTitleOf(t)}</option>
         ))}
@@ -6503,7 +6503,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       {isReading && (
         <>
           <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-            Which book? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+            {i18nTOf("gs_which_book", "Which book?")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
           </label>
           {!addingBook ? (
             <>
@@ -6512,7 +6512,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                 onChange={(e) => { setBookId(e.target.value); setMarkBookFinished(false); }}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-1.5 bg-white"
               >
-                <option value="">— pick a book —</option>
+                <option value="">{i18nTOf("gs_pick_book", "— pick a book —")}</option>
                 {bookOptions.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.title}{b.status && b.status !== "reading" ? ` (${b.status})` : ""}
@@ -6525,7 +6525,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={() => setAddingBook(true)}
                   className="text-[11px] font-bold text-indigo-600 mb-2 flex items-center gap-1"
                 >
-                  <Plus size={12} /> Add a new book
+                  <Plus size={12} /> {i18nTOf("gs_add_new_book", "Add a new book")}
                 </button>
               )}
               {bookId && updateBook && (() => {
@@ -6541,8 +6541,8 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                       className="w-4 h-4"
                     />
                     {alreadyFinished
-                      ? "✓ Already finished"
-                      : `${kidName(users)} finished this book today 📚`}
+                      ? i18nTOf("gs_already_finished", "✓ Already finished")
+                      : i18nTOf("gs_kid_finished", "{kid} finished this book today 📚").replace("{kid}", kidName(users))}
                   </label>
                 );
               })()}
@@ -6552,13 +6552,13 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
               <input
                 value={newBookTitle}
                 onChange={(e) => setNewBookTitle(e.target.value)}
-                placeholder="Book title"
+                placeholder={i18nTOf("gs_book_title_ph", "Book title")}
                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
               />
               <input
                 value={newBookAuthor}
                 onChange={(e) => setNewBookAuthor(e.target.value)}
-                placeholder="Author (optional)"
+                placeholder={i18nTOf("gs_book_author_ph", "Author (optional)")}
                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
               />
               <div className="flex gap-1.5">
@@ -6567,7 +6567,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={() => { setAddingBook(false); setNewBookTitle(""); setNewBookAuthor(""); }}
                   className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5 active:scale-95"
                 >
-                  Cancel
+                  {i18nTOf("gs_cancel", "Cancel")}
                 </button>
                 <button
                   type="button"
@@ -6575,7 +6575,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={saveNewBook}
                   className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 active:scale-95 ${newBookTitle.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}
                 >
-                  Add book
+                  {i18nTOf("gs_add_book", "Add book")}
                 </button>
               </div>
             </div>
@@ -6589,7 +6589,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       {isDrums && (
         <>
           <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-            Which song? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+            {i18nTOf("gs_which_song", "Which song?")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
           </label>
           {!addingSong ? (
             <>
@@ -6598,7 +6598,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                 onChange={(e) => setSongId(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-1.5 bg-white"
               >
-                <option value="">— pick a song —</option>
+                <option value="">{i18nTOf("gs_pick_song", "— pick a song —")}</option>
                 {songOptions.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.canonicalTitle || s.title}{(s.canonicalArtist || s.artist) ? ` — ${s.canonicalArtist || s.artist}` : ""}
@@ -6611,7 +6611,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={() => setAddingSong(true)}
                   className="text-[11px] font-bold text-indigo-600 mb-2 flex items-center gap-1"
                 >
-                  <Plus size={12} /> Add a new song
+                  <Plus size={12} /> {i18nTOf("gs_add_new_song", "Add a new song")}
                 </button>
               )}
             </>
@@ -6620,13 +6620,13 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
               <input
                 value={newSongTitle}
                 onChange={(e) => setNewSongTitle(e.target.value)}
-                placeholder="Song title"
+                placeholder={i18nTOf("gs_song_title_ph", "Song title")}
                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
               />
               <input
                 value={newSongArtist}
                 onChange={(e) => setNewSongArtist(e.target.value)}
-                placeholder="Artist (optional)"
+                placeholder={i18nTOf("gs_song_artist_ph", "Artist (optional)")}
                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
               />
               <div className="flex gap-1.5">
@@ -6635,7 +6635,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={() => { setAddingSong(false); setNewSongTitle(""); setNewSongArtist(""); }}
                   className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5 active:scale-95"
                 >
-                  Cancel
+                  {i18nTOf("gs_cancel", "Cancel")}
                 </button>
                 <button
                   type="button"
@@ -6643,7 +6643,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={saveNewSong}
                   className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 active:scale-95 ${newSongTitle.trim() ? "bg-purple-600 text-white" : "bg-slate-200 text-slate-400"}`}
                 >
-                  Add song
+                  {i18nTOf("gs_add_song", "Add song")}
                 </button>
               </div>
             </div>
@@ -6652,21 +6652,21 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       )}
 
       {/* Stars amount */}
-      <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Stars</label>
+      <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">{i18nTOf("gs_stars_label", "Stars")}</label>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         {[3, 5, 10, 15, 20, 30].map((n) => <button key={n} onClick={() => setAmt(n)} className={`px-3 py-1.5 rounded-xl text-sm font-bold ${amt === n ? "bg-amber-400 text-white" : "bg-slate-100 text-slate-500"}`}>{n}⭐</button>)}
       </div>
 
       {/* Photo proof — same upload pattern as TaskSheet. Optional. */}
       <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-        Photo proof <span className="font-normal text-slate-400 normal-case">(optional)</span>
+        {i18nTOf("gs_photo_proof", "Photo proof")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
       </label>
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePickPhoto} />
       {photo ? (
         <div className="flex items-center gap-2 mb-3 bg-emerald-50 border border-emerald-200 rounded-xl p-2">
           <Camera size={14} className="text-emerald-600 shrink-0" />
-          <div className="text-[11px] font-bold text-emerald-700 flex-1 truncate">{photo.name || "Photo attached"}</div>
-          <button onClick={() => setPhoto(null)} className="text-emerald-700 text-[11px] font-bold">Remove</button>
+          <div className="text-[11px] font-bold text-emerald-700 flex-1 truncate">{photo.name || i18nTOf("gs_photo_attached", "Photo attached")}</div>
+          <button onClick={() => setPhoto(null)} className="text-emerald-700 text-[11px] font-bold">{i18nTOf("gs_photo_remove", "Remove")}</button>
         </div>
       ) : (
         <button
@@ -6675,13 +6675,13 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
           disabled={uploading}
           className={`w-full mb-3 py-2 rounded-xl border border-dashed text-[12px] font-bold flex items-center justify-center gap-1.5 ${uploading ? "bg-slate-50 text-slate-400 border-slate-200" : "bg-white text-indigo-600 border-indigo-300 active:scale-[0.99]"}`}
         >
-          {uploading ? "Uploading…" : <><Camera size={13} /> Add a photo</>}
+          {uploading ? i18nTOf("gs_photo_uploading", "Uploading…") : <><Camera size={13} /> {i18nTOf("gs_photo_add", "Add a photo")}</>}
         </button>
       )}
 
       <div className="flex gap-2">
-        <button onClick={close} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">Cancel</button>
-        <button disabled={!label.trim() || uploading} onClick={submit} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${label.trim() && !uploading ? "bg-amber-500" : "bg-slate-200 text-slate-400"}`}>Give {amt}⭐</button>
+        <button onClick={close} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">{i18nTOf("gs_cancel", "Cancel")}</button>
+        <button disabled={!label.trim() || uploading} onClick={submit} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${label.trim() && !uploading ? "bg-amber-500" : "bg-slate-200 text-slate-400"}`}>{i18nTOf("gs_give_n", "Give {n}⭐").replace("{n}", amt)}</button>
       </div>
     </Card>
   );
