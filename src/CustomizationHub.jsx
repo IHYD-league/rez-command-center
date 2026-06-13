@@ -558,7 +558,7 @@ const HUB_MODULES = [
     title: "Text size",
     icon: Type,
     description:
-      "Bumping this up makes every screen's text bigger. Stays per-profile, so Grandma and Mike can be different.",
+      "Bumping this up makes every screen's text bigger. Stays per-profile, so each family member can pick their own size.",
     Render: FontScaleModule,
   },
   {

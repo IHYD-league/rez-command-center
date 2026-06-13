@@ -52,6 +52,15 @@ const STRINGS = {
   quest_label:    { en: "Quest",    es: "Misión" },
   quest_complete: { en: "Complete", es: "Completa" },
 
+  // Completion status — surfaced under task rows on the kid view and
+  // in the per-day breakdown. Used to render flat English.
+  status_not_started:  { en: "Not started",      es: "Sin empezar" },
+  status_pending:      { en: "Pending approval", es: "Falta aprobar" },
+  status_approved:     { en: "Approved",         es: "Aprobada" },
+  status_needs_fix:    { en: "Needs fix",        es: "Necesita arreglo" },
+  status_skipped:      { en: "Skipped",          es: "Omitida" },
+  status_draft:        { en: "Draft",            es: "Borrador" },
+
   // Common pillar labels
   pillar_brain: { en: "Brain", es: "Mente" },
   pillar_body:  { en: "Body",  es: "Cuerpo" },
