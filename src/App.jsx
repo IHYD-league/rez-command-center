@@ -6749,17 +6749,17 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
               <div className="w-10 h-10 rounded-2xl bg-amber-100 grid place-items-center"><TaskIcon type={t.activityType} /></div>
               <div className="flex-1">
                 <div className="font-bold text-sm">{i18nTitleOf(t)}</div>
-                <div className="text-[11px] text-slate-400">Submitted by {who?.name}</div>
+                <div className="text-[11px] text-slate-400">{i18nTOf("app_submitted_by", "Submitted by {name}").replace("{name}", who?.name || "")}</div>
               </div>
               <StarPill n={c.pendingStars} tone="amber" />
             </div>
 
-            {c.extra?.bookTitle && <Detail label="Book">{c.extra.bookTitle} ({c.extra.lang}, {c.extra.minutes} min)</Detail>}
-            {c.extra?.title && <Detail label="Title">{c.extra.title}</Detail>}
+            {c.extra?.bookTitle && <Detail label={i18nTOf("app_detail_book", "Book")}>{c.extra.bookTitle} ({c.extra.lang}, {c.extra.minutes} min)</Detail>}
+            {c.extra?.title && <Detail label={i18nTOf("app_detail_title", "Title")}>{c.extra.title}</Detail>}
             {c.extra?.drumeo !== undefined && (c.extra.drumeo || c.extra.melodics || c.extra.songList) && (
-              <Detail label="Drums">Drumeo {c.extra.drumeo || 0}m · Melodics {c.extra.melodics || 0}m{c.extra.songList ? ` · ${c.extra.songList}` : ""}</Detail>
+              <Detail label={i18nTOf("app_detail_drums", "Drums")}>Drumeo {c.extra.drumeo || 0}m · Melodics {c.extra.melodics || 0}m{c.extra.songList ? ` · ${c.extra.songList}` : ""}</Detail>
             )}
-            {c.notes && <Detail label="Note">{c.notes}</Detail>}
+            {c.notes && <Detail label={i18nTOf("app_detail_note", "Note")}>{c.notes}</Detail>}
             {c.proof?.some((p) => p.path || p.url) && (() => {
               const ph = c.proof.find((p) => p.path || p.url);
               const g = ph.geo;
@@ -6769,15 +6769,15 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
                   {g && (
                     <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1 flex-wrap">
                       📍 {g.label} {g.approx ? "" : `(${g.lat}, ${g.lng})`}
-                      <a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noreferrer" className="text-indigo-600 font-semibold">map</a>
+                      <a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noreferrer" className="text-indigo-600 font-semibold">{i18nTOf("app_geo_map", "map")}</a>
                       {ph.time && <span className="text-slate-400">· {ph.time}</span>}
-                      {ph.by && <span className="text-slate-400">· by {users.find((u) => u.id === ph.by)?.name || "helper"}</span>}
+                      {ph.by && <span className="text-slate-400">· by {users.find((u) => u.id === ph.by)?.name || i18nTOf("app_by_helper", "helper")}</span>}
                     </div>
                   )}
                 </div>
               );
             })()}
-            {c.proof?.length > 0 && !c.proof.some((p) => p.path || p.url) && <Detail label="Proof">{c.proof.map((p) => p.name).join(", ")}</Detail>}
+            {c.proof?.length > 0 && !c.proof.some((p) => p.path || p.url) && <Detail label={i18nTOf("app_detail_proof", "Proof")}>{c.proof.map((p) => p.name).join(", ")}</Detail>}
 
             <div className="flex gap-2 mt-3">
               <button onClick={() => decide(c.id, "approve")} className="flex-1 py-2.5 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={16} />{i18nTOf("act_approve", "Approve")}</button>
@@ -6796,14 +6796,14 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
       {songReqs.length > 0 && (
         <>
           <SectionTitle icon={<Music size={16} className="text-purple-500" />}>
-            Song log changes <span className="text-[11px] font-normal text-slate-400">· {songReqs.length}</span>
+            {i18nTOf("app_song_section", "Song log changes")} <span className="text-[11px] font-normal text-slate-400">· {songReqs.length}</span>
           </SectionTitle>
           {songReqs.map((req) => {
             const play = songPlays.find((p) => p.id === req.playId);
             const song = play ? songs.find((s) => s.id === play.songId) : null;
-            const songTitle = song?.canonicalTitle || song?.title || "(deleted song)";
+            const songTitle = song?.canonicalTitle || song?.title || i18nTOf("app_song_deleted", "(deleted song)");
             const who = users.find((u) => u.id === req.by)?.name || kidName(users);
-            const kindLabel = req.kind === "remove" ? "Remove play" : "Edit play";
+            const kindLabel = req.kind === "remove" ? i18nTOf("app_song_remove", "Remove play") : i18nTOf("app_song_edit", "Edit play");
             const tileBg = req.kind === "remove" ? "bg-rose-50" : "bg-indigo-50";
             const tileFg = req.kind === "remove" ? "text-rose-700" : "text-indigo-700";
             return (
@@ -6819,13 +6819,13 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
                     <div className="text-[11px] text-slate-400 truncate">
                       {play ? fmtShort(play.playedOn) : "—"}
                       {play?.notes ? ` · "${play.notes}"` : ""}
-                      {` · asked by ${who}`}
+                      {` · ${i18nTOf("app_song_asked_by", "asked by {name}").replace("{name}", who)}`}
                     </div>
                   </div>
                 </div>
                 {req.kind === "update" && req.payload && (
                   <div className="mt-2 text-[11px] bg-slate-50 rounded-lg p-2">
-                    <div className="text-slate-500 mb-0.5">Wants to change to:</div>
+                    <div className="text-slate-500 mb-0.5">{i18nTOf("app_song_change_to", "Wants to change to:")}</div>
                     <div className="font-bold text-slate-700">
                       {req.payload.playedOn ? fmtShort(req.payload.playedOn) : "—"}
                       {req.payload.notes ? ` · "${req.payload.notes}"` : ""}
@@ -6834,9 +6834,9 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
                 )}
                 <div className="flex gap-2 mt-3">
                   <button onClick={() => decideSongPlayRequest?.(req.id, "approve")} className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1">
-                    <Check size={15} /> Approve
+                    <Check size={15} /> {i18nTOf("act_approve", "Approve")}
                   </button>
-                  <button onClick={() => decideSongPlayRequest?.(req.id, "deny")} className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95" aria-label="Deny">
+                  <button onClick={() => decideSongPlayRequest?.(req.id, "deny")} className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95" aria-label={i18nTOf("app_deny_aria", "Deny")}>
                     <X size={15} />
                   </button>
                 </div>
@@ -6860,7 +6860,7 @@ function WishApproveRow({ w, decideRewardRequest }) {
       <div className="font-bold text-sm">⭐ {w.title}</div>
       {w.note && <div className="text-[11px] text-slate-400 mt-0.5">"{w.note}"</div>}
       <div className="flex items-center gap-2 mt-2">
-        <span className="text-xs text-slate-500">Costs</span>
+        <span className="text-xs text-slate-500">{i18nTOf("rew_costs_label", "Costs")}</span>
         <input type="number" value={cost} onChange={(e) => setCost(Number(e.target.value))} className="w-20 border border-slate-200 rounded-xl px-2 py-1 text-sm" />
         <span className="text-xs text-slate-500">⭐</span>
         <button onClick={() => decideRewardRequest(w.id, "approved", cost)} className="ml-auto px-3 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs">{i18nTOf("act_approve", "Approve")}</button>
@@ -6877,7 +6877,12 @@ function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward
   const [name, setName] = useState("");
   const [cost, setCost] = useState(50);
   const [cat, setCat] = useState("Treat");
-  const cats = ["Everyday", "Treat", "Creative", "Big"];
+  const cats = [
+    { key: "Everyday", label: i18nTOf("rew_cat_everyday", "Everyday") },
+    { key: "Treat",    label: i18nTOf("rew_cat_treat", "Treat") },
+    { key: "Creative", label: i18nTOf("rew_cat_creative", "Creative") },
+    { key: "Big",      label: i18nTOf("rew_cat_big", "Big") },
+  ];
   // Sort order for the All-rewards list. "high" = priciest at top
   // (good for scanning the big dreams). "low" = cheapest at top
   // (good for scanning what's already in reach). Persisted in-memory
@@ -6891,15 +6896,15 @@ function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward
   });
   return (
     <div className="px-4 pt-4">
-      <h2 className="font-extrabold text-lg px-1">Rewards Store</h2>
-      <p className="text-xs text-slate-400 px-1">Bank: {starBank} ⭐ · add, edit, or remove anything he's into.</p>
+      <h2 className="font-extrabold text-lg px-1">{i18nTOf("rew_heading", "Rewards Store")}</h2>
+      <p className="text-xs text-slate-400 px-1">{i18nTOf("rew_bank_hint", "Bank: {n} ⭐ · add, edit, or remove anything {kid}'s into.").replace("{n}", starBank).replace("{kid}", kidName(users))}</p>
 
-      <SectionTitle icon={<Sparkles size={16} className="text-violet-500" />}>{i18nTOf("sec_wishes_from", "Wishes from")} {kidName(users)} {wishes.length > 0 && <span className="text-[11px] font-normal text-violet-500">· {wishes.length} new</span>}</SectionTitle>
-      {wishes.length === 0 && <p className="text-xs text-slate-400 px-1">No new wishes. When he dreams one up, set the stars and approve it here.</p>}
+      <SectionTitle icon={<Sparkles size={16} className="text-violet-500" />}>{i18nTOf("sec_wishes_from", "Wishes from")} {kidName(users)} {wishes.length > 0 && <span className="text-[11px] font-normal text-violet-500">· {i18nTOf("rew_wishes_new", "{n} new").replace("{n}", wishes.length)}</span>}</SectionTitle>
+      {wishes.length === 0 && <p className="text-xs text-slate-400 px-1">{i18nTOf("rew_no_wishes", "No new wishes. When one comes up, set the stars and approve it here.")}</p>}
       {wishes.map((w) => <WishApproveRow key={w.id} w={w} decideRewardRequest={decideRewardRequest} />)}
 
       <SectionTitle icon={<Gift size={16} className="text-violet-500" />}>{i18nTOf("sec_redemption_requests", "Redemption requests")}</SectionTitle>
-      {requested.length === 0 && <p className="text-xs text-slate-400 px-1">No pending requests.</p>}
+      {requested.length === 0 && <p className="text-xs text-slate-400 px-1">{i18nTOf("rew_no_requests", "No pending requests.")}</p>}
       {requested.map((r) => (
         <Card key={r.id} className="p-3 mb-2 flex items-center gap-3">
           <div className="flex-1"><div className="font-bold text-sm">{r.title}</div><div className="text-[11px] text-slate-400">{r.cost} ⭐</div></div>
@@ -6915,32 +6920,32 @@ function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward
             <button
               onClick={() => setRewardSort((s) => (s === "high" ? "low" : "high"))}
               className="text-[11px] font-bold text-slate-500 bg-slate-100 rounded-full px-2.5 py-1 flex items-center gap-1"
-              title={rewardSort === "high" ? "Switch to lowest first" : "Switch to highest first"}
+              title={rewardSort === "high" ? i18nTOf("rew_sort_tooltip_low", "Switch to lowest first") : i18nTOf("rew_sort_tooltip_high", "Switch to highest first")}
             >
-              {rewardSort === "high" ? "★ high → low" : "★ low → high"}
+              {rewardSort === "high" ? i18nTOf("rew_sort_high_to_low", "★ high → low") : i18nTOf("rew_sort_low_to_high", "★ low → high")}
             </button>
             {!adding && (
               <button onClick={() => setAdding(true)} className="text-[11px] font-bold text-indigo-600 flex items-center gap-1">
-                <Plus size={12} /> Add
+                <Plus size={12} /> {i18nTOf("rew_add", "Add")}
               </button>
             )}
           </div>
         }
       >
-        All rewards
+        {i18nTOf("rew_section_all", "All rewards")}
       </SectionTitle>
       {adding && (
         <Card className="p-4 mb-2">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. New comic book" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={i18nTOf("rew_new_ph", "e.g. New comic book")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs text-slate-500">Cost</span>
+            <span className="text-xs text-slate-500">{i18nTOf("rew_cost_label", "Cost")}</span>
             <input type="number" value={cost} onChange={(e) => setCost(Number(e.target.value))} className="w-20 border border-slate-200 rounded-xl px-2 py-1 text-sm" />
             <span className="text-xs text-slate-500">⭐</span>
           </div>
-          <div className="flex flex-wrap gap-1.5 mb-3">{cats.map((c) => <button key={c} onClick={() => setCat(c)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${cat === c ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{c}</button>)}</div>
+          <div className="flex flex-wrap gap-1.5 mb-3">{cats.map((c) => <button key={c.key} onClick={() => setCat(c.key)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${cat === c.key ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{c.label}</button>)}</div>
           <div className="flex gap-2">
-            <button onClick={() => { setAdding(false); setName(""); }} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">Cancel</button>
-            <button disabled={!name.trim()} onClick={() => { addReward({ id: "r_" + Date.now(), title: name.trim(), starCost: cost, category: cat, active: true }); setAdding(false); setName(""); setCost(50); }} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${name.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Add reward</button>
+            <button onClick={() => { setAdding(false); setName(""); }} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">{i18nTOf("act_cancel", "Cancel")}</button>
+            <button disabled={!name.trim()} onClick={() => { addReward({ id: "r_" + Date.now(), title: name.trim(), starCost: cost, category: cat, active: true }); setAdding(false); setName(""); setCost(50); }} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${name.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>{i18nTOf("rew_add_reward", "Add reward")}</button>
           </div>
         </Card>
       )}
@@ -6958,7 +6963,7 @@ function RewardEditRow({ r, updateReward, removeReward }) {
           {edit
             ? <input value={r.title} onChange={(e) => updateReward(r.id, { title: e.target.value })} className="font-bold text-sm w-full border border-slate-200 rounded px-1.5 py-0.5" />
             : <div className="font-bold text-sm">{r.title}</div>}
-          <div className="text-[11px] text-slate-400">{r.category}{r.active === false ? " · hidden" : ""}</div>
+          <div className="text-[11px] text-slate-400">{r.category}{r.active === false ? ` · ${i18nTOf("rew_hidden", "hidden")}` : ""}</div>
         </div>
         {edit
           ? <div className="flex items-center gap-1"><input type="number" value={r.starCost} onChange={(e) => updateReward(r.id, { starCost: Number(e.target.value) })} className="w-16 border border-slate-200 rounded px-1.5 py-0.5 text-sm" /><span className="text-xs">⭐</span></div>
@@ -6967,8 +6972,8 @@ function RewardEditRow({ r, updateReward, removeReward }) {
       </div>
       {edit && (
         <div className="flex gap-2 mt-2">
-          <button onClick={() => updateReward(r.id, { active: r.active === false })} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">{r.active === false ? "Show in store" : "Hide from store"}</button>
-          <button onClick={() => removeReward(r.id)} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center gap-1"><X size={14} /> Remove</button>
+          <button onClick={() => updateReward(r.id, { active: r.active === false })} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">{r.active === false ? i18nTOf("rew_show_in_store", "Show in store") : i18nTOf("rew_hide_from_store", "Hide from store")}</button>
+          <button onClick={() => removeReward(r.id)} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center gap-1"><X size={14} /> {i18nTOf("act_remove", "Remove")}</button>
         </div>
       )}
     </Card>
