@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Music, Check, X, RotateCcw, Camera, Save } from "lucide-react";
 import { searchSongs, pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
+import { toast } from "./lib/toast.js";
 
 /* =====================================================================
    Shared song row + match picker.
@@ -72,7 +73,7 @@ export function EnrichedSongRow({ s, rank, maxCount, updateSong, familyId }) {
       const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
       updateSong(s.id, { customCoverPath: path });
     } catch (err) {
-      alert("Cover upload failed: " + (err.message || err));
+      toast.error("Cover upload failed: " + (err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";

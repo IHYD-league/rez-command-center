@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { X, ChevronLeft, ChevronRight, Calendar as CalIcon, Image as ImageIcon, Heart, Plus, Camera } from "lucide-react";
 import { useSignedUrl, uploadFamilyPhoto } from "./lib/storage.js";
+import { toast } from "./lib/toast.js";
 
 /* =====================================================================
    PhotoGallery — Phase 1 + Phase 2 (Memories).
@@ -271,7 +272,7 @@ function AddMemoryForm({ activities, user, familyId, onSave }) {
       reset();
       setOpen(false);
     } catch (err) {
-      alert("Upload failed: " + (err.message || err));
+      toast.error("Upload failed: " + (err.message || err));
       setBusy(false);
     }
   };

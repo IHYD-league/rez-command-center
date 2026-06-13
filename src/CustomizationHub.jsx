@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { X, Type, Palette, Camera, Image as ImageIcon, Volume2, Smartphone } from "lucide-react";
 import { juice } from "./lib/juice.js";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
+import { toast } from "./lib/toast.js";
 
 /* =====================================================================
    CustomizationHub — per-profile accessibility / display settings.
@@ -262,7 +263,7 @@ function AvatarModule({ user, updateUser, familyId }) {
     if (inputRef.current) inputRef.current.value = "";
     if (!f) return;
     if (!familyId) {
-      alert("Can't upload — family isn't linked yet. Open the app from a signed-in profile.");
+      toast.error("Can't upload — family isn't linked yet. Open the app from a signed-in profile.");
       return;
     }
     setPendingFile(f);
@@ -275,7 +276,7 @@ function AvatarModule({ user, updateUser, familyId }) {
       updateUser(user.id, { photo: path });
       setPendingFile(null);
     } catch (err) {
-      alert("Upload failed: " + (err.message || err));
+      toast.error("Upload failed: " + (err.message || err));
     } finally {
       setBusy(false);
     }

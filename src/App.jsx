@@ -1220,13 +1220,13 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       p_access_type: accessType || "permanent",
       p_access_expires: accessExpires || null,
     });
-    if (error) { alert("Approve failed: " + error.message); return; }
+    if (error) { toast.error("Approve failed: " + error.message); return; }
     await reloadPending();
   };
 
   const denyRegistration = async (authUserId) => {
     const { error } = await supabase.rpc("deny_registration", { p_auth_user_id: authUserId });
-    if (error) { alert("Deny failed: " + error.message); return; }
+    if (error) { toast.error("Deny failed: " + error.message); return; }
     await reloadPending();
   };
   const setPriority = (taskId, level, scope) => setPriorities((prev) => ({ ...prev, [taskId]: { level, scope, by: currentUserId } }));
@@ -9257,7 +9257,7 @@ function BoardThemePicker({ boardTheme, setBoardTheme, users, setCurrentUserId, 
   const kid = (users || []).find((u) => u.role === "kid");
   const jumpToBoard = () => {
     if (!kid) {
-      alert("Couldn't find the kid's profile.");
+      toast.error("Couldn't find the kid's profile.");
       return;
     }
     const ok = window.confirm("Go to Reznor's game board?");
