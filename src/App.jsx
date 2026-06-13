@@ -383,7 +383,10 @@ const TYPE_TO_ACT = {
 const actFor = (task, activities) => {
   const id = task.activityId || TYPE_TO_ACT[task.activityType];
   const a = activities?.find((x) => x.id === id);
-  if (a) return { color: a.color, tint: a.color + "22", label: a.short || a.name, pillar: a.pillar };
+  // label is rendered all over (MiniRow chip, ActivityRow header, etc.)
+  // — route through i18nNameOf so a Spanish/Both family sees translated
+  // names. Falls back to the short / name as before.
+  if (a) return { color: a.color, tint: a.color + "22", label: i18nNameOf(a) || a.short || a.name, pillar: a.pillar };
   const dd = DOMAIN[domainOf(task)];
   return { color: dd.color, tint: dd.tint, label: dd.label, pillar: "brain" };
 };
@@ -4523,7 +4526,7 @@ function KidStreaks({ activities, streaks }) {
         <div className="text-2xl font-extrabold mt-1">Your Streaks</div>
         <div className="text-[12px] opacity-90 mt-1">Do it every single day and watch the fire grow.</div>
       </div>
-      {entries.length === 0 && <p className="text-sm text-slate-400 px-1 mt-4">No streaks yet — ask a parent to start tracking one!</p>}
+      {entries.length === 0 && <p className="text-sm text-slate-400 px-1 mt-4">{i18nTOf("empty_streaks", "No streaks yet — ask a parent to start tracking one!")}</p>}
       {entries.map((e, i) => <StreakCard key={e.id} e={e} hero={i === 0} />)}
     </div>
   );
@@ -5365,7 +5368,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
                 <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Add a note about this — progress, what to work on, what the teacher said…" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm resize-none" />
                 <button onClick={() => { addTaskNote(task.id, note); setNote(""); }} disabled={!note.trim()} className={`w-full mt-2 py-2.5 rounded-xl font-bold text-sm text-white ${note.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Add note</button>
               </Card>
-              {notes.length === 0 && <p className="text-sm text-slate-400 px-1">No notes yet.</p>}
+              {notes.length === 0 && <p className="text-sm text-slate-400 px-1">{i18nTOf("empty_notes", "No notes yet.")}</p>}
               {notes.map((n, i) => (
                 <Card key={i} className="p-3 mb-2 text-sm">
                   <div className="text-[11px] text-slate-400 mb-0.5">{users.find((u) => u.id === n.by)?.name || "Parent"} · {n.time}</div>
@@ -5452,7 +5455,7 @@ function ProgressSheet({ activity, streaks, onClose }) {
       <div className="relative w-full max-w-md bg-slate-50 rounded-t-3xl max-h-[92vh] overflow-y-auto">
         <div className="sticky top-0 z-10 p-4 text-white flex items-center gap-3" style={{ background: activity.color }}>
           <div className="w-11 h-11 rounded-2xl bg-white/20 grid place-items-center text-xl">{PILLARS[activity.pillar]?.emoji}</div>
-          <div className="flex-1 min-w-0"><div className="font-extrabold text-lg leading-tight">{activity.name}</div><div className="text-[12px] opacity-90">progress & consistency</div></div>
+          <div className="flex-1 min-w-0"><div className="font-extrabold text-lg leading-tight">{i18nNameOf(activity)}</div><div className="text-[12px] opacity-90">progress & consistency</div></div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 grid place-items-center"><X size={18} /></button>
         </div>
         <div className="p-4">
@@ -5559,7 +5562,7 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
 
       <SectionTitle icon={<Award size={16} className="text-emerald-500" />}>{i18nTOf("sec_stars_earned", "Stars I've earned")}</SectionTitle>
       {approved.length === 0 && (gifted?.length || 0) === 0 && (
-        <p className="text-sm text-slate-400 px-1">Nothing approved yet — go finish a mission! 🚀</p>
+        <p className="text-sm text-slate-400 px-1">{i18nTOf("empty_approved_kid", "Nothing approved yet — go finish a mission! 🚀")}</p>
       )}
       {/* Single unified timeline — completions AND bonus gifts grouped
           by date, newest day first. Within a day, rows sort newest first
@@ -5912,7 +5915,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
       />
 
       <SectionTitle icon={<Clock size={16} className="text-amber-500" />}>{i18nTOf("sec_needs_approval_full", "Needs approval")} ({pending.length})</SectionTitle>
-      {pending.length === 0 && <p className="text-xs text-slate-400 px-1">Nothing waiting. 🎉</p>}
+      {pending.length === 0 && <p className="text-xs text-slate-400 px-1">{i18nTOf("empty_pending_today", "Nothing waiting. 🎉")}</p>}
       {pending.map((t) => {
         const c = compByTask[t.id];
         return (
@@ -6730,7 +6733,7 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
           </div>
         </div>
       </div>
-      {pending.length === 0 && <Card className="p-6 text-center text-slate-400 text-sm mt-4">All caught up! 🎉</Card>}
+      {pending.length === 0 && <Card className="p-6 text-center text-slate-400 text-sm mt-4">{i18nTOf("empty_all_caught_up", "All caught up! 🎉")}</Card>}
       {pending.map((c) => {
         const t = tasks.find((x) => x.id === c.taskId);
         const who = users.find((u) => u.id === (c.submittedBy || c.completedBy));
@@ -8150,7 +8153,7 @@ function Accomplishments({ awards, addAward, removeAward, activities, familyId }
       {!adding && <button onClick={() => setAdding(true)} className="w-full py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1 mb-3"><Plus size={15} /> Add an accomplishment</button>}
       {adding && <AddAwardForm activities={activities} onAdd={(a) => { addAward(a); setAdding(false); }} onCancel={() => setAdding(false)} familyId={familyId} />}
 
-      {awards.length === 0 && <p className="text-xs text-slate-400 px-1">Nothing yet — upload his first certificate or recital sheet.</p>}
+      {awards.length === 0 && <p className="text-xs text-slate-400 px-1">{i18nTOf("empty_awards", "Nothing yet — upload his first certificate or recital sheet.")}</p>}
       <div className="grid grid-cols-2 gap-2">
         {awards.map((a) => {
           const act = actOf(a.activityId);
@@ -8365,7 +8368,7 @@ function ParentRecap(props) {
       )}
 
       <SectionTitle icon={<ImageIcon size={16} className="text-violet-500" />}>{i18nTOf("sec_photos", "Photos")} {window.label}</SectionTitle>
-      {photos.length === 0 && <p className="text-xs text-slate-400 px-1">No photos captured yet — helpers can snap them from the checklist.</p>}
+      {photos.length === 0 && <p className="text-xs text-slate-400 px-1">{i18nTOf("empty_photos", "No photos captured yet — helpers can snap them from the checklist.")}</p>}
       <div className="grid grid-cols-3 gap-1.5">
         {photos.map((p, i) => <StoredPhoto key={i} path={p.path} url={p.url} alt="" className="w-full h-24 object-cover rounded-xl" fallback={<div className="w-full h-24 bg-slate-100 animate-pulse rounded-xl" />} />)}
       </div>
@@ -8374,7 +8377,7 @@ function ParentRecap(props) {
       {topStreaks.slice(0, 5).map((x) => (
         <Card key={x.a.id} className="p-3 mb-2 flex items-center gap-3">
           <div className="w-2 h-8 rounded-full" style={{ background: x.a.color }} />
-          <div className="flex-1 text-sm font-semibold">{x.a.name}</div>
+          <div className="flex-1 text-sm font-semibold">{i18nNameOf(x.a)}</div>
           <span className="text-sm font-extrabold text-orange-500">🔥 {x.s.current}</span>
         </Card>
       ))}
@@ -9857,7 +9860,7 @@ function ManageActivities({ activities, addActivity, updateActivity, addTask, st
         return (
           <div key={pk} id={`pillar-${pk}`} style={{ scrollMarginTop: 12 }}>
             <SectionTitle icon={<span className="text-base">{p.emoji}</span>}>{p.label}</SectionTitle>
-            {list.length === 0 ? <p className="text-xs text-slate-400 px-1">None yet.</p> : list.map((a) => <ActivityRow key={a.id} a={a} onUpdate={updateActivity} streaks={streaks} setStreak={setStreak} stopStreak={stopStreak} bumpStreak={bumpStreak} onProgress={setProgressActId} />)}
+            {list.length === 0 ? <p className="text-xs text-slate-400 px-1">{i18nTOf("empty_activities", "None yet.")}</p> : list.map((a) => <ActivityRow key={a.id} a={a} onUpdate={updateActivity} streaks={streaks} setStreak={setStreak} stopStreak={stopStreak} bumpStreak={bumpStreak} onProgress={setProgressActId} />)}
           </div>
         );
       })}
@@ -9870,7 +9873,7 @@ function ManageActivities({ activities, addActivity, updateActivity, addTask, st
               <div style={{ background: a.color }} className="w-2.5 shrink-0" />
               <div className="p-3 flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <div className="font-bold text-sm flex-1 min-w-0">{a.name}</div>
+                  <div className="font-bold text-sm flex-1 min-w-0">{i18nNameOf(a)}</div>
                   <button onClick={() => updateActivity(a.id, { status: "active" })} className="text-[11px] font-bold text-indigo-600 shrink-0">Restore</button>
                 </div>
                 {a.note && <div className="text-[11px] text-slate-400 mt-0.5">{a.note}</div>}

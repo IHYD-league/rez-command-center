@@ -75,6 +75,16 @@ const STRINGS = {
   sec_finished:             { en: "Finished",             es: "Terminados" },
   sec_archive:              { en: "Archive",              es: "Archivo" },
 
+  // Empty states (mostly kid + parent screens)
+  empty_streaks:        { en: "No streaks yet — ask a parent to start tracking one!", es: "Sin rachas todavía — pídele a un adulto que empiece a llevar una." },
+  empty_notes:          { en: "No notes yet.", es: "Sin notas todavía." },
+  empty_approved_kid:   { en: "Nothing approved yet — go finish a mission! 🚀", es: "Nada aprobado todavía — ¡termina una misión! 🚀" },
+  empty_awards:         { en: "Nothing yet — upload his first certificate or recital sheet.", es: "Nada todavía — sube el primer certificado o programa." },
+  empty_photos:         { en: "No photos captured yet — helpers can snap them from the checklist.", es: "Sin fotos todavía — los adultos pueden tomarlas desde la lista." },
+  empty_activities:     { en: "None yet.", es: "Ninguna todavía." },
+  empty_pending_today:  { en: "Nothing waiting. 🎉", es: "Nada en espera. 🎉" },
+  empty_all_caught_up:  { en: "All caught up! 🎉", es: "¡Al día! 🎉" },
+
   // Section titles — helper / care surfaces
   sec_todays_checklist:     { en: "Today's checklist",    es: "Lista de hoy" },
   sec_contacts:             { en: "Contacts",             es: "Contactos" },
