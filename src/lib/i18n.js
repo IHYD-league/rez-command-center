@@ -780,6 +780,16 @@ const STRINGS = {
   gs_photo_upload_fail:       { en: "Photo upload failed: {msg}",                es: "Error al subir la foto: {msg}" },
   gs_give_n:                  { en: "Give {n}⭐",                                 es: "Dar {n}⭐" },
 
+  // EditGiftSheet (parent taps a bonus row to edit)
+  eg_kicker:                  { en: "Edit bonus stars",                          es: "Editar estrellas bonus" },
+  eg_currently:               { en: "currently {n}⭐",                            es: "actualmente {n}⭐" },
+  eg_save_same:               { en: "Save changes to \"{label}\"?\n\nStar amount stays at {n}.", es: "¿Guardar cambios en \"{label}\"?\n\nLa cantidad de estrellas se queda en {n}." },
+  eg_save_up:                 { en: "Save changes to \"{label}\"?\n\nThe star bank will go up by {n} stars.", es: "¿Guardar cambios en \"{label}\"?\n\nEl banco subirá {n} estrellas." },
+  eg_save_down:               { en: "Save changes to \"{label}\"?\n\nThe star bank will drop by {n} stars.", es: "¿Guardar cambios en \"{label}\"?\n\nEl banco bajará {n} estrellas." },
+  eg_delete_confirm:          { en: "Delete this gift?\n\n\"{label}\" (+{n}⭐)\n\nThe star bank will drop by {n} stars and the row goes away.", es: "¿Borrar este regalo?\n\n\"{label}\" (+{n}⭐)\n\nEl banco bajará {n} estrellas y la fila desaparecerá." },
+  eg_delete:                  { en: "Delete",                                    es: "Borrar" },
+  eg_save:                    { en: "Save",                                      es: "Guardar" },
+
   // Summary stat tile labels (parent Today + kid Stars)
   stat_stars_available:       { en: "Stars available today",                 es: "Estrellas disponibles hoy" },
   stat_earned_today:          { en: "Earned today",                          es: "Ganadas hoy" },

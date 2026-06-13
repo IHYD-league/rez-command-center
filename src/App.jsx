@@ -1921,7 +1921,7 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
       setTaskId(next.extra?.taskId || "");
       setBookId(next.extra?.bookId || "");
       setSongId(next.extra?.songId || "");
-      setPhoto(next.extra?.photoPath ? { path: next.extra.photoPath, name: next.extra.photoName || "Photo attached" } : null);
+      setPhoto(next.extra?.photoPath ? { path: next.extra.photoPath, name: next.extra.photoName || i18nTOf("gs_photo_attached", "Photo attached") } : null);
       setAddingBook(false); setNewBookTitle(""); setNewBookAuthor("");
       setAddingSong(false); setNewSongTitle(""); setNewSongArtist("");
     }
@@ -1954,7 +1954,7 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
       setPhoto({ path, name });
     } catch (err) {
-      toast.error("Photo upload failed: " + (err.message || err));
+      toast.error(i18nTOf("gs_photo_upload_fail", "Photo upload failed: {msg}").replaceAll("{msg}", err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -1986,8 +1986,10 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
     const oldStars = Number(gift.stars) || 0;
     const delta = newStars - oldStars;
     const summary = delta === 0
-      ? `Save changes to "${trimmed}"?\n\nStar amount stays at ${newStars}.`
-      : `Save changes to "${trimmed}"?\n\nThe star bank will ${delta > 0 ? "go up by " + delta : "drop by " + Math.abs(delta)} stars.`;
+      ? i18nTOf("eg_save_same", "Save changes to \"{label}\"?\n\nStar amount stays at {n}.").replaceAll("{label}", trimmed).replaceAll("{n}", newStars)
+      : delta > 0
+        ? i18nTOf("eg_save_up", "Save changes to \"{label}\"?\n\nThe star bank will go up by {n} stars.").replaceAll("{label}", trimmed).replaceAll("{n}", delta)
+        : i18nTOf("eg_save_down", "Save changes to \"{label}\"?\n\nThe star bank will drop by {n} stars.").replaceAll("{label}", trimmed).replaceAll("{n}", Math.abs(delta));
     if (!window.confirm(summary)) return;
     // Stamp bookTitle / songTitle alongside the ids so ProofThumb's
     // title fallback always has data to work with, even if the book
@@ -2014,7 +2016,9 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
   };
 
   const onDelete = () => {
-    const msg = `Delete this gift?\n\n"${gift.label || "Bonus"}" (+${gift.stars}⭐)\n\nThe star bank will drop by ${gift.stars} stars and the row goes away.`;
+    const msg = i18nTOf("eg_delete_confirm", "Delete this gift?\n\n\"{label}\" (+{n}⭐)\n\nThe star bank will drop by {n} stars and the row goes away.")
+      .replaceAll("{label}", gift.label || i18nTOf("ks_bonus_fallback", "Bonus"))
+      .replaceAll("{n}", gift.stars);
     if (!window.confirm(msg)) return;
     removeGift(gift.id);
     giftEditor.close();
@@ -2039,47 +2043,47 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
       <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 max-h-[90vh] overflow-y-auto shadow-2xl">
         <div className="flex items-start justify-between mb-3">
           <div>
-            <div className="text-[10px] uppercase tracking-widest font-bold text-amber-600">Edit bonus stars</div>
-            <div className="text-lg font-extrabold text-slate-900">{gift.label || "Bonus"}</div>
-            <div className="text-[11px] text-slate-400">{gift.date} · currently {gift.stars}⭐</div>
+            <div className="text-[10px] uppercase tracking-widest font-bold text-amber-600">{i18nTOf("eg_kicker", "Edit bonus stars")}</div>
+            <div className="text-lg font-extrabold text-slate-900">{gift.label || i18nTOf("ks_bonus_fallback", "Bonus")}</div>
+            <div className="text-[11px] text-slate-400">{gift.date} · {i18nTOf("eg_currently", "currently {n}⭐").replaceAll("{n}", gift.stars)}</div>
           </div>
           <button onClick={() => giftEditor.close()} className="text-slate-400 p-1.5 -mr-1.5"><X size={20} /></button>
         </div>
 
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="What did he do?" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={i18nTOf("gs_label_ph", "What did they do? e.g. Extra 30 min reading")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
 
         <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-          For which task? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+          {i18nTOf("gs_for_task", "For which task?")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
         </label>
         <select value={taskId} onChange={(e) => { setTaskId(e.target.value); }} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white">
-          <option value="">— general bonus —</option>
+          <option value="">{i18nTOf("gs_general_bonus", "— general bonus —")}</option>
           {taskOptions.map((t) => (<option key={t.id} value={t.id}>{i18nTitleOf(t)}</option>))}
         </select>
 
         {isReading && (
           <>
             <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-              Which book? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+              {i18nTOf("gs_which_book", "Which book?")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
             </label>
             {!addingBook ? (
               <>
                 <select value={bookId} onChange={(e) => setBookId(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-1.5 bg-white">
-                  <option value="">— pick a book —</option>
+                  <option value="">{i18nTOf("gs_pick_book", "— pick a book —")}</option>
                   {bookOptions.map((b) => (<option key={b.id} value={b.id}>{b.title}{b.status && b.status !== "reading" ? ` (${b.status})` : ""}</option>))}
                 </select>
                 {addBook && (
                   <button type="button" onClick={() => setAddingBook(true)} className="text-[11px] font-bold text-indigo-600 mb-2 flex items-center gap-1">
-                    <Plus size={12} /> Add a new book
+                    <Plus size={12} /> {i18nTOf("gs_add_new_book", "Add a new book")}
                   </button>
                 )}
               </>
             ) : (
               <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-2 mb-2">
-                <input value={newBookTitle} onChange={(e) => setNewBookTitle(e.target.value)} placeholder="Book title" className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
-                <input value={newBookAuthor} onChange={(e) => setNewBookAuthor(e.target.value)} placeholder="Author (optional)" className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
+                <input value={newBookTitle} onChange={(e) => setNewBookTitle(e.target.value)} placeholder={i18nTOf("gs_book_title_ph", "Book title")} className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
+                <input value={newBookAuthor} onChange={(e) => setNewBookAuthor(e.target.value)} placeholder={i18nTOf("gs_book_author_ph", "Author (optional)")} className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
                 <div className="flex gap-1.5">
-                  <button type="button" onClick={() => { setAddingBook(false); setNewBookTitle(""); setNewBookAuthor(""); }} className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5">Cancel</button>
-                  <button type="button" disabled={!newBookTitle.trim()} onClick={saveNewBook} className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 ${newBookTitle.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}>Add book</button>
+                  <button type="button" onClick={() => { setAddingBook(false); setNewBookTitle(""); setNewBookAuthor(""); }} className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5">{i18nTOf("gs_cancel", "Cancel")}</button>
+                  <button type="button" disabled={!newBookTitle.trim()} onClick={saveNewBook} className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 ${newBookTitle.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}>{i18nTOf("gs_add_book", "Add book")}</button>
                 </div>
               </div>
             )}
@@ -2089,34 +2093,34 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
         {isDrums && (
           <>
             <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-              Which song? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+              {i18nTOf("gs_which_song", "Which song?")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
             </label>
             {!addingSong ? (
               <>
                 <select value={songId} onChange={(e) => setSongId(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-1.5 bg-white">
-                  <option value="">— pick a song —</option>
+                  <option value="">{i18nTOf("gs_pick_song", "— pick a song —")}</option>
                   {songOptions.map((s) => (<option key={s.id} value={s.id}>{s.canonicalTitle || s.title}{(s.canonicalArtist || s.artist) ? ` — ${s.canonicalArtist || s.artist}` : ""}</option>))}
                 </select>
                 {addSong && (
                   <button type="button" onClick={() => setAddingSong(true)} className="text-[11px] font-bold text-indigo-600 mb-2 flex items-center gap-1">
-                    <Plus size={12} /> Add a new song
+                    <Plus size={12} /> {i18nTOf("gs_add_new_song", "Add a new song")}
                   </button>
                 )}
               </>
             ) : (
               <div className="bg-purple-50 border border-purple-200 rounded-xl p-2 mb-2">
-                <input value={newSongTitle} onChange={(e) => setNewSongTitle(e.target.value)} placeholder="Song title" className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
-                <input value={newSongArtist} onChange={(e) => setNewSongArtist(e.target.value)} placeholder="Artist (optional)" className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
+                <input value={newSongTitle} onChange={(e) => setNewSongTitle(e.target.value)} placeholder={i18nTOf("gs_song_title_ph", "Song title")} className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
+                <input value={newSongArtist} onChange={(e) => setNewSongArtist(e.target.value)} placeholder={i18nTOf("gs_song_artist_ph", "Artist (optional)")} className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white" />
                 <div className="flex gap-1.5">
-                  <button type="button" onClick={() => { setAddingSong(false); setNewSongTitle(""); setNewSongArtist(""); }} className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5">Cancel</button>
-                  <button type="button" disabled={!newSongTitle.trim()} onClick={saveNewSong} className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 ${newSongTitle.trim() ? "bg-purple-600 text-white" : "bg-slate-200 text-slate-400"}`}>Add song</button>
+                  <button type="button" onClick={() => { setAddingSong(false); setNewSongTitle(""); setNewSongArtist(""); }} className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5">{i18nTOf("gs_cancel", "Cancel")}</button>
+                  <button type="button" disabled={!newSongTitle.trim()} onClick={saveNewSong} className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 ${newSongTitle.trim() ? "bg-purple-600 text-white" : "bg-slate-200 text-slate-400"}`}>{i18nTOf("gs_add_song", "Add song")}</button>
                 </div>
               </div>
             )}
           </>
         )}
 
-        <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Stars</label>
+        <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">{i18nTOf("gs_stars_label", "Stars")}</label>
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           {[3, 5, 10, 15, 20, 30].map((n) => (
             <button key={n} type="button" onClick={() => setStars(n)} className={`px-3 py-1.5 rounded-xl text-sm font-bold ${stars === n ? "bg-amber-400 text-white" : "bg-slate-100 text-slate-500"}`}>{n}⭐</button>
@@ -2125,25 +2129,25 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
         </div>
 
         <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-          Photo proof <span className="font-normal text-slate-400 normal-case">(optional)</span>
+          {i18nTOf("gs_photo_proof", "Photo proof")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
         </label>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePickPhoto} />
         {photo ? (
           <div className="flex items-center gap-2 mb-3 bg-emerald-50 border border-emerald-200 rounded-xl p-2">
             <Camera size={14} className="text-emerald-600 shrink-0" />
-            <div className="text-[11px] font-bold text-emerald-700 flex-1 truncate">{photo.name || "Photo attached"}</div>
-            <button onClick={() => setPhoto(null)} className="text-emerald-700 text-[11px] font-bold">Remove</button>
+            <div className="text-[11px] font-bold text-emerald-700 flex-1 truncate">{photo.name || i18nTOf("gs_photo_attached", "Photo attached")}</div>
+            <button onClick={() => setPhoto(null)} className="text-emerald-700 text-[11px] font-bold">{i18nTOf("gs_photo_remove", "Remove")}</button>
           </div>
         ) : (
           <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading} className={`w-full mb-3 py-2 rounded-xl border border-dashed text-[12px] font-bold flex items-center justify-center gap-1.5 ${uploading ? "bg-slate-50 text-slate-400 border-slate-200" : "bg-white text-indigo-600 border-indigo-300"}`}>
-            {uploading ? "Uploading…" : (<><Camera size={13} /> Add a photo</>)}
+            {uploading ? i18nTOf("gs_photo_uploading", "Uploading…") : (<><Camera size={13} /> {i18nTOf("gs_photo_add", "Add a photo")}</>)}
           </button>
         )}
 
         <div className="flex gap-2">
-          <button type="button" onClick={onDelete} className="px-3 py-2.5 rounded-xl bg-rose-50 text-rose-700 font-bold text-sm">Delete</button>
-          <button type="button" onClick={() => giftEditor.close()} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-600 font-bold text-sm">Cancel</button>
-          <button type="button" disabled={!label.trim() || uploading} onClick={submit} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${label.trim() && !uploading ? "bg-amber-500" : "bg-slate-200 text-slate-400"}`}>Save</button>
+          <button type="button" onClick={onDelete} className="px-3 py-2.5 rounded-xl bg-rose-50 text-rose-700 font-bold text-sm">{i18nTOf("eg_delete", "Delete")}</button>
+          <button type="button" onClick={() => giftEditor.close()} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-600 font-bold text-sm">{i18nTOf("gs_cancel", "Cancel")}</button>
+          <button type="button" disabled={!label.trim() || uploading} onClick={submit} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${label.trim() && !uploading ? "bg-amber-500" : "bg-slate-200 text-slate-400"}`}>{i18nTOf("eg_save", "Save")}</button>
         </div>
       </div>
     </div>
