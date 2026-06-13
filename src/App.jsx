@@ -5050,7 +5050,6 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                         <input
                           type="file"
                           accept="image/*"
-                          {...(task.category === "Chores" ? { capture: "environment" } : {})}
                           onChange={handleFile}
                           className="hidden"
                         />
@@ -5120,7 +5119,6 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                       <input
                         type="file"
                         accept="image/*"
-                        {...(task.category === "Chores" ? { capture: "environment" } : {})}
                         onChange={handleFile}
                         className="hidden"
                       />
@@ -10262,7 +10260,7 @@ function EasyChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, mo
                 {!done && (
                   <div className="flex gap-2 mt-4">
                     <button disabled={!canMark} onClick={() => submitTask(t.id, {})} className={`flex-1 py-4 rounded-2xl text-white text-lg font-extrabold flex items-center justify-center gap-2 ${canMark ? "bg-emerald-500 active:scale-95" : "bg-slate-200 text-slate-400"}`}><Check size={24} /> {canMark ? "Done!" : "Parent only"}</button>
-                    <label className="w-16 rounded-2xl bg-slate-100 grid place-items-center cursor-pointer active:scale-95"><Camera size={24} className="text-slate-500" /><input type="file" accept="image/*" {...(t.category === "Chores" ? { capture: "environment" } : {})} className="hidden" onChange={(e) => onPhoto(t, e.target.files?.[0])} /></label>
+                    <label className="w-16 rounded-2xl bg-slate-100 grid place-items-center cursor-pointer active:scale-95"><Camera size={24} className="text-slate-500" /><input type="file" accept="image/*" className="hidden" onChange={(e) => onPhoto(t, e.target.files?.[0])} /></label>
                   </div>
                 )}
               </div>
@@ -10336,7 +10334,7 @@ function HelperChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, 
               {!done && (
                 <label className="shrink-0 w-9 h-9 rounded-xl bg-white border border-slate-200 grid place-items-center cursor-pointer active:scale-95">
                   <Camera size={16} className="text-slate-500" />
-                  <input type="file" accept="image/*" {...(t.category === "Chores" ? { capture: "environment" } : {})} className="hidden" onChange={(e) => onPhoto(t, e.target.files?.[0])} />
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => onPhoto(t, e.target.files?.[0])} />
                 </label>
               )}
               {done && <button onClick={() => undoTask(t.id)} className="shrink-0 px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 text-[11px] font-bold flex items-center gap-1"><RotateCcw size={13} /> Undo</button>}
