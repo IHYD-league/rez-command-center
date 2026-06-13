@@ -30,6 +30,7 @@ import { useBottomSheet } from "./lib/sheet.js";
 import { runDataAudit, auditSummary } from "./lib/dataAudit.js";
 import { lightbox } from "./lib/lightbox.js";
 import { giftEditor } from "./lib/giftEditor.js";
+import { activeLangs, tt as i18nTt, taskTitle as i18nTaskTitle, activityName as i18nActivityName, LANG_LABELS } from "./lib/i18n.js";
 
 /* =====================================================================
    REZNOR COMMAND CENTER — MVP PROTOTYPE
@@ -1394,6 +1395,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }));
   };
 
+  // Display languages for this profile. Drives bilingual rendering of
+  // task names, activity names, nav labels, and section headers. Default
+  // is English-only; the parent flips it from More → Languages.
+  const langs = activeLangs(currentPrefs);
+
   // Apply font-scale globally — set root font-size %, Tailwind's rem-based
   // text classes inherit it, every screen scales together.
   useEffect(() => {
@@ -1551,7 +1557,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   const shared = {
-    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, rewards, completions, compByTask, events, handoff, redemptions,
+    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, langs, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
@@ -1599,7 +1605,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
         <div className="flex-1 overflow-y-auto pb-24">
           <Router tab={tab} {...shared} />
         </div>
-        <BottomNav user={user} tab={tab} setTab={setTab} />
+        <BottomNav user={user} tab={tab} setTab={setTab} langs={langs} />
         {openTask && (
           <TaskSheet
             task={openTask}
@@ -5777,7 +5783,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [] }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"] }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix", "draft"].includes(compByTask[t.id]?.status));
@@ -5828,7 +5834,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         const c = compByTask[t.id];
         return (
           <div key={t.id} className="mb-2.5">
-            <MiniRow task={t} comp={c} tone="amber" mode={mode} priorities={priorities} users={users} activities={activities} books={books} songs={songs} songPlays={songPlays} onOpenDetail={setDetailId} undoTask={undoTask} />
+            <MiniRow langs={langs} task={t} comp={c} tone="amber" mode={mode} priorities={priorities} users={users} activities={activities} books={books} songs={songs} songPlays={songPlays} onOpenDetail={setDetailId} undoTask={undoTask} />
             {/* Inline approve buttons — the home banner used to be
                 a dead-end stat. Now every pending row is one tap from
                 Approve / +5⭐ bonus / Needs fix / Reject. Same decide()
@@ -5856,7 +5862,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         const mustDo = todo.filter((t) => topEightIds.has(t.id));
         const bonus = todo.filter((t) => !topEightIds.has(t.id));
         const renderRow = (t) => (
-          <MiniRow
+          <MiniRow langs={langs}
             key={t.id}
             task={t}
             comp={compByTask[t.id]}
@@ -5920,7 +5926,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
               const c = compByTask[t.id];
               // Done rows: tap → CompletionDetailSheet (photos, notes,
               // stats, edit). Krissie's flow lives here on the parent side.
-              return <MiniRow key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} books={books} songs={songs} songPlays={songPlays} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
+              return <MiniRow langs={langs} key={t.id} task={t} comp={c} tone="emerald" users={users} mode={mode} priorities={priorities} activities={activities} books={books} songs={songs} songPlays={songPlays} onOpenDetail={() => c?.id && setOpenCompletionId(c.id)} undoTask={undoTask} />;
             })}
             {giftedTodayList.map((g) => {
               const gTask = g.extra?.taskId ? tasks.find((t) => t.id === g.extra.taskId) : null;
@@ -6018,7 +6024,7 @@ function SummaryStat({ label, value, tone, onClick }) {
   }
   return <Card className="p-3">{body}</Card>;
 }
-function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone, markTaskNA, books = [], songs = [], songPlays = [] }) {
+function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clearPriority, activities, onOpenDetail, undoTask, onMarkDone, markTaskNA, books = [], songs = [], songPlays = [], langs = ["en"] }) {
   const [open, setOpen] = useState(false);
   const by = comp?.approvedBy ? users?.find((u) => u.id === comp.approvedBy)?.name : null;
   const d = actFor(task, activities);
@@ -6101,7 +6107,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
         )}
         <div className="flex items-center gap-3 p-3 flex-1 min-w-0">
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold flex items-center gap-1">{task.title}<ChevronLeft size={13} className="rotate-180 text-slate-300" /></div>
+            <div className="text-sm font-semibold flex items-center gap-1">{i18nTaskTitle(task, langs)}<ChevronLeft size={13} className="rotate-180 text-slate-300" /></div>
             {by && <span className="block text-[11px] text-slate-400 font-normal">✓ by {by}</span>}
             <div className="flex items-center gap-1.5 flex-wrap mt-1">
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: d.color + "22", color: d.color }}>{d.label}</span>
@@ -8716,6 +8722,75 @@ function DataAudit(props) {
 // what's actually stored (photos may carry GPS); (3) make
 // own-your-data ops one tap away (export, sign out). Especially
 // important now that other parents are asking to use Command Center.
+// LanguagesPage — parent toggle for which languages render across the
+// app. Phase 1 ships en + es. Mike's rule: keep some English around
+// when Spanish is on so Reznor (still learning) doesn't get lost.
+// "Both" is the default-friendly recommendation; "Spanish only" is
+// available for full immersion days.
+function LanguagesPage({ setPref, currentPrefs }) {
+  const current = (currentPrefs?.displayLangs && Array.isArray(currentPrefs.displayLangs))
+    ? currentPrefs.displayLangs
+    : ["en"];
+  const isEnglishOnly = current.length === 1 && current[0] === "en";
+  const isSpanishOnly = current.length === 1 && current[0] === "es";
+  const isBoth = current.length === 2 || (current.includes("en") && current.includes("es"));
+  const apply = (langs) => setPref?.("displayLangs", langs);
+  const OptionCard = ({ active, onClick, primary, secondary, hint }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full mb-2 text-left rounded-2xl border-2 p-4 transition ${active ? "border-indigo-500 bg-indigo-50" : "border-slate-100 bg-white"}`}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="text-sm font-extrabold text-slate-800">{primary}</div>
+        {active && <Check size={16} className="text-indigo-600 shrink-0" />}
+      </div>
+      <div className="text-[12px] font-semibold text-slate-500 mt-0.5">{secondary}</div>
+      <div className="text-[11px] text-slate-400 mt-1 leading-snug">{hint}</div>
+    </button>
+  );
+  return (
+    <div className="px-4 pt-4">
+      <div className="rounded-3xl p-4 mb-3 text-white bg-gradient-to-br from-indigo-500 to-violet-600">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur grid place-items-center text-2xl">🌐</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">Languages</div>
+            <div className="text-xl font-extrabold leading-tight">For Reznor + you</div>
+            <div className="text-[11px] text-white/80 mt-0.5">
+              Bilingual task names and labels everywhere they fit.
+            </div>
+          </div>
+        </div>
+      </div>
+      <OptionCard
+        active={isEnglishOnly}
+        onClick={() => apply(["en"])}
+        primary="🇺🇸 English only"
+        secondary="The original."
+        hint="Every label and task name in English. Pick this if Spanish makes the screens feel busy."
+      />
+      <OptionCard
+        active={isBoth}
+        onClick={() => apply(["en", "es"])}
+        primary="🇺🇸 / 🇪🇸 Both — recommended"
+        secondary="English first, Spanish alongside."
+        hint='Task names and labels render together — "Make Bed / Hacer la cama". Lets Reznor read in Spanish without getting lost.'
+      />
+      <OptionCard
+        active={isSpanishOnly}
+        onClick={() => apply(["es"])}
+        primary="🇪🇸 Spanish only"
+        secondary="Sólo en español."
+        hint="Full immersion. A few brand names (Duolingo, Drumeo) stay as they are."
+      />
+      <div className="text-[11px] text-slate-400 px-1 mt-3 leading-snug">
+        Custom tasks you've added show up in whatever language you typed them in — a future update will let you add a Spanish name on the task editor.
+      </div>
+    </div>
+  );
+}
+
 function PrivacySafety(props) {
   const { familyId = "", users = [], sessionEmail = "", signOut, completions = [], albumPhotos = [], gifted = [], songPlays = [], setTab } = props;
   const fid = String(familyId || "");
@@ -8833,6 +8908,7 @@ function MoreParent(props) {
   const [sub, setSub] = useState("menu");
   if (sub === "privacy") return <BackWrap title="Privacy & Safety" onBack={() => setSub("menu")}><PrivacySafety {...props} /></BackWrap>;
   if (sub === "audit") return <BackWrap title="Data audit" onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
+  if (sub === "languages") return <BackWrap title="Languages" onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title="Progress Portfolio" onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title="Weekly Summary" onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
   if (sub === "handoff") return <BackWrap title="Handoff Notes" onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
@@ -8872,6 +8948,7 @@ function MoreParent(props) {
     { k: "slideshow", icon: <Play size={18} />, label: "Milestone Slideshows", sub: "Monthly · 6-month · 1-year recaps" },
     { k: "audit", icon: <AlertCircle size={18} />, label: "Data audit", sub: "Check the math · find drift · spot orphans" },
     { k: "privacy", icon: <Lock size={18} />, label: "Privacy & Safety", sub: "Family isolation · what's stored · own your data" },
+    { k: "languages", icon: <GraduationCap size={18} />, label: "Languages", sub: "English / Spanish / Both — for Reznor + you" },
   ];
   // Apply per-parent saved order. Items not in the saved list slot in
   // at the end so a new menu entry shows up automatically. The setting
@@ -10096,26 +10173,30 @@ function CareInfo() {
 }
 
 // ===================== BOTTOM NAV =====================
-function BottomNav({ user, tab, setTab }) {
+function BottomNav({ user, tab, setTab, langs = ["en"] }) {
+  // Bilingual labels — when the parent enables "Both" or "Spanish",
+  // tab labels render as "Today / Hoy" etc. Brand-ish labels (Coach,
+  // Quest, Duolingo) stay short so the bar doesn't blow out.
+  const T = (k) => i18nTt(k, langs);
   const sets = {
     kid: [
-      { k: "today", icon: Trophy, label: "Missions" },
-      { k: "board", icon: MapIcon, label: "Board" },
-      { k: "streaks", icon: Flame, label: "Streaks" },
-      { k: "dream", icon: Target, label: "Dream" },
-      { k: "rewards", icon: Gift, label: "Rewards" },
-      { k: "stars", icon: Star, label: "Stars" },
-      { k: "school", icon: GraduationCap, label: "Quest" },
+      { k: "today", icon: Trophy, label: T("nav_missions") },
+      { k: "board", icon: MapIcon, label: T("nav_board") },
+      { k: "streaks", icon: Flame, label: T("nav_streaks") },
+      { k: "dream", icon: Target, label: T("nav_dream") },
+      { k: "rewards", icon: Gift, label: T("nav_rewards") },
+      { k: "stars", icon: Star, label: T("nav_stars") },
+      { k: "school", icon: GraduationCap, label: T("nav_quest") },
     ],
     parent: [
-      { k: "today", icon: Home, label: "Today" },
-      { k: "approvals", icon: Check, label: "Approve" },
-      { k: "rewards", icon: Gift, label: "Rewards" },
-      { k: "calendar", icon: CalIcon, label: "Calendar" },
-      { k: "more", icon: ClipboardList, label: "More" },
+      { k: "today", icon: Home, label: T("nav_today") },
+      { k: "approvals", icon: Check, label: T("nav_approve") },
+      { k: "rewards", icon: Gift, label: T("nav_rewards") },
+      { k: "calendar", icon: CalIcon, label: T("nav_calendar") },
+      { k: "more", icon: ClipboardList, label: T("nav_more") },
       // "Coach" → Coach Mode (parent companion). The kid still calls it
       // Quest in his nav; the parent's nav surfaces the coaching seam.
-      { k: "school", icon: GraduationCap, label: "Coach" },
+      { k: "school", icon: GraduationCap, label: T("nav_coach") },
     ],
     grandparent: [
       { k: "today", icon: ClipboardList, label: "Checklist" },
