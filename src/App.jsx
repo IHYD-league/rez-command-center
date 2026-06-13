@@ -30,6 +30,7 @@ import { useBottomSheet } from "./lib/sheet.js";
 import { runDataAudit, auditSummary } from "./lib/dataAudit.js";
 import { lightbox } from "./lib/lightbox.js";
 import { giftEditor } from "./lib/giftEditor.js";
+import { toast } from "./lib/toast.js";
 import { activeLangs, tt as i18nTt, taskTitle as i18nTaskTitle, activityName as i18nActivityName, LANG_LABELS, setCurrentLangs, titleOf as i18nTitleOf, nameOf as i18nNameOf, tOf as i18nTOf } from "./lib/i18n.js";
 
 /* =====================================================================
@@ -1732,6 +1733,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       <StarBurstLayer />
       <LevelUpLayer />
       <PhotoLightboxOverlay />
+      <ToastLayer />
       <EditGiftSheet
         updateGift={updateGift}
         removeGift={removeGift}
@@ -1831,6 +1833,57 @@ function PhotoLightboxOverlay() {
 // EditGiftSheet — universal "tap to edit a bonus gift" surface. Any
 // gift row in the app calls giftEditor.open(gift) on tap; this
 // overlay subscribes and renders a pre-filled form. Mike's rule:
+// ToastLayer — bottom-of-screen soft notifications. Replaces native
+// window.alert() on the upload failure paths. Subscribes to the
+// toast singleton, animates in, auto-dismisses after the duration.
+// Color-coded by kind: error = amber, success = emerald, info = slate.
+function ToastLayer() {
+  const [toasts, setToasts] = useState([]);
+  useEffect(() => toast.subscribe((t) => {
+    setToasts((prev) => [...prev, t]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((x) => x.id !== t.id));
+    }, t.duration);
+  }), []);
+  if (toasts.length === 0) return null;
+  return (
+    <div
+      className="fixed left-0 right-0 flex flex-col items-center gap-2 px-4 pointer-events-none"
+      style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 90px)", zIndex: 9997 }}
+      aria-live="polite"
+    >
+      {toasts.map((t) => {
+        const cls =
+          t.kind === "error" ? "bg-amber-50 border-amber-300 text-amber-900"
+          : t.kind === "success" ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+          : "bg-slate-50 border-slate-300 text-slate-800";
+        const icon =
+          t.kind === "error" ? <AlertCircle size={16} />
+          : t.kind === "success" ? <Check size={16} />
+          : <Sparkles size={16} />;
+        return (
+          <div
+            key={t.id}
+            className={`pointer-events-auto max-w-md w-full rounded-2xl border shadow-lg px-4 py-2.5 text-sm font-semibold flex items-center gap-2 ${cls}`}
+            role={t.kind === "error" ? "alert" : "status"}
+          >
+            <span className="shrink-0">{icon}</span>
+            <span className="flex-1 leading-snug">{t.message}</span>
+            <button
+              type="button"
+              onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+              className="text-current opacity-50 hover:opacity-100 p-0.5"
+              aria-label="Dismiss"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // editing must be easy + findable + confirmed.
 //
 // Form mirrors the gift create flow (label, stars, optional task →
@@ -1898,7 +1951,7 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
       setPhoto({ path, name });
     } catch (err) {
-      alert("Photo upload failed: " + (err.message || err));
+      toast.error("Photo upload failed: " + (err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -2908,7 +2961,7 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
       <div className="mt-3"><PiggyBank stars={starBank} /></div>
       <StreakStrip streaks={streaks} activities={activities} />
 
-      <SectionTitle icon={<Trophy size={16} className="text-rose-500" />}>Today's missions <span className="text-[11px] font-normal text-slate-400">· most important first</span></SectionTitle>
+      <SectionTitle icon={<Trophy size={16} className="text-rose-500" />}>{i18nTOf("sec_today_missions", "Today's missions")} <span className="text-[11px] font-normal text-slate-400">· {i18nTOf("hint_most_important_first", "most important first")}</span></SectionTitle>
       {ordered.map((t) => {
         const c = compByTask[t.id];
         // Approved task → tap opens the CompletionDetailSheet (photos
@@ -4016,7 +4069,7 @@ function CompletionDetailSheet({
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
       onAddPhoto({ name, path });
     } catch (err) {
-      alert("Photo upload failed: " + (err.message || err));
+      toast.error("Photo upload failed: " + (err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -4378,7 +4431,7 @@ function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }
         <div className="text-[12px] opacity-90 mt-1">Tap rewards to add them — I'll show you how to get there!</div>
       </div>
 
-      <SectionTitle icon={<Sparkles size={16} className="text-violet-500" />}>Wish for something new</SectionTitle>
+      <SectionTitle icon={<Sparkles size={16} className="text-violet-500" />}>{i18nTOf("sec_wish_new", "Wish for something new")}</SectionTitle>
       {!wishOpen && <button onClick={() => setWishOpen(true)} className="w-full py-3 rounded-2xl bg-violet-600 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> Make a wish</button>}
       {wishOpen && (
         <Card className="p-4">
@@ -4403,7 +4456,7 @@ function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }
         </div>
       )}
 
-      <SectionTitle icon={<Gift size={16} className="text-violet-500" />}>Choose your dreams</SectionTitle>
+      <SectionTitle icon={<Gift size={16} className="text-violet-500" />}>{i18nTOf("sec_choose_dreams", "Choose your dreams")}</SectionTitle>
       <div className="flex flex-wrap gap-2">
         {active.map((r) => {
           const on = picked.includes(r.id);
@@ -4436,7 +4489,7 @@ function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }
             )}
           </div>
 
-          <SectionTitle icon={<Trophy size={16} className="text-amber-500" />}>Unlock order</SectionTitle>
+          <SectionTitle icon={<Trophy size={16} className="text-amber-500" />}>{i18nTOf("sec_unlock_order", "Unlock order")}</SectionTitle>
           {chosen.map((r) => {
             run += r.starCost;
             const left = Math.max(0, run - starBank);
@@ -4620,7 +4673,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     const f = e.target.files?.[0];
     if (!f) return;
     if (photos.length >= MAX_PHOTOS) {
-      alert(`Max ${MAX_PHOTOS} photos per task.`);
+      toast.error(`Max ${MAX_PHOTOS} photos per task.`);
       e.target.value = "";
       return;
     }
@@ -4629,7 +4682,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
       setPhotos((prev) => (prev.length >= MAX_PHOTOS ? prev : [...prev, { type: "photo", name, path }]));
     } catch (err) {
-      alert("Photo upload failed: " + (err.message || err));
+      toast.error("Photo upload failed: " + (err.message || err));
     } finally {
       setUploading(false);
       e.target.value = ""; // allow picking the same file again after remove
@@ -5421,7 +5474,7 @@ function RewardsKid({ rewards, starBank, requestReward, redemptions }) {
         <div className="text-3xl font-extrabold mt-1">{starBank} ⭐</div>
         <div className="text-sm opacity-90">in your star bank</div>
       </div>
-      <SectionTitle icon={<Trophy size={16} className="text-amber-500" />}>Rewards to work toward</SectionTitle>
+      <SectionTitle icon={<Trophy size={16} className="text-amber-500" />}>{i18nTOf("sec_rewards_to_work", "Rewards to work toward")}</SectionTitle>
       {sorted.map((r) => {
         const afford = starBank >= r.starCost;
         const remaining = r.starCost - starBank;
@@ -5461,7 +5514,7 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
         <BigStat label="Pending" value={pendingStars} onClick={() => setStatDetailId?.("pending")} />
       </div>
 
-      <SectionTitle icon={<Sparkles size={16} className="text-amber-500" />}>Today's wins <span className="text-[11px] font-normal text-slate-400">· {wonToday}/{dayWins.length}</span></SectionTitle>
+      <SectionTitle icon={<Sparkles size={16} className="text-amber-500" />}>{i18nTOf("sec_todays_wins", "Today's wins")} <span className="text-[11px] font-normal text-slate-400">· {wonToday}/{dayWins.length}</span></SectionTitle>
       <div className="grid grid-cols-3 gap-2">
         {dayWins.map((a) => {
           const won = a.test(ctx);
@@ -5485,7 +5538,7 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
         requestSongPlayChange={requestSongPlayChange}
       />
 
-      <SectionTitle icon={<Medal size={16} className="text-violet-500" />}>Trophy case</SectionTitle>
+      <SectionTitle icon={<Medal size={16} className="text-violet-500" />}>{i18nTOf("sec_trophy_case", "Trophy case")}</SectionTitle>
       <div className="grid grid-cols-3 gap-2">
         {trophies.map((a) => {
           const won = a.test(ctx);
@@ -5504,7 +5557,7 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
       </div>
       <p className="text-[11px] text-slate-400 px-1 mt-2">Win badges every single day — even before the big rewards. 🎉</p>
 
-      <SectionTitle icon={<Award size={16} className="text-emerald-500" />}>Stars I've earned</SectionTitle>
+      <SectionTitle icon={<Award size={16} className="text-emerald-500" />}>{i18nTOf("sec_stars_earned", "Stars I've earned")}</SectionTitle>
       {approved.length === 0 && (gifted?.length || 0) === 0 && (
         <p className="text-sm text-slate-400 px-1">Nothing approved yet — go finish a mission! 🚀</p>
       )}
@@ -5643,7 +5696,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
   if (ranked.length === 0) {
     return (
       <>
-        <SectionTitle icon={<Music size={16} className="text-violet-500" />}>Most played songs</SectionTitle>
+        <SectionTitle icon={<Music size={16} className="text-violet-500" />}>{i18nTOf("sec_most_played", "Most played songs")}</SectionTitle>
         <Card className="p-3 text-center text-xs text-slate-400">No songs logged yet. Tap drums → log one!</Card>
       </>
     );
@@ -5858,7 +5911,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         updateBook={updateBook}
       />
 
-      <SectionTitle icon={<Clock size={16} className="text-amber-500" />}>Needs approval ({pending.length})</SectionTitle>
+      <SectionTitle icon={<Clock size={16} className="text-amber-500" />}>{i18nTOf("sec_needs_approval_full", "Needs approval")} ({pending.length})</SectionTitle>
       {pending.length === 0 && <p className="text-xs text-slate-400 px-1">Nothing waiting. 🎉</p>}
       {pending.map((t) => {
         const c = compByTask[t.id];
@@ -5915,9 +5968,9 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
           <>
             <SectionTitle
               icon={<Trophy size={16} className="text-amber-500" />}
-              right={<span className="text-[11px] font-bold text-amber-600">for the treasure 🏆</span>}
+              right={<span className="text-[11px] font-bold text-amber-600">{i18nTOf("hint_for_treasure", "for the treasure 🏆")}</span>}
             >
-              Still to do ({mustDo.length})
+              {i18nTOf("sec_for_treasure", "Still to do")} ({mustDo.length})
             </SectionTitle>
             {mustDo.length === 0 ? (
               <Card className="p-3 mb-2 text-center text-xs text-emerald-700 bg-emerald-50 border-emerald-200 font-bold">
@@ -5931,9 +5984,9 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
               <>
                 <SectionTitle
                   icon={<Sparkles size={16} className="text-slate-300" />}
-                  right={<span className="text-[11px] text-slate-400">extra credit, not required</span>}
+                  right={<span className="text-[11px] text-slate-400">{i18nTOf("hint_extra_credit_not_required", "extra credit, not required")}</span>}
                 >
-                  Bonus ({bonus.length})
+                  {i18nTOf("sec_bonus", "Bonus")} ({bonus.length})
                 </SectionTitle>
                 {bonus.map(renderRow)}
               </>
@@ -5951,7 +6004,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         const doneTotalCount = done.length + giftedTodayList.length;
         return (
           <>
-            <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Done ({doneTotalCount})</SectionTitle>
+            <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>{i18nTOf("sec_done_full", "Done")} ({doneTotalCount})</SectionTitle>
             {done.map((t) => {
               const c = compByTask[t.id];
               // Done rows: tap → CompletionDetailSheet (photos, notes,
@@ -6002,8 +6055,8 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
           one-tap restore so the action is never lost. */}
       {todaysNATasks.length > 0 && (
         <>
-          <SectionTitle icon={<X size={16} className="text-slate-400" />} right={<span className="text-[11px] text-slate-400">tap to restore</span>}>
-            N/A today ({todaysNATasks.length})
+          <SectionTitle icon={<X size={16} className="text-slate-400" />} right={<span className="text-[11px] text-slate-400">{i18nTOf("hint_tap_to_restore", "tap to restore")}</span>}>
+            {i18nTOf("sec_na_today", "N/A today")} ({todaysNATasks.length})
           </SectionTitle>
           <div className="flex flex-wrap gap-1.5 px-1 mb-3">
             {todaysNATasks.map((t) => {
@@ -6026,7 +6079,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         </>
       )}
 
-      <SectionTitle icon={<Users size={16} className="text-indigo-500" />}>Handoff notes</SectionTitle>
+      <SectionTitle icon={<Users size={16} className="text-indigo-500" />}>{i18nTOf("sec_handoff", "Handoff notes")}</SectionTitle>
       {handoff.slice(0, 2).map((h) => {
         const a = users.find((u) => u.id === h.authorId);
         return <Card key={h.id} className="p-3 mb-2 text-sm"><div className="text-[11px] text-slate-400 mb-0.5">{a?.name} · {h.time} {h.pinned && "📌"}</div>{h.note}</Card>;
@@ -6275,7 +6328,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
       setPhoto({ path, name });
     } catch (err) {
-      alert("Photo upload failed: " + (err.message || err));
+      toast.error("Photo upload failed: " + (err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -6832,11 +6885,11 @@ function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward
       <h2 className="font-extrabold text-lg px-1">Rewards Store</h2>
       <p className="text-xs text-slate-400 px-1">Bank: {starBank} ⭐ · add, edit, or remove anything he's into.</p>
 
-      <SectionTitle icon={<Sparkles size={16} className="text-violet-500" />}>Wishes from {kidName(users)} {wishes.length > 0 && <span className="text-[11px] font-normal text-violet-500">· {wishes.length} new</span>}</SectionTitle>
+      <SectionTitle icon={<Sparkles size={16} className="text-violet-500" />}>{i18nTOf("sec_wishes_from", "Wishes from")} {kidName(users)} {wishes.length > 0 && <span className="text-[11px] font-normal text-violet-500">· {wishes.length} new</span>}</SectionTitle>
       {wishes.length === 0 && <p className="text-xs text-slate-400 px-1">No new wishes. When he dreams one up, set the stars and approve it here.</p>}
       {wishes.map((w) => <WishApproveRow key={w.id} w={w} decideRewardRequest={decideRewardRequest} />)}
 
-      <SectionTitle icon={<Gift size={16} className="text-violet-500" />}>Redemption requests</SectionTitle>
+      <SectionTitle icon={<Gift size={16} className="text-violet-500" />}>{i18nTOf("sec_redemption_requests", "Redemption requests")}</SectionTitle>
       {requested.length === 0 && <p className="text-xs text-slate-400 px-1">No pending requests.</p>}
       {requested.map((r) => (
         <Card key={r.id} className="p-3 mb-2 flex items-center gap-3">
@@ -6980,7 +7033,7 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
       </Card>
       <div className="text-[11px] text-slate-400 px-1 mb-1">{mode === "school" ? "School: 8:00 AM–2:10 PM, Mon–Fri." : "Summer homeschool block: 8 AM–2 PM, Mon–Fri."} Manage breaks & seasons under More → Activities.</div>
 
-      <SectionTitle icon={<CalIcon size={16} className="text-indigo-500" />}>Upcoming</SectionTitle>
+      <SectionTitle icon={<CalIcon size={16} className="text-indigo-500" />}>{i18nTOf("sec_upcoming", "Upcoming")}</SectionTitle>
       {sorted.map((e) => (
         <Card key={e.id} className="p-3 mb-2">
           <div className="flex items-center justify-between">
@@ -7424,7 +7477,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
         </>
       ) : (
       <>
-      <SectionTitle icon={<BookOpen size={16} className="text-sky-500" />}>Reading now ({reading.length})</SectionTitle>
+      <SectionTitle icon={<BookOpen size={16} className="text-sky-500" />}>{i18nTOf("sec_reading_now", "Reading now")} ({reading.length})</SectionTitle>
       {reading.length === 0 && !q && <p className="text-xs text-slate-400 px-1">Nothing in progress.</p>}
       {viewMode === "list"
         ? reading.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)
@@ -7437,7 +7490,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
         )
       }
 
-      <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>Finished ({finished.length})</SectionTitle>
+      <SectionTitle icon={<Check size={16} className="text-emerald-500" />}>{i18nTOf("sec_finished", "Finished")} ({finished.length})</SectionTitle>
       {viewMode === "list"
         ? finished.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)
         : (
@@ -7452,7 +7505,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
       {archive.length > 0 && (
         <>
           <SectionTitle icon={<Archive size={16} className="text-amber-600" />}>
-            Archive · pre-tracking ({archive.length})
+            {i18nTOf("sec_archive", "Archive")} · pre-tracking ({archive.length})
           </SectionTitle>
           {eraCounts.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2 px-1">
@@ -7520,7 +7573,7 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
       const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
       updateBook(b.id, { customCoverPath: path });
     } catch (err) {
-      alert("Cover upload failed: " + (err.message || err));
+      toast.error("Cover upload failed: " + (err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -7633,7 +7686,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
       const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
       updateBook(b.id, { customCoverPath: path });
     } catch (err) {
-      alert("Cover upload failed: " + (err.message || err));
+      toast.error("Cover upload failed: " + (err.message || err));
     } finally {
       setUploading(false);
       if (coverFileRef.current) coverFileRef.current.value = "";
@@ -8143,7 +8196,7 @@ function AddAwardForm({ activities, onAdd, onCancel, familyId }) {
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "award" });
       setFile({ name, path });
     } catch (err) {
-      alert("Upload failed: " + (err.message || err));
+      toast.error("Upload failed: " + (err.message || err));
     } finally {
       setUploading(false);
     }
@@ -8311,13 +8364,13 @@ function ParentRecap(props) {
         </div>
       )}
 
-      <SectionTitle icon={<ImageIcon size={16} className="text-violet-500" />}>Photos {window.label}</SectionTitle>
+      <SectionTitle icon={<ImageIcon size={16} className="text-violet-500" />}>{i18nTOf("sec_photos", "Photos")} {window.label}</SectionTitle>
       {photos.length === 0 && <p className="text-xs text-slate-400 px-1">No photos captured yet — helpers can snap them from the checklist.</p>}
       <div className="grid grid-cols-3 gap-1.5">
         {photos.map((p, i) => <StoredPhoto key={i} path={p.path} url={p.url} alt="" className="w-full h-24 object-cover rounded-xl" fallback={<div className="w-full h-24 bg-slate-100 animate-pulse rounded-xl" />} />)}
       </div>
 
-      <SectionTitle icon={<Flame size={16} className="text-orange-500" />}>Streak highlights</SectionTitle>
+      <SectionTitle icon={<Flame size={16} className="text-orange-500" />}>{i18nTOf("sec_streak_highlights", "Streak highlights")}</SectionTitle>
       {topStreaks.slice(0, 5).map((x) => (
         <Card key={x.a.id} className="p-3 mb-2 flex items-center gap-3">
           <div className="w-2 h-8 rounded-full" style={{ background: x.a.color }} />
@@ -9484,7 +9537,7 @@ function People({ users, addUser, updateUser, removeUser, familyId, pendingRegis
                     const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "avatar" });
                     updateUser(u.id, { photo: path });
                   } catch (err) {
-                    alert("Avatar upload failed: " + (err.message || err));
+                    toast.error("Avatar upload failed: " + (err.message || err));
                   }
                 }} />
               </label>
@@ -9811,7 +9864,7 @@ function ManageActivities({ activities, addActivity, updateActivity, addTask, st
 
       {archived.length > 0 && (
         <>
-          <SectionTitle icon={<Archive size={16} className="text-slate-400" />}>Archive</SectionTitle>
+          <SectionTitle icon={<Archive size={16} className="text-slate-400" />}>{i18nTOf("sec_archive", "Archive")}</SectionTitle>
           {archived.map((a) => (
             <Card key={a.id} className="p-0 overflow-hidden flex items-stretch mb-2 opacity-75">
               <div style={{ background: a.color }} className="w-2.5 shrink-0" />
@@ -10063,7 +10116,7 @@ function EasyChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, mo
       const geo = await captureLocation();
       submitTask(t.id, { proof: [{ type: "photo", name, path, geo, by: user.id, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] });
     } catch (err) {
-      alert("Photo upload failed: " + (err.message || err));
+      toast.error("Photo upload failed: " + (err.message || err));
     }
   };
   const essentials = todaysTasks.filter((t) => { const lvl = levelOf(t, mode, priorities); return lvl === "must" || lvl === "today"; });
@@ -10129,7 +10182,7 @@ function HelperChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, 
       const geo = await captureLocation();
       submitTask(t.id, { proof: [{ type: "photo", name, path, geo, by: user.id, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] });
     } catch (err) {
-      alert("Photo upload failed: " + (err.message || err));
+      toast.error("Photo upload failed: " + (err.message || err));
     }
   };
   return (
@@ -10141,7 +10194,7 @@ function HelperChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, 
         </div>
         <div className="text-sm opacity-90 mt-0.5">Snap a photo at swim, drums, etc. — parents love seeing it, and it logs the time & place. 📍</div>
       </div>
-      <SectionTitle icon={<ClipboardList size={16} className="text-teal-500" />}>Today's checklist <span className="text-[11px] font-normal text-slate-400">· most important first</span></SectionTitle>
+      <SectionTitle icon={<ClipboardList size={16} className="text-teal-500" />}>{i18nTOf("sec_todays_checklist", "Today's checklist")} <span className="text-[11px] font-normal text-slate-400">· {i18nTOf("hint_most_important_first", "most important first")}</span></SectionTitle>
       {ordered.map((t) => {
         const c = compByTask[t.id];
         const done = c?.status === "approved" || c?.status === "pending";
@@ -10192,9 +10245,9 @@ function CareInfo() {
   return (
     <div className="px-4 pt-4">
       <h2 className="font-extrabold text-lg px-1 mb-2">Care & Contacts</h2>
-      <SectionTitle icon={<Phone size={16} className="text-rose-500" />}>Contacts</SectionTitle>
+      <SectionTitle icon={<Phone size={16} className="text-rose-500" />}>{i18nTOf("sec_contacts", "Contacts")}</SectionTitle>
       {CONTACTS.map((c) => <Card key={c.label} className="p-3 mb-2 flex items-center justify-between"><span className="text-sm font-semibold">{c.label}</span><span className="text-sm text-slate-500">{c.value}</span></Card>)}
-      <SectionTitle icon={<Heart size={16} className="text-rose-500" />}>Care notes</SectionTitle>
+      <SectionTitle icon={<Heart size={16} className="text-rose-500" />}>{i18nTOf("sec_care_notes", "Care notes")}</SectionTitle>
       {CARE_NOTES.map((n, i) => <Card key={i} className="p-3 mb-2 text-sm text-slate-600">{n}</Card>)}
     </div>
   );
