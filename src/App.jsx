@@ -1291,8 +1291,19 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     setRedemptions((prev) => [...prev, { id: "rd_" + Date.now(), rewardId: reward.id, title: reward.title, cost: reward.starCost, status: "requested", requestedBy: currentUserId }]);
     juice.burst("medium", "treasure");
   };
+  // decideReward — parent approves or denies a star redemption.
+  // Trust audit finding #1 (🔴 critical): the previous version
+  // just flipped `status` with no actor + no timestamp, leaving
+  // 100⭐ approvals untraceable. Now we stamp approvedBy +
+  // approvedAt so disputes ("which parent okayed this?") always
+  // have an answer. Mirrors the completion approval pattern.
   const decideReward = (rdId, status) => {
-    setRedemptions((prev) => prev.map((r) => r.id === rdId ? { ...r, status } : r));
+    const actor = currentProfileId || currentUserId;
+    const now = new Date().toISOString();
+    setRedemptions((prev) => prev.map((r) => r.id === rdId
+      ? { ...r, status, approvedBy: actor, approvedAt: now }
+      : r
+    ));
   };
 
   const addHandoff = (text) => {
