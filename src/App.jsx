@@ -7120,16 +7120,21 @@ function searchBooks(list, q) {
 // (reading now / finished / archive) so the sections themselves stay
 // meaningful — Mike wants to scan "what's actively being read" without
 // it intermixing with finished books.
-const BOOK_SORT_OPTIONS = [
-  { k: "reading_order",  label: "Reading order" },
-  { k: "added_newest",   label: "Newest added" },
-  { k: "added_oldest",   label: "Oldest added" },
-  { k: "title_az",       label: "Title A–Z" },
-  { k: "title_za",       label: "Title Z–A" },
-  { k: "author_az",      label: "Author A–Z" },
-  { k: "finished_newest",label: "Finished date" },
-  { k: "rating_high",    label: "Rating ★" },
+const BOOK_SORT_KEYS = [
+  "reading_order", "added_newest", "added_oldest",
+  "title_az", "title_za", "author_az",
+  "finished_newest", "rating_high",
 ];
+const bookSortLabel = (k) => ({
+  reading_order:   i18nTOf("bso_reading_order", "Reading order"),
+  added_newest:    i18nTOf("bso_added_newest", "Newest added"),
+  added_oldest:    i18nTOf("bso_added_oldest", "Oldest added"),
+  title_az:        i18nTOf("bso_title_az", "Title A–Z"),
+  title_za:        i18nTOf("bso_title_za", "Title Z–A"),
+  author_az:       i18nTOf("bso_author_az", "Author A–Z"),
+  finished_newest: i18nTOf("bso_finished_newest", "Finished date"),
+  rating_high:     i18nTOf("bso_rating_high", "Rating ★"),
+}[k] || k);
 
 // Natural-sort collator. Critical for series like "Vol 1, Vol 2, …
 // Vol 10" — plain localeCompare treats "Vol 10" as alphabetically
@@ -7374,7 +7379,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
   const eraCounts = (() => {
     const m = {};
     for (const b of archive) {
-      const k = b.eraLabel || "Era unset";
+      const k = b.eraLabel || i18nTOf("rl_era_unset", "Era unset");
       m[k] = (m[k] || 0) + 1;
     }
     return Object.entries(m).sort((a, b) => b[1] - a[1]);
@@ -7382,14 +7387,14 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
   return (
     <>
       <div className="grid grid-cols-3 gap-2 mb-3">
-        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-emerald-500">{finishedTotal}</div><div className="text-[11px] text-slate-400">finished</div></Card>
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-emerald-500">{finishedTotal}</div><div className="text-[11px] text-slate-400">{i18nTOf("rl_stat_finished", "finished")}</div></Card>
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-indigo-500">{thisMonth}</div><div className="text-[11px] text-slate-400">{i18nTOf("ril_this_month", "this month")}</div></Card>
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-amber-500">{avgPace ? `${avgPace}d` : "—"}</div><div className="text-[11px] text-slate-400">{i18nTOf("ril_avg_per_book", "avg / book")}</div></Card>
       </div>
 
       <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-3 py-2 mb-3">
         <Search size={16} className="text-slate-400 shrink-0" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search books — title, level, language…" className="flex-1 text-sm outline-none bg-transparent" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={i18nTOf("rl_search_ph", "Search books — title, level, language…")} className="flex-1 text-sm outline-none bg-transparent" />
         {q && <button onClick={() => setQ("")} className="text-slate-300"><X size={15} /></button>}
       </div>
 
@@ -7398,7 +7403,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
           sees a chip row that does nothing. */}
       {availableLangs.length > 1 && (
         <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-          <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mr-1">Language:</span>
+          <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mr-1">{i18nTOf("rl_lang_label", "Language:")}</span>
           {["All", ...availableLangs].map((l) => (
             <button
               key={l}
@@ -7410,7 +7415,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
                   : "bg-white text-slate-500 border border-slate-200"
               }`}
             >
-              {l === "English" ? "🇺🇸 English" : l === "Spanish" ? "🇪🇸 Spanish" : l}
+              {l === "All" ? i18nTOf("rl_lang_all", "All") : l === "English" ? i18nTOf("rl_lang_en", "🇺🇸 English") : l === "Spanish" ? i18nTOf("rl_lang_es", "🇪🇸 Spanish") : l}
             </button>
           ))}
         </div>
@@ -7420,7 +7425,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
           sort pills scroll horizontally so we don't crowd small screens. */}
       <div className="flex items-center gap-2 mb-2">
         <div className="flex gap-1 bg-slate-100 rounded-xl p-1 shrink-0">
-          {[["list", "List"], ["grid", "Grid"], ["shelf", "Shelf"]].map(([k, label]) => (
+          {[["list", i18nTOf("rl_view_list", "List")], ["grid", i18nTOf("rl_view_grid", "Grid")], ["shelf", i18nTOf("rl_view_shelf", "Shelf")]].map(([k, label]) => (
             <button
               key={k}
               onClick={() => setViewMode(k)}
@@ -7433,15 +7438,15 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
           ))}
         </div>
         <div className="flex-1 flex gap-1.5 overflow-x-auto scrollbar-thin">
-          {BOOK_SORT_OPTIONS.map((o) => (
+          {BOOK_SORT_KEYS.map((k) => (
             <button
-              key={o.k}
-              onClick={() => setSort(o.k)}
+              key={k}
+              onClick={() => setSort(k)}
               className={`shrink-0 text-[11px] font-bold px-2.5 py-1.5 rounded-full whitespace-nowrap ${
-                sort === o.k ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"
+                sort === k ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"
               }`}
             >
-              {o.label}
+              {bookSortLabel(k)}
             </button>
           ))}
         </div>
@@ -7449,14 +7454,14 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
 
       {!adding && !addingBacklog && (
         <div className="grid grid-cols-2 gap-2 mb-3">
-          <button onClick={() => setAdding(true)} className="py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> Add a book</button>
-          <button onClick={() => setAddingBacklog(true)} className="py-2.5 rounded-2xl bg-amber-100 text-amber-800 font-bold text-sm flex items-center justify-center gap-1 border-2 border-amber-200"><Archive size={15} /> Add backlog</button>
+          <button onClick={() => setAdding(true)} className="py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> {i18nTOf("rl_add_book", "Add a book")}</button>
+          <button onClick={() => setAddingBacklog(true)} className="py-2.5 rounded-2xl bg-amber-100 text-amber-800 font-bold text-sm flex items-center justify-center gap-1 border-2 border-amber-200"><Archive size={15} /> {i18nTOf("rl_add_backlog", "Add backlog")}</button>
         </div>
       )}
       {adding && <AddBookForm onAdd={(b) => { addBook(b); setAdding(false); }} onCancel={() => setAdding(false)} />}
       {addingBacklog && <AddBacklogBookForm onAdd={(b) => { addBook(b); setAddingBacklog(false); }} onCancel={() => setAddingBacklog(false)} />}
 
-      {q && reading.length === 0 && finished.length === 0 && archiveFiltered.length === 0 && <p className="text-sm text-slate-400 px-1">No books match "{q}".</p>}
+      {q && reading.length === 0 && finished.length === 0 && archiveFiltered.length === 0 && <p className="text-sm text-slate-400 px-1">{i18nTOf("rl_no_match", "No books match \"{q}\".").replace("{q}", q)}</p>}
 
       {viewMode === "shelf" ? (
         // Shelf view — flattens all three sections into one curated
@@ -7471,7 +7476,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
                 rearranging ? "bg-amber-500 text-white" : "bg-white text-slate-600 border border-slate-200"
               }`}
             >
-              {rearranging ? "Done arranging" : "Rearrange"}
+              {rearranging ? i18nTOf("rl_done_arranging", "Done arranging") : i18nTOf("rl_rearrange", "Rearrange")}
             </button>
             {savedOrder.length > 0 && (
               <button
@@ -7479,11 +7484,11 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
                 onClick={resetShelfOrder}
                 className="text-[11px] font-bold px-3 py-1.5 rounded-full bg-white text-slate-500 border border-slate-200"
               >
-                Reset shelf order
+                {i18nTOf("rl_reset_shelf", "Reset shelf order")}
               </button>
             )}
             <div className="text-[10px] text-slate-400 ml-auto">
-              {savedOrder.length > 0 ? "custom order" : `sorted by ${BOOK_SORT_OPTIONS.find((o) => o.k === sort)?.label || sort}`}
+              {savedOrder.length > 0 ? i18nTOf("rl_custom_order", "custom order") : i18nTOf("rl_sorted_by", "sorted by {label}").replace("{label}", bookSortLabel(sort))}
             </div>
           </div>
           <div className="-mx-4 overflow-x-auto scrollbar-thin pb-32">
@@ -7505,7 +7510,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
       ) : (
       <>
       <SectionTitle icon={<BookOpen size={16} className="text-sky-500" />}>{i18nTOf("sec_reading_now", "Reading now")} ({reading.length})</SectionTitle>
-      {reading.length === 0 && !q && <p className="text-xs text-slate-400 px-1">Nothing in progress.</p>}
+      {reading.length === 0 && !q && <p className="text-xs text-slate-400 px-1">{i18nTOf("rl_nothing_in_progress", "Nothing in progress.")}</p>}
       {viewMode === "list"
         ? reading.map((b) => <BookRow key={b.id} b={b} updateBook={updateBook} removeBook={removeBook} familyId={familyId} />)
         : (
@@ -7532,7 +7537,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
       {archive.length > 0 && (
         <>
           <SectionTitle icon={<Archive size={16} className="text-amber-600" />}>
-            {i18nTOf("sec_archive", "Archive")} · pre-tracking ({archive.length})
+            {i18nTOf("rl_archive_section", "Archive · pre-tracking ({n})").replace("{n}", archive.length)}
           </SectionTitle>
           {eraCounts.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2 px-1">
@@ -7554,13 +7559,12 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
             )
           }
           <div className="text-[11px] text-slate-400 px-1 mt-1 mb-3">
-            Backlog books count toward totals + author stats but have no real dates,
-            so they don't appear in date-based views (slideshows, "this month," etc.).
+            {i18nTOf("rl_archive_note", "Backlog books count toward totals + author stats but have no real dates, so they don't appear in date-based views (slideshows, \"this month,\" etc.).")}
           </div>
         </>
       )}
 
-      <div className="text-[11px] text-slate-400 px-1 mt-3">Search is fuzzy — typos and partial titles still find the book. Logging start & finish dates shows his pace; the level tag shows where he's reading.</div>
+      <div className="text-[11px] text-slate-400 px-1 mt-3">{i18nTOf("rl_search_hint", "Search is fuzzy — typos and partial titles still find the book. Logging start & finish dates shows pace; the level tag shows where they're reading.")}</div>
       </>
       )}
 
@@ -7569,8 +7573,8 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
       {(viewMode === "grid" || viewMode === "shelf") && focusedBook && (
         <div className="fixed inset-x-0 bottom-0 z-30 max-w-md mx-auto bg-white border-t border-slate-200 shadow-2xl rounded-t-2xl p-3 max-h-[80vh] overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Editing</div>
-            <button onClick={() => setFocusedBookId(null)} className="text-slate-400 p-1" aria-label="Close">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">{i18nTOf("rl_editing", "Editing")}</div>
+            <button onClick={() => setFocusedBookId(null)} className="text-slate-400 p-1" aria-label={i18nTOf("rl_close_aria", "Close")}>
               <X size={16} />
             </button>
           </div>
