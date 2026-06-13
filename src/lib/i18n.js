@@ -171,6 +171,38 @@ const STRINGS = {
   app_queue_hint:             { en: "Stars stay pending until you approve.", es: "Las estrellas quedan pendientes hasta que apruebes." },
   app_approved_today:         { en: "Approved Today",                        es: "Aprobado hoy" },
   app_banked:                 { en: "⭐ banked",                              es: "⭐ guardadas" },
+
+  // Summary stat tile labels (parent Today + kid Stars)
+  stat_stars_available:       { en: "Stars available today",                 es: "Estrellas disponibles hoy" },
+  stat_earned_today:          { en: "Earned today",                          es: "Ganadas hoy" },
+  stat_pending_approval:      { en: "Pending approval",                      es: "Falta aprobar" },
+  stat_total_bank:            { en: "Total star bank",                       es: "Banco total" },
+  stat_pending_short:         { en: "Pending",                               es: "Pendiente" },
+
+  // Stat detail subtitles + per-row terms
+  stat_subt_earned:           { en: "stars earned today across",             es: "estrellas ganadas hoy en" },
+  stat_subt_thing:            { en: "thing",                                  es: "actividad" },
+  stat_subt_things:           { en: "things",                                 es: "actividades" },
+  stat_subt_task:             { en: "task",                                   es: "tarea" },
+  stat_subt_tasks:            { en: "tasks",                                  es: "tareas" },
+  stat_subt_pending:          { en: "stars sitting in today's pending —",    es: "estrellas pendientes hoy —" },
+  stat_subt_waiting_on_you:   { en: "waiting on you",                         es: "esperándote" },
+  stat_subt_in_bank:          { en: "stars in the bank right now",           es: "estrellas en el banco ahora mismo" },
+  stat_subt_bonus_includes:   { en: "includes",                               es: "incluye" },
+  stat_subt_in_bonus_gifts:   { en: "in bonus gifts",                         es: "en estrellas extra" },
+  stat_subt_nothing_earned:   { en: "Nothing earned yet today. 💤",          es: "Nada ganado todavía hoy. 💤" },
+  stat_subt_nothing_waiting:  { en: "Nothing waiting today. 🎉",             es: "Nada en espera hoy. 🎉" },
+  stat_subt_older_pending:    { en: "Older un-approved submissions live in the Approvals tab.", es: "Las entregas pendientes más antiguas viven en la pestaña de aprobaciones." },
+
+  // Detail meta in StatDetail (top-of-sheet titles for "Earned/Pending/Bank/Available")
+  stat_meta_earned_title:     { en: "Earned today",                          es: "Ganadas hoy" },
+  stat_meta_earned_sub:       { en: "Every star {kid} banked since midnight.", es: "Todas las estrellas que {kid} ha guardado desde medianoche." },
+  stat_meta_pending_title:    { en: "Pending approval (today)",              es: "Falta aprobar (hoy)" },
+  stat_meta_pending_sub:      { en: "Today's submissions waiting on a grown-up.", es: "Las entregas de hoy esperando a un adulto." },
+  stat_meta_bank_title:       { en: "Total star bank",                       es: "Banco total" },
+  stat_meta_bank_sub:         { en: "What's in the piggy right now, and where it came from.", es: "Lo que hay en la alcancía ahora y de dónde vino." },
+  stat_meta_available_title:  { en: "Stars available today",                 es: "Estrellas disponibles hoy" },
+  stat_meta_available_sub:    { en: "Every star {kid} could earn if everything on today's list got done.", es: "Cada estrella que {kid} podría ganar si terminara todo lo de hoy." },
 };
 
 // Seeded task titles. Keyed by task.id from SEED_TASKS so the lookup

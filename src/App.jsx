@@ -3183,11 +3183,17 @@ function StatDetail({
     .sort((a, b) => (b.id || "").localeCompare(a.id || ""));
 
   const KID = kidName(users);
+  // Interpolate the kid's name into the localized subtitle string —
+  // i18n keeps {kid} as the placeholder so any future translation
+  // shipped in i18n.js can decide where the name slots in (e.g. for
+  // Spanish word order). Falls back to the raw English template
+  // if no translation has been added yet.
+  const fmtSubt = (key, fallback) => i18nTOf(key, fallback).replace("{kid}", KID);
   const TITLES = {
-    earned: { title: "Earned today", subtitle: `Every star ${KID} banked since midnight.` },
-    pending: { title: "Pending approval (today)", subtitle: "Today's submissions waiting on a grown-up." },
-    bank: { title: "Total star bank", subtitle: "What's in the piggy right now, and where it came from." },
-    available: { title: "Stars available today", subtitle: `Every star ${KID} could earn if everything on today's list got done.` },
+    earned: { title: i18nTOf("stat_meta_earned_title", "Earned today"), subtitle: fmtSubt("stat_meta_earned_sub", "Every star {kid} banked since midnight.") },
+    pending: { title: i18nTOf("stat_meta_pending_title", "Pending approval (today)"), subtitle: i18nTOf("stat_meta_pending_sub", "Today's submissions waiting on a grown-up.") },
+    bank: { title: i18nTOf("stat_meta_bank_title", "Total star bank"), subtitle: i18nTOf("stat_meta_bank_sub", "What's in the piggy right now, and where it came from.") },
+    available: { title: i18nTOf("stat_meta_available_title", "Stars available today"), subtitle: fmtSubt("stat_meta_available_sub", "Every star {kid} could earn if everything on today's list got done.") },
   };
   const meta = TITLES[kind] || TITLES.earned;
 
@@ -3273,16 +3279,16 @@ function StatDetail({
         <div className="bg-emerald-50 rounded-2xl p-4 mb-3 text-center">
           <div className="text-4xl font-extrabold text-emerald-700">{earnedToday}</div>
           <div className="text-[11px] text-slate-500 mt-0.5">
-            stars earned today across {totalRowCount} {totalRowCount === 1 ? "thing" : "things"}
+            {i18nTOf("stat_subt_earned", "stars earned today across")} {totalRowCount} {totalRowCount === 1 ? i18nTOf("stat_subt_thing", "thing") : i18nTOf("stat_subt_things", "things")}
           </div>
           {giftedTodaySum > 0 && (
             <div className="text-[10px] text-emerald-700/80 mt-1 font-bold">
-              includes {giftedTodaySum}⭐ in bonus gifts
+              {i18nTOf("stat_subt_bonus_includes", "includes")} {giftedTodaySum}⭐ {i18nTOf("stat_subt_in_bonus_gifts", "in bonus gifts")}
             </div>
           )}
         </div>
         {totalRowCount === 0
-          ? <Card className="p-4 text-center text-sm text-slate-400">Nothing earned yet today. 💤</Card>
+          ? <Card className="p-4 text-center text-sm text-slate-400">{i18nTOf("stat_subt_nothing_earned", "Nothing earned yet today. 💤")}</Card>
           : (
             <Card className="p-2">
               {todaysApproved.map((c) => <TodayLine key={c.id} c={c} />)}
@@ -3326,12 +3332,12 @@ function StatDetail({
       <>
         <div className="bg-amber-50 rounded-2xl p-4 mb-3 text-center">
           <div className="text-4xl font-extrabold text-amber-700">{pendingStars}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">stars sitting in today's pending — {todaysPending.length} {todaysPending.length === 1 ? "task" : "tasks"} waiting on you</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">{i18nTOf("stat_subt_pending", "stars sitting in today's pending —")} {todaysPending.length} {todaysPending.length === 1 ? i18nTOf("stat_subt_task", "task") : i18nTOf("stat_subt_tasks", "tasks")} {i18nTOf("stat_subt_waiting_on_you", "waiting on you")}</div>
         </div>
         {todaysPending.length === 0
-          ? <Card className="p-4 text-center text-sm text-slate-400">Nothing waiting today. 🎉</Card>
+          ? <Card className="p-4 text-center text-sm text-slate-400">{i18nTOf("stat_subt_nothing_waiting", "Nothing waiting today. 🎉")}</Card>
           : <Card className="p-2">{todaysPending.map((c) => <TodayLine key={c.id} c={c} />)}</Card>}
-        <p className="text-[11px] text-slate-400 px-1 mt-2">Older un-approved submissions live in the Approvals tab.</p>
+        <p className="text-[11px] text-slate-400 px-1 mt-2">{i18nTOf("stat_subt_older_pending", "Older un-approved submissions live in the Approvals tab.")}</p>
       </>
     );
   } else if (kind === "bank") {
@@ -3340,7 +3346,7 @@ function StatDetail({
       <>
         <div className="bg-violet-50 rounded-2xl p-4 mb-3 text-center">
           <div className="text-4xl font-extrabold text-violet-700">{starBank}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">stars in the bank right now</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">{i18nTOf("stat_subt_in_bank", "stars in the bank right now")}</div>
         </div>
         <Card className="p-3">
           <div className={lineCls}>
@@ -5513,8 +5519,8 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
     <div className="px-4 pt-4">
       <PiggyBank stars={starBank} />
       <div className="grid grid-cols-2 gap-2 mt-3">
-        <BigStat label="Earned today" value={earnedToday} onClick={() => setStatDetailId?.("earned")} />
-        <BigStat label="Pending" value={pendingStars} onClick={() => setStatDetailId?.("pending")} />
+        <BigStat label={i18nTOf("stat_earned_today", "Earned today")} value={earnedToday} onClick={() => setStatDetailId?.("earned")} />
+        <BigStat label={i18nTOf("stat_pending_short", "Pending")} value={pendingStars} onClick={() => setStatDetailId?.("pending")} />
       </div>
 
       <SectionTitle icon={<Sparkles size={16} className="text-amber-500" />}>{i18nTOf("sec_todays_wins", "Today's wins")} <span className="text-[11px] font-normal text-slate-400">· {wonToday}/{dayWins.length}</span></SectionTitle>
@@ -5881,10 +5887,10 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         {onEasy && <button onClick={onEasy} className="text-[11px] font-bold text-amber-600 bg-amber-50 rounded-full px-2.5 py-1 flex items-center gap-1">😴 Easy mode</button>}
       </div>
       <div className="grid grid-cols-2 gap-2 mt-2">
-        <SummaryStat label="Stars available today" value={availableToday} tone="slate" onClick={() => setStatDetailId?.("available")} />
-        <SummaryStat label="Earned today" value={earnedToday} tone="emerald" onClick={() => setStatDetailId?.("earned")} />
-        <SummaryStat label="Pending approval" value={pendingStars} tone="amber" onClick={() => setStatDetailId?.("pending")} />
-        <SummaryStat label="Total star bank" value={starBank} tone="violet" onClick={() => setStatDetailId?.("bank")} />
+        <SummaryStat label={i18nTOf("stat_stars_available", "Stars available today")} value={availableToday} tone="slate" onClick={() => setStatDetailId?.("available")} />
+        <SummaryStat label={i18nTOf("stat_earned_today", "Earned today")} value={earnedToday} tone="emerald" onClick={() => setStatDetailId?.("earned")} />
+        <SummaryStat label={i18nTOf("stat_pending_approval", "Pending approval")} value={pendingStars} tone="amber" onClick={() => setStatDetailId?.("pending")} />
+        <SummaryStat label={i18nTOf("stat_total_bank", "Total star bank")} value={starBank} tone="violet" onClick={() => setStatDetailId?.("bank")} />
       </div>
 
       <StreakStrip streaks={streaks} activities={activities} />
