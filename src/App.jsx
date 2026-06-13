@@ -5257,7 +5257,7 @@ function HistoryCalendar({ activityId, color, streaks }) {
         </div>
         <div className="flex text-[9px] text-slate-400 mb-1">
           <div className="grid grid-cols-7 flex-1 text-center">{["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map((x, i) => <div key={i}>{x}</div>)}</div>
-          <div className="w-8 text-center">Wk</div>
+          <div className="w-8 text-center">{i18nTOf("ds_wk_short", "Wk")}</div>
         </div>
         {weeks.map((wk, wi) => {
           const doneArr = wk.map((dd) => dd ? (doneOn(isoOf(dd)) && new Date(isoOf(dd) + "T12:00") <= today) : false);
@@ -5297,14 +5297,14 @@ function HistoryCalendar({ activityId, color, streaks }) {
           );
         })}
         <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-400">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ background: color }} /> did it</span>
-          <span>Wk = days that week</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ background: color }} /> {i18nTOf("ds_legend_did_it", "did it")}</span>
+          <span>{i18nTOf("ds_legend_wk", "Wk = days that week")}</span>
         </div>
       </Card>
       <div className="grid grid-cols-3 gap-2 mt-3">
-        <Card className="p-3 text-center"><div className="text-2xl font-extrabold" style={{ color }}>{weekDone}</div><div className="text-[11px] text-slate-400">this week</div></Card>
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold" style={{ color }}>{weekDone}</div><div className="text-[11px] text-slate-400">{i18nTOf("ds_stat_this_week", "this week")}</div></Card>
         <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-slate-700">{monthDone}</div><div className="text-[11px] text-slate-400">{i18nTOf("ril_this_month", "this month")}</div></Card>
-        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-orange-500">🔥{s?.current ?? 0}</div><div className="text-[11px] text-slate-400">streak</div></Card>
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-orange-500">🔥{s?.current ?? 0}</div><div className="text-[11px] text-slate-400">{i18nTOf("ds_stat_streak", "streak")}</div></Card>
       </div>
     </>
   );
@@ -5334,12 +5334,17 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
             <div className="w-11 h-11 rounded-2xl bg-white/20 grid place-items-center"><TaskIcon type={task.activityType} color="#ffffff" /></div>
             <div className="flex-1 min-w-0">
               <div className="font-extrabold text-lg leading-tight">{i18nTitleOf(task)}</div>
-              <div className="text-[12px] opacity-90">{d.label} · {task.starValue}⭐{task.required ? " · required" : " · optional"}</div>
+              <div className="text-[12px] opacity-90">{d.label} · {task.starValue}⭐{task.required ? i18nTOf("ds_required", " · required") : i18nTOf("ds_optional", " · optional")}</div>
             </div>
             <button onClick={handleClose} className="w-8 h-8 rounded-full bg-white/20 grid place-items-center"><X size={18} /></button>
           </div>
           <div className="flex">
-            {[["stats", "Stats"], ["media", "Photos"], ["notes", "Notes"], ["edit", "Edit"]].map(([k, l]) => (
+            {[
+              ["stats", i18nTOf("ds_tab_stats",  "Stats")],
+              ["media", i18nTOf("ds_tab_photos", "Photos")],
+              ["notes", i18nTOf("ds_tab_notes",  "Notes")],
+              ["edit",  i18nTOf("ds_tab_edit",   "Edit")],
+            ].map(([k, l]) => (
               <button key={k} onClick={() => setTab(k)} className={`flex-1 py-2.5 text-sm font-bold ${tab === k ? "bg-slate-50 text-slate-800" : "text-white/80"}`} style={tab === k ? { borderTopLeftRadius: 0 } : {}}>{l}{k === "media" && proofs.length ? ` (${proofs.length})` : ""}{k === "notes" && notes.length ? ` (${notes.length})` : ""}</button>
             ))}
           </div>
@@ -5349,17 +5354,17 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
           {tab === "stats" && (
             <>
               {s && <div className="grid grid-cols-2 gap-2 mb-3">
-                <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-orange-500">🔥{s.current}</div><div className="text-[11px] text-slate-400">current streak</div></Card>
-                <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-slate-700">{s.longest}</div><div className="text-[11px] text-slate-400">best ever</div></Card>
+                <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-orange-500">🔥{s.current}</div><div className="text-[11px] text-slate-400">{i18nTOf("ds_current_streak", "current streak")}</div></Card>
+                <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-slate-700">{s.longest}</div><div className="text-[11px] text-slate-400">{i18nTOf("ds_best_ever", "best ever")}</div></Card>
               </div>}
               <HistoryCalendar activityId={aid} color={d.color} streaks={streaks} />
-              <div className="text-[11px] text-slate-400 px-1 mt-2">Filled = he did it, connected across the week. The <b>Wk</b> column shows how many days that week. Tap ‹ › to scroll months.</div>
+              <div className="text-[11px] text-slate-400 px-1 mt-2">{i18nTOf("ds_stats_hint", "Filled = did it, connected across the week. The {wk} column shows how many days that week. Tap ‹ › to scroll months.").replaceAll("{wk}", i18nTOf("ds_wk_short", "Wk"))}</div>
             </>
           )}
 
           {tab === "media" && (
             <>
-              {proofs.length === 0 && <Card className="p-6 text-center text-slate-400 text-sm">No photos or videos yet. Sara or a parent can snap one from the checklist — it'll show here with the date & place. 📷</Card>}
+              {proofs.length === 0 && <Card className="p-6 text-center text-slate-400 text-sm">{i18nTOf("ds_no_media", "No photos or videos yet. A grown-up can snap one from the checklist — it'll show here with the date & place. 📷")}</Card>}
               <div className="grid grid-cols-2 gap-2">
                 {proofs.map((p, i) => (
                   <div key={i} className="rounded-xl overflow-hidden">
@@ -5368,20 +5373,20 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
                   </div>
                 ))}
               </div>
-              <div className="text-[11px] text-slate-400 px-1 mt-2">Every photo you attach here joins the year-long portfolio.</div>
+              <div className="text-[11px] text-slate-400 px-1 mt-2">{i18nTOf("ds_media_hint", "Every photo you attach here joins the year-long portfolio.")}</div>
             </>
           )}
 
           {tab === "notes" && (
             <>
               <Card className="p-3 mb-2">
-                <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Add a note about this — progress, what to work on, what the teacher said…" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm resize-none" />
-                <button onClick={() => { addTaskNote(task.id, note); setNote(""); }} disabled={!note.trim()} className={`w-full mt-2 py-2.5 rounded-xl font-bold text-sm text-white ${note.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Add note</button>
+                <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder={i18nTOf("ds_note_ph", "Add a note about this — progress, what to work on, what the teacher said…")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm resize-none" />
+                <button onClick={() => { addTaskNote(task.id, note); setNote(""); }} disabled={!note.trim()} className={`w-full mt-2 py-2.5 rounded-xl font-bold text-sm text-white ${note.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>{i18nTOf("ds_add_note", "Add note")}</button>
               </Card>
               {notes.length === 0 && <p className="text-sm text-slate-400 px-1">{i18nTOf("empty_notes", "No notes yet.")}</p>}
               {notes.map((n, i) => (
                 <Card key={i} className="p-3 mb-2 text-sm">
-                  <div className="text-[11px] text-slate-400 mb-0.5">{users.find((u) => u.id === n.by)?.name || "Parent"} · {n.time}</div>
+                  <div className="text-[11px] text-slate-400 mb-0.5">{users.find((u) => u.id === n.by)?.name || i18nTOf("ds_note_parent_fallback", "Parent")} · {n.time}</div>
                   {n.text}
                 </Card>
               ))}
@@ -5391,7 +5396,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
           {tab === "edit" && (
             <>
               <Card className="p-3 mb-2">
-                <div className="flex items-center justify-between"><span className="text-sm font-semibold">Star value</span>
+                <div className="flex items-center justify-between"><span className="text-sm font-semibold">{i18nTOf("ds_star_value", "Star value")}</span>
                   <div className="flex items-center gap-1"><input type="number" value={task.starValue} onChange={(e) => updateTask(task.id, { starValue: Number(e.target.value) })} className="w-16 border border-slate-200 rounded px-2 py-1 text-sm" /><span className="text-xs">⭐</span></div>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-2">
@@ -5401,32 +5406,41 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
               </Card>
 
               <Card className="p-3 mb-2">
-                <div className="text-sm font-semibold mb-1">Priority</div>
+                <div className="text-sm font-semibold mb-1">{i18nTOf("ds_priority", "Priority")}</div>
                 <div className="flex gap-1.5 flex-wrap">
-                  {[["must", "Non-negotiable"], ["today", "Do today"], ["extra", "Extra credit"]].map(([k, l]) => <button key={k} onClick={() => setPriority(task.id, k, ov?.scope || "today")} className="text-[11px] font-bold px-2.5 py-1 rounded-full" style={ov?.level === k ? { background: PRIORITY[k].dot, color: "#fff" } : { background: "#f1f5f9", color: "#64748b" }}>{l}</button>)}
-                  <button onClick={() => clearPriority(task.id)} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-400">Clear</button>
+                  {[
+                    ["must",  i18nTOf("mr_level_must",  "Non-negotiable")],
+                    ["today", i18nTOf("mr_level_today", "Do today")],
+                    ["extra", i18nTOf("mr_level_extra", "Extra credit")],
+                  ].map(([k, l]) => <button key={k} onClick={() => setPriority(task.id, k, ov?.scope || "today")} className="text-[11px] font-bold px-2.5 py-1 rounded-full" style={ov?.level === k ? { background: PRIORITY[k].dot, color: "#fff" } : { background: "#f1f5f9", color: "#64748b" }}>{l}</button>)}
+                  <button onClick={() => clearPriority(task.id)} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-400">{i18nTOf("ds_clear", "Clear")}</button>
                 </div>
                 {ov?.level && (
                   <div className="flex gap-1.5 flex-wrap mt-2">
-                    {[["today", "Today"], ["week", "This week"], ["month", "This month"], ["always", "Always"]].map(([k, l]) => <button key={k} onClick={() => setPriority(task.id, ov.level, k)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${ov.scope === k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>)}
+                    {[
+                      ["today",  i18nTOf("mr_scope_today",  "Today")],
+                      ["week",   i18nTOf("mr_scope_week",   "This week")],
+                      ["month",  i18nTOf("mr_scope_month",  "This month")],
+                      ["always", i18nTOf("mr_scope_always", "Always")],
+                    ].map(([k, l]) => <button key={k} onClick={() => setPriority(task.id, ov.level, k)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${ov.scope === k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>)}
                   </div>
                 )}
               </Card>
 
               <Card className="p-3 mb-2">
-                <div className="text-sm font-semibold mb-2 flex items-center gap-1"><Flame size={15} className="text-orange-500" /> Streak</div>
+                <div className="text-sm font-semibold mb-2 flex items-center gap-1"><Flame size={15} className="text-orange-500" /> {i18nTOf("ds_streak", "Streak")}</div>
                 {s ? (
                   <>
                     <div className="flex gap-2">
-                      <label className="flex-1 text-[11px] font-semibold text-slate-500">Current<input type="number" value={s.current} onChange={(e) => setStreak(aid, { current: Number(e.target.value) })} className="w-full mt-0.5 border border-slate-200 rounded-lg px-2 py-1 text-sm" /></label>
-                      <label className="flex-1 text-[11px] font-semibold text-slate-500">Best<input type="number" value={s.longest} onChange={(e) => setStreak(aid, { longest: Number(e.target.value) })} className="w-full mt-0.5 border border-slate-200 rounded-lg px-2 py-1 text-sm" /></label>
+                      <label className="flex-1 text-[11px] font-semibold text-slate-500">{i18nTOf("ds_streak_current", "Current")}<input type="number" value={s.current} onChange={(e) => setStreak(aid, { current: Number(e.target.value) })} className="w-full mt-0.5 border border-slate-200 rounded-lg px-2 py-1 text-sm" /></label>
+                      <label className="flex-1 text-[11px] font-semibold text-slate-500">{i18nTOf("ds_streak_best", "Best")}<input type="number" value={s.longest} onChange={(e) => setStreak(aid, { longest: Number(e.target.value) })} className="w-full mt-0.5 border border-slate-200 rounded-lg px-2 py-1 text-sm" /></label>
                     </div>
                     {/* Since date — visible + editable. Pinning a real
                         start date makes the streak honest: a kid will ask
                         "since when?" and the parent can answer with the
                         right Sunday instead of a guess. */}
                     <label className="block text-[11px] font-semibold text-slate-500 mt-2">
-                      Since
+                      {i18nTOf("ds_streak_since", "Since")}
                       <input
                         type="date"
                         value={s.since || ""}
@@ -5436,18 +5450,18 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
                       />
                     </label>
                     <div className="flex gap-2 mt-2">
-                      <button onClick={() => bumpStreak(aid)} className="flex-1 py-1.5 rounded-lg bg-orange-500 text-white text-xs font-bold">+1 day today</button>
-                      <button onClick={() => stopStreak(aid)} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">Stop</button>
+                      <button onClick={() => bumpStreak(aid)} className="flex-1 py-1.5 rounded-lg bg-orange-500 text-white text-xs font-bold">{i18nTOf("ds_streak_plus_one", "+1 day today")}</button>
+                      <button onClick={() => stopStreak(aid)} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold">{i18nTOf("ds_streak_stop", "Stop")}</button>
                     </div>
                   </>
                 ) : (
-                  <button onClick={() => setStreak(aid, { current: 0, longest: 0, since: TODAY_ISO, lastDate: "" })} className="text-[11px] font-bold text-orange-600">Start tracking a streak →</button>
+                  <button onClick={() => setStreak(aid, { current: 0, longest: 0, since: TODAY_ISO, lastDate: "" })} className="text-[11px] font-bold text-orange-600">{i18nTOf("ds_streak_start", "Start tracking a streak →")}</button>
                 )}
               </Card>
 
               <div className="flex gap-2">
-                <button onClick={() => updateTask(task.id, { active: task.active === false })} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-600 font-bold text-sm">{task.active === false ? "Un-pause task" : "Pause task"}</button>
-                <button onClick={() => removeTask(task.id)} className="px-4 py-2.5 rounded-xl bg-rose-100 text-rose-600 font-bold text-sm flex items-center gap-1"><X size={15} /> Remove</button>
+                <button onClick={() => updateTask(task.id, { active: task.active === false })} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-600 font-bold text-sm">{task.active === false ? i18nTOf("ds_unpause_task", "Un-pause task") : i18nTOf("ds_pause_task", "Pause task")}</button>
+                <button onClick={() => removeTask(task.id)} className="px-4 py-2.5 rounded-xl bg-rose-100 text-rose-600 font-bold text-sm flex items-center gap-1"><X size={15} /> {i18nTOf("ds_remove_task", "Remove")}</button>
               </div>
             </>
           )}
@@ -5465,12 +5479,12 @@ function ProgressSheet({ activity, streaks, onClose }) {
       <div className="relative w-full max-w-md bg-slate-50 rounded-t-3xl max-h-[92vh] overflow-y-auto">
         <div className="sticky top-0 z-10 p-4 text-white flex items-center gap-3" style={{ background: activity.color }}>
           <div className="w-11 h-11 rounded-2xl bg-white/20 grid place-items-center text-xl">{PILLARS[activity.pillar]?.emoji}</div>
-          <div className="flex-1 min-w-0"><div className="font-extrabold text-lg leading-tight">{i18nNameOf(activity)}</div><div className="text-[12px] opacity-90">progress & consistency</div></div>
+          <div className="flex-1 min-w-0"><div className="font-extrabold text-lg leading-tight">{i18nNameOf(activity)}</div><div className="text-[12px] opacity-90">{i18nTOf("ps_subtitle", "progress & consistency")}</div></div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 grid place-items-center"><X size={18} /></button>
         </div>
         <div className="p-4">
           <HistoryCalendar activityId={activity.id} color={activity.color} streaks={streaks} />
-          <div className="text-[11px] text-slate-400 px-1 mt-2">Filled = he did it. The <b>Wk</b> column shows how many days that week — spot which weeks ran hot. 🔥</div>
+          <div className="text-[11px] text-slate-400 px-1 mt-2">{i18nTOf("ps_hint", "Filled = did it. The {wk} column shows how many days that week — spot which weeks ran hot. 🔥").replaceAll("{wk}", i18nTOf("ds_wk_short", "Wk"))}</div>
         </div>
       </div>
     </div>
