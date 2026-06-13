@@ -48,6 +48,45 @@ const STRINGS = {
   sec_extra_credit:     { en: "Extra credit",      es: "Crédito extra" },
   sec_needs_approval:   { en: "Needs approval",    es: "Falta aprobar" },
 
+  // Section titles — parent surfaces
+  sec_needs_approval_full:  { en: "Needs approval",       es: "Falta aprobar" },
+  sec_for_treasure:         { en: "Still to do",          es: "Por hacer" },
+  sec_bonus:                { en: "Bonus",                es: "Extras" },
+  sec_done_full:            { en: "Done",                 es: "Hechas" },
+  sec_na_today:             { en: "N/A today",            es: "N/A hoy" },
+  sec_handoff:              { en: "Handoff notes",        es: "Notas para el siguiente adulto" },
+  sec_wishes_from:          { en: "Wishes from",          es: "Deseos de" },
+  sec_redemption_requests:  { en: "Redemption requests",  es: "Solicitudes de premios" },
+  sec_all_rewards:          { en: "All rewards",          es: "Todos los premios" },
+  sec_song_log_changes:     { en: "Song log changes",     es: "Cambios al diario de canciones" },
+  sec_streak_highlights:    { en: "Streak highlights",    es: "Mejores rachas" },
+  sec_upcoming:             { en: "Upcoming",             es: "Próximos" },
+  sec_photos:               { en: "Photos",               es: "Fotos" },
+
+  // Section titles — kid surfaces
+  sec_todays_wins:          { en: "Today's wins",         es: "Logros de hoy" },
+  sec_trophy_case:          { en: "Trophy case",          es: "Trofeos" },
+  sec_most_played:          { en: "Most played songs",    es: "Canciones más tocadas" },
+  sec_rewards_to_work:      { en: "Rewards to work toward", es: "Premios por ganar" },
+  sec_wish_new:             { en: "Wish for something new", es: "Pide un premio nuevo" },
+  sec_choose_dreams:        { en: "Choose your dreams",   es: "Elige tus sueños" },
+  sec_unlock_order:         { en: "Unlock order",         es: "Orden para desbloquear" },
+  sec_reading_now:          { en: "Reading now",          es: "Leyendo ahora" },
+  sec_finished:             { en: "Finished",             es: "Terminados" },
+  sec_archive:              { en: "Archive",              es: "Archivo" },
+
+  // Section titles — helper / care surfaces
+  sec_todays_checklist:     { en: "Today's checklist",    es: "Lista de hoy" },
+  sec_contacts:             { en: "Contacts",             es: "Contactos" },
+  sec_care_notes:           { en: "Care notes",           es: "Notas de cuidado" },
+
+  // Header hints
+  hint_most_important_first: { en: "most important first", es: "lo más importante primero" },
+  hint_for_treasure:         { en: "for the treasure 🏆",   es: "para el tesoro 🏆" },
+  hint_extra_credit_not_required: { en: "extra credit, not required", es: "crédito extra, no obligatorio" },
+  hint_tap_to_set_priority:  { en: "tap to set priority",   es: "tócalo para fijar prioridad" },
+  hint_tap_to_restore:       { en: "tap to restore",        es: "tócalo para restaurar" },
+
   // KidGameHome quest tile labels
   quest_label:    { en: "Quest",    es: "Misión" },
   quest_complete: { en: "Complete", es: "Completa" },
