@@ -4,6 +4,8 @@ import { EnrichedSongRow } from "./SongRow.jsx";
 import { useSignedUrl } from "./lib/storage.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { buildAlbumCoverMap, resolveSongCover } from "./lib/albumCover.js";
+import { tOf } from "./lib/i18n.js";
+const t = (k, fb) => tOf(k, fb);
 
 /* =====================================================================
    MusicLibrary — full song catalog with sort + filter.
@@ -27,14 +29,14 @@ import { buildAlbumCoverMap, resolveSongCover } from "./lib/albumCover.js";
 function SongGridTile({ s, onTap, selected = false }) {
   const customCoverSigned = useSignedUrl(s.customCoverPath || "");
   const displayCover = customCoverSigned || s.coverUrl || "";
-  const title = s.canonicalTitle || s.title || "(unknown)";
+  const title = s.canonicalTitle || s.title || t("ml_unknown_song", "(unknown)");
   const artist = s.canonicalArtist || s.artist || "";
   return (
     <button
       type="button"
       onClick={() => onTap?.(s)}
       className={`flex flex-col items-stretch text-left active:scale-[0.97] transition ${selected ? "ring-2 ring-cyan-500 rounded-xl" : ""}`}
-      aria-label={`Open ${title}`}
+      aria-label={t("ml_open_aria", "Open {title}").replace("{title}", title)}
     >
       <div className="aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-100 mb-1 relative">
         {displayCover ? (
@@ -73,7 +75,7 @@ function SongGridTile({ s, onTap, selected = false }) {
 function SongShelfTile({ s, onTap, selected, rearranging, onNudgeLeft, onNudgeRight }) {
   const customCoverSigned = useSignedUrl(s.customCoverPath || "");
   const displayCover = customCoverSigned || s.coverUrl || "";
-  const title = s.canonicalTitle || s.title || "(unknown)";
+  const title = s.canonicalTitle || s.title || t("ml_unknown_song", "(unknown)");
   const artist = s.canonicalArtist || s.artist || "";
   return (
     <div className={`shrink-0 w-32 ${selected ? "ring-2 ring-cyan-500 rounded-xl" : ""}`}>
@@ -82,7 +84,7 @@ function SongShelfTile({ s, onTap, selected, rearranging, onNudgeLeft, onNudgeRi
         onClick={onTap}
         disabled={!onTap}
         className="w-full aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-100 relative active:scale-[0.97] transition disabled:active:scale-100"
-        aria-label={`Open ${title}`}
+        aria-label={t("ml_open_aria", "Open {title}").replace("{title}", title)}
       >
         {displayCover ? (
           <img
@@ -114,7 +116,7 @@ function SongShelfTile({ s, onTap, selected, rearranging, onNudgeLeft, onNudgeRi
             type="button"
             onClick={onNudgeLeft}
             className="flex-1 text-[11px] font-bold py-1 rounded-md bg-amber-100 text-amber-800 border border-amber-200 active:scale-95"
-            aria-label="Move left"
+            aria-label={t("ml_move_left", "Move left")}
           >
             <ChevronLeft size={14} className="inline" />
           </button>
@@ -122,7 +124,7 @@ function SongShelfTile({ s, onTap, selected, rearranging, onNudgeLeft, onNudgeRi
             type="button"
             onClick={onNudgeRight}
             className="flex-1 text-[11px] font-bold py-1 rounded-md bg-amber-100 text-amber-800 border border-amber-200 active:scale-95"
-            aria-label="Move right"
+            aria-label={t("ml_move_right", "Move right")}
           >
             <ChevronRight size={14} className="inline" />
           </button>
@@ -132,17 +134,22 @@ function SongShelfTile({ s, onTap, selected, rearranging, onNudgeLeft, onNudgeRi
   );
 }
 
-const SORT_OPTIONS = [
-  { k: "plays",          label: "Most played" },
-  { k: "recent",         label: "Recently played" },
-  { k: "artist_grouped", label: "By artist" },
-  { k: "title_az",       label: "Title A–Z" },
-  { k: "title_za",       label: "Title Z–A" },
-  { k: "artist_az",      label: "Artist A–Z" },
-  { k: "album_az",       label: "Album A–Z" },
-  { k: "added_newest",   label: "Newest added" },
-  { k: "added_oldest",   label: "Oldest added" },
+const SORT_KEYS = [
+  "plays", "recent", "artist_grouped",
+  "title_az", "title_za", "artist_az", "album_az",
+  "added_newest", "added_oldest",
 ];
+const sortLabel = (k) => ({
+  plays:          t("ml_sort_plays", "Most played"),
+  recent:         t("ml_sort_recent", "Recently played"),
+  artist_grouped: t("ml_sort_artist_grouped", "By artist"),
+  title_az:       t("ml_sort_title_az", "Title A–Z"),
+  title_za:       t("ml_sort_title_za", "Title Z–A"),
+  artist_az:      t("ml_sort_artist_az", "Artist A–Z"),
+  album_az:       t("ml_sort_album_az", "Album A–Z"),
+  added_newest:   t("ml_sort_added_newest", "Newest added"),
+  added_oldest:   t("ml_sort_added_oldest", "Oldest added"),
+}[k] || k);
 
 // Bucket the song list by canonical artist. Unknown artist (no
 // canonical, no user-typed) all bucket into one trailing group.
@@ -151,7 +158,7 @@ const SORT_OPTIONS = [
 function groupByArtist(songs) {
   const buckets = new Map();
   for (const s of songs) {
-    const key = (s.canonicalArtist || s.artist || "").trim() || "Unknown artist";
+    const key = (s.canonicalArtist || s.artist || "").trim() || t("ml_unknown_artist", "Unknown artist");
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(s);
   }
@@ -165,8 +172,9 @@ function groupByArtist(songs) {
   // Sort groups by play count desc (most-engaged artist on top), then
   // alphabetically. Unknown sinks to the bottom.
   groups.sort((a, b) => {
-    if (a.artist === "Unknown artist" && b.artist !== "Unknown artist") return 1;
-    if (b.artist === "Unknown artist" && a.artist !== "Unknown artist") return -1;
+    const unknown = t("ml_unknown_artist", "Unknown artist");
+    if (a.artist === unknown && b.artist !== unknown) return 1;
+    if (b.artist === unknown && a.artist !== unknown) return -1;
     const playsA = a.songs.reduce((n, s) => n + (s.count || 0), 0);
     const playsB = b.songs.reduce((n, s) => n + (s.count || 0), 0);
     if (playsB !== playsA) return playsB - playsA;
@@ -294,15 +302,15 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
       <div className="grid grid-cols-3 gap-2 mb-3">
         <div className="rounded-2xl bg-white border border-slate-100 p-3 text-center">
           <div className="text-2xl font-extrabold text-cyan-600">{songs.length}</div>
-          <div className="text-[11px] text-slate-400">songs</div>
+          <div className="text-[11px] text-slate-400">{t("ml_stat_songs", "songs")}</div>
         </div>
         <div className="rounded-2xl bg-white border border-slate-100 p-3 text-center">
           <div className="text-2xl font-extrabold text-indigo-500">{totalPlays}</div>
-          <div className="text-[11px] text-slate-400">total plays</div>
+          <div className="text-[11px] text-slate-400">{t("ml_stat_total_plays", "total plays")}</div>
         </div>
         <div className="rounded-2xl bg-white border border-slate-100 p-3 text-center">
           <div className="text-2xl font-extrabold text-amber-500">{artistsTouched}</div>
-          <div className="text-[11px] text-slate-400">artists</div>
+          <div className="text-[11px] text-slate-400">{t("ml_stat_artists", "artists")}</div>
         </div>
       </div>
 
@@ -311,7 +319,7 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search title, artist, or album…"
+          placeholder={t("ml_search_ph", "Search title, artist, or album…")}
           className="flex-1 text-sm outline-none bg-transparent"
         />
         {q && <button onClick={() => setQ("")} className="text-slate-300"><X size={15} /></button>}
@@ -319,7 +327,7 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
 
       <div className="flex items-center gap-2 mb-2">
         <div className="flex gap-1 bg-slate-100 rounded-xl p-1 shrink-0">
-          {[["list", "List"], ["grid", "Grid"], ["shelf", "Shelf"]].map(([k, label]) => (
+          {[["list", t("ml_view_list", "List")], ["grid", t("ml_view_grid", "Grid")], ["shelf", t("ml_view_shelf", "Shelf")]].map(([k, label]) => (
             <button
               key={k}
               onClick={() => setViewMode(k)}
@@ -332,29 +340,31 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
           ))}
         </div>
         <div className="flex-1 flex gap-1.5 overflow-x-auto scrollbar-thin">
-          {SORT_OPTIONS.map((o) => (
+          {SORT_KEYS.map((k) => (
             <button
-              key={o.k}
-              onClick={() => setSort(o.k)}
+              key={k}
+              onClick={() => setSort(k)}
               className={`shrink-0 text-[11px] font-bold px-2.5 py-1.5 rounded-full whitespace-nowrap ${
-                sort === o.k ? "bg-cyan-600 text-white" : "bg-white text-slate-500 border border-slate-200"
+                sort === k ? "bg-cyan-600 text-white" : "bg-white text-slate-500 border border-slate-200"
               }`}
             >
-              {o.label}
+              {sortLabel(k)}
             </button>
           ))}
         </div>
       </div>
 
       <div className="text-[11px] text-slate-400 px-1 mb-2">
-        {q ? `${sorted.length} of ${songs.length} matching` : `${songs.length} songs`}
+        {q
+          ? t("ml_match_count", "{n} of {total} matching").replace("{n}", sorted.length).replace("{total}", songs.length)
+          : t("ml_total_count", "{n} songs").replace("{n}", songs.length)}
       </div>
 
       {sorted.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed border-slate-200 p-8 text-center">
           <Music size={32} className="text-slate-300 mx-auto mb-2" />
           <div className="text-sm font-bold text-slate-500">
-            {q ? "No songs match that search." : "No songs logged yet — add some via the Drums task sheet."}
+            {q ? t("ml_no_match", "No songs match that search.") : t("ml_no_songs", "No songs logged yet — add some via the Drums task sheet.")}
           </div>
         </div>
       ) : viewMode === "list" ? (
@@ -372,8 +382,8 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
                       {artist}
                     </div>
                     <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold shrink-0">
-                      {groupSongs.length} {groupSongs.length === 1 ? "song" : "songs"}
-                      {totalPlays > 0 ? ` · ${totalPlays} ${totalPlays === 1 ? "play" : "plays"}` : ""}
+                      {groupSongs.length} {groupSongs.length === 1 ? t("ml_song_one", "song") : t("ml_song_many", "songs")}
+                      {totalPlays > 0 ? ` · ${totalPlays} ${totalPlays === 1 ? t("ml_play_one", "play") : t("ml_play_many", "plays")}` : ""}
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -426,7 +436,7 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
                 rearranging ? "bg-amber-500 text-white" : "bg-white text-slate-600 border border-slate-200"
               }`}
             >
-              <GripHorizontal size={12} /> {rearranging ? "Done arranging" : "Rearrange"}
+              <GripHorizontal size={12} /> {rearranging ? t("ml_done_arranging", "Done arranging") : t("ml_rearrange", "Rearrange")}
             </button>
             {savedOrder.length > 0 && (
               <button
@@ -434,11 +444,11 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
                 onClick={resetShelfOrder}
                 className="text-[11px] font-bold px-3 py-1.5 rounded-full bg-white text-slate-500 border border-slate-200"
               >
-                Reset shelf order
+                {t("ml_reset_shelf", "Reset shelf order")}
               </button>
             )}
             <div className="text-[10px] text-slate-400 ml-auto">
-              {savedOrder.length > 0 ? "custom order" : `sorted by ${SORT_OPTIONS.find((o) => o.k === sort)?.label || sort}`}
+              {savedOrder.length > 0 ? t("ml_custom_order", "custom order") : t("ml_sorted_by", "sorted by {label}").replace("{label}", sortLabel(sort))}
             </div>
           </div>
           <div className="-mx-4 overflow-x-auto scrollbar-thin pb-32">
@@ -468,8 +478,8 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
         return (
           <div className="fixed inset-x-0 bottom-0 z-30 max-w-md mx-auto bg-white border-t border-slate-200 shadow-2xl rounded-t-2xl p-3 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Editing</div>
-              <button onClick={() => setFocusedSongId(null)} className="text-slate-400 p-1" aria-label="Close">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">{t("ml_editing", "Editing")}</div>
+              <button onClick={() => setFocusedSongId(null)} className="text-slate-400 p-1" aria-label={t("ml_close_aria", "Close")}>
                 <X size={16} />
               </button>
             </div>
