@@ -657,6 +657,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // saved curation. Reorder writes through the synced setter so both
   // parents see the same shelf.
   const [libraryOrder, setLibraryOrder] = familySetting("libraryOrder", { songs: [], books: [] });
+  // displayLangs lives at the family level (not per-user) because Mike's
+  // intent when he toggles it is "set this for Reznor + everyone in the
+  // family." Per-user would mean Mike sets Both on his profile but
+  // Reznor's view still defaults to English because his profile has no
+  // setting — confusing and what was happening before. Default ["en"].
+  const [displayLangs, setDisplayLangs] = familySetting("displayLangs", ["en"]);
   const [tkdDays, setTkdDays] = familySetting("tkdDays", ["Monday"]);
   const [tkdTimes, setTkdTimes] = familySetting(
     "tkdTimes",
@@ -1395,10 +1401,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }));
   };
 
-  // Display languages for this profile. Drives bilingual rendering of
-  // task names, activity names, nav labels, and section headers. Default
-  // is English-only; the parent flips it from More → Languages.
-  const langs = activeLangs(currentPrefs);
+  // Display languages — family-wide setting so a parent's toggle covers
+  // every member's view (parent, kid, helper). Drives bilingual rendering
+  // of task names, activity names, nav labels, and section headers.
+  // Default is English-only; the parent flips it from More → Languages.
+  const langs = activeLangs({ displayLangs });
 
   // Apply font-scale globally — set root font-size %, Tailwind's rem-based
   // text classes inherit it, every screen scales together.
@@ -1557,7 +1564,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   const shared = {
-    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, langs, rewards, completions, compByTask, events, handoff, redemptions,
+    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, langs, displayLangs, setDisplayLangs, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
@@ -8727,14 +8734,12 @@ function DataAudit(props) {
 // when Spanish is on so Reznor (still learning) doesn't get lost.
 // "Both" is the default-friendly recommendation; "Spanish only" is
 // available for full immersion days.
-function LanguagesPage({ setPref, currentPrefs }) {
-  const current = (currentPrefs?.displayLangs && Array.isArray(currentPrefs.displayLangs))
-    ? currentPrefs.displayLangs
-    : ["en"];
+function LanguagesPage({ displayLangs = ["en"], setDisplayLangs }) {
+  const current = Array.isArray(displayLangs) && displayLangs.length > 0 ? displayLangs : ["en"];
   const isEnglishOnly = current.length === 1 && current[0] === "en";
   const isSpanishOnly = current.length === 1 && current[0] === "es";
   const isBoth = current.length === 2 || (current.includes("en") && current.includes("es"));
-  const apply = (langs) => setPref?.("displayLangs", langs);
+  const apply = (next) => setDisplayLangs?.(next);
   const OptionCard = ({ active, onClick, primary, secondary, hint }) => (
     <button
       type="button"
