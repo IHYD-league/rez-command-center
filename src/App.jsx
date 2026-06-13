@@ -1551,7 +1551,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   const shared = {
-    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, rewards, completions, compByTask, events, handoff, redemptions,
+    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
@@ -8873,19 +8873,142 @@ function MoreParent(props) {
     { k: "audit", icon: <AlertCircle size={18} />, label: "Data audit", sub: "Check the math · find drift · spot orphans" },
     { k: "privacy", icon: <Lock size={18} />, label: "Privacy & Safety", sub: "Family isolation · what's stored · own your data" },
   ];
+  // Apply per-parent saved order. Items not in the saved list slot in
+  // at the end so a new menu entry shows up automatically. The setting
+  // lives on the active profile via currentPrefs.moreOrder; each parent
+  // gets their own arrangement.
+  const savedOrder = props.currentPrefs?.moreOrder || [];
+  const orderedItems = (() => {
+    const byKey = Object.fromEntries(items.map((i) => [i.k, i]));
+    const seen = new Set();
+    const out = [];
+    for (const k of savedOrder) {
+      if (byKey[k] && !seen.has(k)) { out.push(byKey[k]); seen.add(k); }
+    }
+    for (const i of items) {
+      if (!seen.has(i.k)) { out.push(i); seen.add(i.k); }
+    }
+    return out;
+  })();
   return (
     <div className="px-4 pt-4">
-      <h2 className="font-extrabold text-lg px-1 mb-2">More</h2>
-      {items.map((i) => (
-        <button key={i.k} onClick={() => setSub(i.k)} className="w-full mb-2 active:scale-[0.98] transition">
-          <Card className="p-4 flex items-center gap-3 text-left">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-100 grid place-items-center text-indigo-600">{i.icon}</div>
-            <div className="flex-1"><div className="font-bold text-sm">{i.label}</div><div className="text-[11px] text-slate-400">{i.sub}</div></div>
-            <ChevronLeft size={16} className="rotate-180 text-slate-300" />
-          </Card>
-        </button>
-      ))}
+      <MoreMenu
+        items={orderedItems}
+        onPick={(k) => setSub(k)}
+        onReorder={(keys) => props.setPref?.("moreOrder", keys)}
+        onResetOrder={() => props.setPref?.("moreOrder", null)}
+      />
     </div>
+  );
+}
+
+// Standalone so the state for edit-mode + drag doesn't pollute
+// MoreParent (which also gates the sub-view routing above).
+function MoreMenu({ items, onPick, onReorder, onResetOrder }) {
+  const [editMode, setEditMode] = useState(false);
+  const [dragKey, setDragKey] = useState(null);
+  const move = (from, to) => {
+    if (from === to || to < 0 || to >= items.length) return;
+    const next = items.slice();
+    const [m] = next.splice(from, 1);
+    next.splice(to, 0, m);
+    onReorder(next.map((i) => i.k));
+  };
+  return (
+    <>
+      <div className="flex items-center justify-between mb-2 px-1">
+        <h2 className="font-extrabold text-lg">More</h2>
+        <div className="flex items-center gap-2">
+          {editMode && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Reset the More menu to the default order?")) {
+                  onResetOrder?.();
+                }
+              }}
+              className="text-[11px] font-bold text-slate-500"
+            >
+              Reset
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setEditMode((v) => !v)}
+            className={`text-[12px] font-bold px-3 py-1.5 rounded-full ${editMode ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-700"}`}
+          >
+            {editMode ? "Done" : "Edit order"}
+          </button>
+        </div>
+      </div>
+      {editMode && (
+        <div className="text-[11px] text-slate-500 px-1 mb-2">
+          Drag the ☰ handle to reorder, or tap ↑ / ↓. Changes save instantly.
+        </div>
+      )}
+      {items.map((i, idx) => (
+        <div
+          key={i.k}
+          draggable={editMode}
+          onDragStart={(e) => {
+            if (!editMode) return;
+            setDragKey(i.k);
+            e.dataTransfer.effectAllowed = "move";
+            // Firefox needs setData to actually start the drag.
+            try { e.dataTransfer.setData("text/plain", i.k); } catch {}
+          }}
+          onDragOver={(e) => {
+            if (!editMode || !dragKey || dragKey === i.k) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDrop={(e) => {
+            if (!editMode) return;
+            e.preventDefault();
+            if (!dragKey || dragKey === i.k) return;
+            const from = items.findIndex((x) => x.k === dragKey);
+            const to = items.findIndex((x) => x.k === i.k);
+            move(from, to);
+            setDragKey(null);
+          }}
+          onDragEnd={() => setDragKey(null)}
+          className={dragKey === i.k ? "opacity-50" : ""}
+        >
+          {editMode ? (
+            <Card className="p-3 mb-2 flex items-center gap-2">
+              <div className="text-slate-400 cursor-grab active:cursor-grabbing select-none px-1" title="Drag to reorder">☰</div>
+              <div className="w-9 h-9 rounded-2xl bg-indigo-100 grid place-items-center text-indigo-600 shrink-0">{i.icon}</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-sm truncate">{i.label}</div>
+                <div className="text-[11px] text-slate-400 truncate">{i.sub}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => move(idx, idx - 1)}
+                disabled={idx === 0}
+                className={`w-8 h-8 rounded-lg grid place-items-center ${idx === 0 ? "text-slate-200" : "text-slate-500 hover:bg-slate-100"}`}
+                title="Move up"
+              >▲</button>
+              <button
+                type="button"
+                onClick={() => move(idx, idx + 1)}
+                disabled={idx === items.length - 1}
+                className={`w-8 h-8 rounded-lg grid place-items-center ${idx === items.length - 1 ? "text-slate-200" : "text-slate-500 hover:bg-slate-100"}`}
+                title="Move down"
+              >▼</button>
+            </Card>
+          ) : (
+            <button onClick={() => onPick(i.k)} className="w-full mb-2 active:scale-[0.98] transition">
+              <Card className="p-4 flex items-center gap-3 text-left">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-100 grid place-items-center text-indigo-600">{i.icon}</div>
+                <div className="flex-1"><div className="font-bold text-sm">{i.label}</div><div className="text-[11px] text-slate-400">{i.sub}</div></div>
+                <ChevronLeft size={16} className="rotate-180 text-slate-300" />
+              </Card>
+            </button>
+          )}
+        </div>
+      ))}
+    </>
   );
 }
 // Adventure Board parent settings — combines daily cap + theme picker.
