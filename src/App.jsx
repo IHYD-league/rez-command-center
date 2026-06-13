@@ -1675,6 +1675,9 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
               streaks={streaks}
               familyId={familyId}
               role={user?.role}
+              songs={songs}
+              songPlays={songPlays}
+              books={books}
               onClose={() => setOpenCompletionId(null)}
               onAddPhoto={(photo) => addCompletionPhoto(c.id, photo)}
               onRemovePhoto={(path) => removeCompletionPhoto(c.id, path)}
@@ -4050,6 +4053,7 @@ function CompletionDetailSheet({
   task, completion, activities, users, streaks,
   onClose, onAddPhoto, onRemovePhoto, onUpdateNotes,
   onUndo, onEditTask, onEditDetails, familyId, role,
+  songs = [], songPlays = [], books = [],
 }) {
   const [tab, setTab] = useState("photos");
   const [notes, setNotes] = useState(completion?.notes || "");
@@ -4209,6 +4213,138 @@ function CompletionDetailSheet({
 
         {tab === "stats" && (
           <div className="space-y-2">
+            {(() => {
+              // "What actually happened" panel — Mike's exact ask:
+              //   "Stats should be real stats. I shouldn't need to go
+              //    into Edit details to see drums minutes."
+              // Render BEFORE the bureaucratic metadata so Drumeo /
+              // Melodics / songs / book / minutes show at-a-glance.
+              const at = (task?.activityType || "").toLowerCase();
+              const pt = (task?.proofType || "").toLowerCase();
+              const isDrumsRow = pt === "drums" || /drum/.test(at);
+              const isReadingRow = pt === "reading" || /read|book/.test(at);
+              const isPhotoRow = pt === "photo";
+              const x = completion?.extra || {};
+              const compDate = completion?.completionDate || "";
+              if (isDrumsRow) {
+                const drumeo = Number(x.drumeo) || 0;
+                const melodics = Number(x.melodics) || 0;
+                const total = drumeo + melodics;
+                // Pull songs actually played that day from the canonical
+                // song_plays rows (not extra.songList — that's free
+                // text). Then enrich with covers via the album-dedup map.
+                const daysPlays = (songPlays || []).filter((p) => (p.playedOn || p.played_on) === compDate);
+                const byId = Object.fromEntries((songs || []).map((s) => [s.id, s]));
+                const playedSongs = daysPlays.map((p) => byId[p.songId || p.song_id]).filter(Boolean);
+                // Fallback to the typed songList if no canonical plays
+                // exist (legacy completions, draft sessions where the
+                // parent typed names but never picked from picker).
+                const typedList = (x.songList || "").trim();
+                const typedTitles = typedList ? typedList.split(/,\s*/).filter(Boolean) : [];
+                const hasAnything = total > 0 || playedSongs.length > 0 || typedTitles.length > 0;
+                if (!hasAnything) return null;
+                return (
+                  <div
+                    className="rounded-3xl p-4 mb-2 text-white relative overflow-hidden border-2 border-white/15 shadow-xl"
+                    style={{ background: "linear-gradient(135deg, #1e293b 0%, #4338ca 35%, #7c3aed 70%, #f97316 100%)" }}
+                  >
+                    <div className="relative">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-extrabold flex items-center gap-1.5 mb-2">
+                        🥁 What he played
+                      </div>
+                      <div className="flex items-baseline gap-2 mb-3">
+                        <span className="text-5xl font-extrabold tracking-tight leading-none" style={{ textShadow: "0 0 12px rgba(253,224,71,0.55)" }}>
+                          {total}
+                        </span>
+                        <span className="text-sm font-bold text-white/70">min total</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                          <div className="text-xl font-extrabold leading-none">{drumeo}</div>
+                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Drumeo</div>
+                        </div>
+                        <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                          <div className="text-xl font-extrabold leading-none">{melodics}</div>
+                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Melodics</div>
+                        </div>
+                        <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                          <div className="text-xl font-extrabold leading-none">{playedSongs.length || typedTitles.length}</div>
+                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Songs</div>
+                        </div>
+                      </div>
+                      {(playedSongs.length > 0 || typedTitles.length > 0) && (
+                        <>
+                          <div className="text-[10px] uppercase tracking-wider font-bold text-white/70 mb-1.5">Songs</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {playedSongs.map((s, i) => (
+                              <span key={s.id + "-" + i} className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/15 backdrop-blur text-white border border-white/20">
+                                🎸 {s.canonicalTitle || s.title}
+                              </span>
+                            ))}
+                            {playedSongs.length === 0 && typedTitles.map((t, i) => (
+                              <span key={"typed-" + i} className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/15 backdrop-blur text-white border border-white/20">
+                                🎸 {t}
+                              </span>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+              if (isReadingRow) {
+                const bookTitle = x.bookTitle || (x.bookId ? (books.find((b) => b.id === x.bookId)?.canonicalTitle || books.find((b) => b.id === x.bookId)?.title) : "") || "—";
+                const lang = x.lang || "—";
+                const minutes = Number(x.minutes) || 0;
+                const finished = !!x.markFinished;
+                return (
+                  <div
+                    className="rounded-3xl p-4 mb-2 text-white relative overflow-hidden border-2 border-white/15 shadow-xl"
+                    style={{ background: "linear-gradient(135deg, #0c4a6e 0%, #0369a1 45%, #b45309 100%)" }}
+                  >
+                    <div className="relative">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-extrabold flex items-center gap-1.5 mb-2">
+                        📚 What he read
+                      </div>
+                      <div className="text-xl font-extrabold leading-tight mb-3 truncate">{bookTitle}</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                          <div className="text-xl font-extrabold leading-none">{minutes}</div>
+                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">min</div>
+                        </div>
+                        <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                          <div className="text-xl font-extrabold leading-none">{lang === "Spanish" ? "🇪🇸" : "🇺🇸"}</div>
+                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">{lang}</div>
+                        </div>
+                        <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                          <div className="text-xl font-extrabold leading-none">{finished ? "✓" : "—"}</div>
+                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">{finished ? "finished" : "in progress"}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              if (isPhotoRow && (x.title || photos.length > 0)) {
+                return (
+                  <div
+                    className="rounded-3xl p-4 mb-2 text-white relative overflow-hidden border-2 border-white/15 shadow-xl"
+                    style={{ background: "linear-gradient(135deg, #831843 0%, #be185d 50%, #f59e0b 100%)" }}
+                  >
+                    <div className="relative">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-extrabold mb-2">
+                        🎨 What he made
+                      </div>
+                      <div className="text-xl font-extrabold leading-tight mb-1 truncate">{x.title || "Untitled"}</div>
+                      <div className="text-[12px] text-white/80">{photos.length} photo{photos.length === 1 ? "" : "s"} attached</div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             <StatRow label="Date" value={completion?.completionDate || "—"} />
             <StatRow label="Stars earned" value={`${completion?.awardedStars ?? task.starValue ?? 0} ⭐`} />
             <StatRow label="Submitted by" value={submittedByName} />
