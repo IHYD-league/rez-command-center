@@ -4682,6 +4682,28 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   // handleFile appends one upload to the photos array, capped at
   // MAX_PHOTOS. Reading the existing length captures it as of the
   // tap, so a rapid double-tap can't sneak past the cap.
+  //
+  // Auto-save draft on every photo mutation. Krissie's flow that
+  // exposed the bug: opened Make Bed, uploaded Reznor's made-bed
+  // photo, then closed the sheet without explicitly tapping Submit
+  // or Save progress. The photo lived in Supabase storage but no
+  // completion row referenced it — so on next open the photo was
+  // "gone." Auto-saving a draft the moment a photo is uploaded (or
+  // removed) means closing the sheet without a final tap can never
+  // orphan an upload again. Skipped when editing an already-approved
+  // row (we don't want to overwrite an approved completion with a
+  // draft) and when onSaveDraft isn't provided (helper / kid paths).
+  const isApprovedEdit = existing?.status === "approved";
+  const persistDraft = (nextPhotos) => {
+    if (isApprovedEdit) return;
+    if (!onSaveDraft) return;
+    const proof = (nextPhotos || []).map((p) => ({ type: "photo", name: p.name, path: p.path }));
+    const extra = {};
+    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
+    if (isPhoto) Object.assign(extra, { title });
+    if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    onSaveDraft(task.id, { notes, proof, extra });
+  };
   const handleFile = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -4693,7 +4715,14 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     setUploading(true);
     try {
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
-      setPhotos((prev) => (prev.length >= MAX_PHOTOS ? prev : [...prev, { type: "photo", name, path }]));
+      const newPhoto = { type: "photo", name, path };
+      const nextPhotos = photos.length >= MAX_PHOTOS ? photos : [...photos, newPhoto];
+      setPhotos(nextPhotos);
+      // Auto-save the draft so the photo can't be lost by closing the
+      // sheet without explicit submit. Surfaces a tiny "Saved" toast so
+      // the parent sees that the photo is safely attached.
+      persistDraft(nextPhotos);
+      if (!isApprovedEdit && onSaveDraft) toast.success?.(i18nTOf("ts_photo_saved", "Photo saved 📸"));
     } catch (err) {
       toast.error(i18nTOf("ts_photo_upload_fail", "Photo upload failed: {msg}").replaceAll("{msg}", err.message || err));
     } finally {
@@ -4701,7 +4730,13 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
       e.target.value = ""; // allow picking the same file again after remove
     }
   };
-  const removePhotoAt = (idx) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  const removePhotoAt = (idx) => {
+    const nextPhotos = photos.filter((_, i) => i !== idx);
+    setPhotos(nextPhotos);
+    // Keep the draft in sync so a remove can't bring back a deleted photo
+    // on next open. No toast — silent removal is the right UX.
+    persistDraft(nextPhotos);
+  };
   // Back-compat shims for code paths that read `photo` / `photoPreview`
   // (single-photo gating, the "use as book cover" checkbox, etc.).
   // They now reflect the first photo in the array.

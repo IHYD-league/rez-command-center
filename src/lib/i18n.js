@@ -554,6 +554,7 @@ const STRINGS = {
   ts_gate_drums:              { en: "Log at least one of Drumeo / Melodics / songs.", es: "Registra al menos Drumeo / Melodics / canciones." },
   ts_max_photos:              { en: "Max {n} photos per task.",                   es: "Máximo {n} fotos por tarea." },
   ts_photo_upload_fail:       { en: "Photo upload failed: {msg}",                 es: "Error al subir la foto: {msg}" },
+  ts_photo_saved:             { en: "Photo saved 📸",                              es: "Foto guardada 📸" },
   ts_book_title_ph:           { en: "e.g. Dog Man",                               es: "ej.: Dog Man" },
   ts_lang_english:            { en: "English",                                    es: "Inglés" },
   ts_lang_spanish:            { en: "Spanish 🇪🇸",                                es: "Español 🇪🇸" },
