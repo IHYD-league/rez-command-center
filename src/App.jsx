@@ -5391,8 +5391,8 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
                   <div className="flex items-center gap-1"><input type="number" value={task.starValue} onChange={(e) => updateTask(task.id, { starValue: Number(e.target.value) })} className="w-16 border border-slate-200 rounded px-2 py-1 text-sm" /><span className="text-xs">⭐</span></div>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  <button onClick={() => updateTask(task.id, { required: !task.required })} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${task.required ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-400"}`}>{task.required ? "Required" : "Optional"}</button>
-                  <button onClick={() => updateTask(task.id, { proofRequired: !task.proofRequired, proofType: !task.proofRequired ? (task.proofType || "photo") : task.proofType })} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${task.proofRequired ? "bg-sky-100 text-sky-600" : "bg-slate-100 text-slate-400"}`}>{task.proofRequired ? "Needs photo" : "No proof"}</button>
+                  <button onClick={() => updateTask(task.id, { required: !task.required })} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${task.required ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-400"}`}>{task.required ? i18nTOf("manage_tasks_required", "Required") : i18nTOf("manage_tasks_optional", "Optional")}</button>
+                  <button onClick={() => updateTask(task.id, { proofRequired: !task.proofRequired, proofType: !task.proofRequired ? (task.proofType || "photo") : task.proofType })} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${task.proofRequired ? "bg-sky-100 text-sky-600" : "bg-slate-100 text-slate-400"}`}>{task.proofRequired ? i18nTOf("manage_tasks_needs_photo", "Needs photo") : i18nTOf("manage_tasks_no_proof", "No proof")}</button>
                 </div>
               </Card>
 
@@ -9518,7 +9518,7 @@ function People({ users, addUser, updateUser, removeUser, familyId, pendingRegis
         <Card className="p-3 mb-3 bg-amber-50 border border-amber-200">
           <div className="font-bold text-sm mb-2 flex items-center gap-2">
             <AlertCircle size={14} className="text-amber-600" />
-            Pending requests <span className="text-[11px] font-semibold text-amber-700">({pending.length})</span>
+            {i18nTOf("people_pending_requests", "Pending requests")} <span className="text-[11px] font-semibold text-amber-700">({pending.length})</span>
           </div>
           {pending.map((r) => (
             <PendingRequestRow
@@ -9555,19 +9555,19 @@ function People({ users, addUser, updateUser, removeUser, familyId, pendingRegis
                 <div className="text-[11px] text-slate-400">
                   {u.relationship}
                   {u.accessType === "temporary" && (expired
-                    ? <span className="text-rose-500 font-semibold"> · access ended {fmtShort(u.accessExpires)}</span>
-                    : <span className="text-amber-600 font-semibold"> · guest until {fmtShort(u.accessExpires)}</span>)}
-                  {u.accessType === "permanent" && !locked(u) && " · ongoing access"}
+                    ? <span className="text-rose-500 font-semibold"> · {i18nTOf("people_access_ended", "access ended")} {fmtShort(u.accessExpires)}</span>
+                    : <span className="text-amber-600 font-semibold"> · {i18nTOf("people_guest_until", "guest until")} {fmtShort(u.accessExpires)}</span>)}
+                  {u.accessType === "permanent" && !locked(u) && ` · ${i18nTOf("people_ongoing_access", "ongoing access")}`}
                 </div>
               </div>
-              {u.photo && <button onClick={() => updateUser(u.id, { photo: "" })} className="text-[10px] font-semibold text-slate-400 shrink-0">Remove photo</button>}
+              {u.photo && <button onClick={() => updateUser(u.id, { photo: "" })} className="text-[10px] font-semibold text-slate-400 shrink-0">{i18nTOf("people_remove_photo", "Remove photo")}</button>}
               {!locked(u) && <button onClick={() => removeUser(u.id)} className="text-slate-300 hover:text-rose-500 p-1"><X size={16} /></button>}
             </div>
             {!locked(u) && (
               <div className="flex flex-wrap gap-2 mt-2">
-                <Toggle on={u.active !== false && !expired} label={expired ? "Expired" : (u.active === false ? "Disabled" : "Active")} disabled={expired} onClick={() => updateUser(u.id, { active: u.active === false })} />
-                <Toggle on={!!u.permissions?.approveSimple} label="Can approve simple tasks" onClick={() => updateUser(u.id, { permissions: { ...u.permissions, approveSimple: !u.permissions?.approveSimple } })} />
-                {["grandparent", "helper", "guest"].includes(u.role) && <Toggle on={!!u.easyLocked} label="💛 Lock to Easy mode" onClick={() => updateUser(u.id, { easyLocked: !u.easyLocked })} />}
+                <Toggle on={u.active !== false && !expired} label={expired ? i18nTOf("people_expired", "Expired") : (u.active === false ? i18nTOf("people_disabled", "Disabled") : i18nTOf("people_active", "Active"))} disabled={expired} onClick={() => updateUser(u.id, { active: u.active === false })} />
+                <Toggle on={!!u.permissions?.approveSimple} label={i18nTOf("people_can_approve_simple", "Can approve simple tasks")} onClick={() => updateUser(u.id, { permissions: { ...u.permissions, approveSimple: !u.permissions?.approveSimple } })} />
+                {["grandparent", "helper", "guest"].includes(u.role) && <Toggle on={!!u.easyLocked} label={i18nTOf("people_lock_easy", "💛 Lock to Easy mode")} onClick={() => updateUser(u.id, { easyLocked: !u.easyLocked })} />}
               </div>
             )}
             {u.role !== "kid" && (
@@ -9585,10 +9585,10 @@ function People({ users, addUser, updateUser, removeUser, familyId, pendingRegis
         );
       })}
 
-      {!adding && <button onClick={() => setAdding(true)} className="w-full mt-2 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-2"><Plus size={16} /> Add a person</button>}
+      {!adding && <button onClick={() => setAdding(true)} className="w-full mt-2 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-2"><Plus size={16} /> {i18nTOf("people_add_person", "Add a person")}</button>}
       {adding && <AddPersonForm onCancel={() => setAdding(false)} onAdd={(u) => { addUser(u); setAdding(false); }} />}
 
-      <div className="text-[11px] text-slate-400 px-1 mt-3">Temporary access auto-expires on its end date — a one-week sitter won't keep getting in. TODO(real-build): enforce expiry + per-day time windows server-side.</div>
+      <div className="text-[11px] text-slate-400 px-1 mt-3">{i18nTOf("people_temp_hint", "Temporary access auto-expires on its end date — a one-week sitter won't keep getting in.")}</div>
     </>
   );
 }
@@ -9880,7 +9880,7 @@ function ManageActivities({ activities, addActivity, updateActivity, addTask, st
               <div className="p-3 flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <div className="font-bold text-sm flex-1 min-w-0">{i18nNameOf(a)}</div>
-                  <button onClick={() => updateActivity(a.id, { status: "active" })} className="text-[11px] font-bold text-indigo-600 shrink-0">Restore</button>
+                  <button onClick={() => updateActivity(a.id, { status: "active" })} className="text-[11px] font-bold text-indigo-600 shrink-0">{i18nTOf("manage_act_restore", "Restore")}</button>
                 </div>
                 {a.note && <div className="text-[11px] text-slate-400 mt-0.5">{a.note}</div>}
               </div>
@@ -9889,9 +9889,9 @@ function ManageActivities({ activities, addActivity, updateActivity, addTask, st
         </>
       )}
 
-      {!adding && <button onClick={() => setAdding(true)} className="w-full mt-3 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-2"><Plus size={16} /> Add an activity</button>}
+      {!adding && <button onClick={() => setAdding(true)} className="w-full mt-3 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-2"><Plus size={16} /> {i18nTOf("manage_act_add", "Add an activity")}</button>}
       {adding && <AddActivityForm onCancel={() => setAdding(false)} onAdd={(a, asTask) => { addActivity(a); if (asTask) addTask({ id: "t_" + Date.now(), title: a.name, category: a.pillar, activityType: a.name, activityId: a.id, required: false, starValue: a.starValue || 5, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 30 }); setAdding(false); }} />}
-      <div className="text-[11px] text-slate-400 px-1 mt-3">Edit, pause, archive, or add anything — hockey, rugby, whatever's next. Each activity carries its own color strip and can track a daily streak.</div>
+      <div className="text-[11px] text-slate-400 px-1 mt-3">{i18nTOf("manage_act_hint", "Edit, pause, archive, or add anything — hockey, rugby, whatever's next. Each activity carries its own color strip and can track a daily streak.")}</div>
     </>
   );
 }
@@ -10010,13 +10010,13 @@ function ManageTasks({ tasks, updateTask, removeTask, addTask, activities }) {
   return (
     <>
       <div className="flex gap-2 mb-2">
-        <button onClick={() => setPanel(panel === "chore" ? null : "chore")} className="flex-1 py-2.5 rounded-2xl bg-slate-700 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> Chore</button>
-        <button onClick={() => setPanel(panel === "task" ? null : "task")} className="flex-1 py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> Task</button>
+        <button onClick={() => setPanel(panel === "chore" ? null : "chore")} className="flex-1 py-2.5 rounded-2xl bg-slate-700 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> {i18nTOf("manage_tasks_chore_btn", "Chore")}</button>
+        <button onClick={() => setPanel(panel === "task" ? null : "task")} className="flex-1 py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> {i18nTOf("manage_tasks_task_btn", "Task")}</button>
       </div>
       {panel === "chore" && <AddChoreForm onAdd={(t) => { addTask(t); setPanel(null); }} onCancel={() => setPanel(null)} />}
       {panel === "task" && <AddTaskForm activities={activities} onAdd={(t) => { addTask(t); setPanel(null); }} onCancel={() => setPanel(null)} />}
       {tasks.map((t) => <TaskEditRow key={t.id} t={t} activities={activities} updateTask={updateTask} removeTask={removeTask} />)}
-      <div className="text-[11px] text-slate-400 px-1 mt-3">Add a chore (feed the dog), a one-off task (recital sheet music), pause anything, or remove it. Paused tasks drop off Reznor's board but keep their history.</div>
+      <div className="text-[11px] text-slate-400 px-1 mt-3">{i18nTOf("manage_tasks_hint", "Add a chore (feed the dog), a one-off task (recital sheet music), pause anything, or remove it. Paused tasks drop off the board but keep their history.")}</div>
     </>
   );
 }
@@ -10037,9 +10037,9 @@ function TaskEditRow({ t, activities, updateTask, removeTask }) {
         </div>
         <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: d.color + "22", color: d.color }}>{d.label}</span>
-          <button onClick={() => updateTask(t.id, { required: !t.required })} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${t.required ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-400"}`}>{t.required ? "Required" : "Optional"}</button>
-          <button onClick={() => updateTask(t.id, { proofRequired: !t.proofRequired, proofType: !t.proofRequired ? (t.proofType || "photo") : t.proofType })} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${t.proofRequired ? "bg-sky-100 text-sky-600" : "bg-slate-100 text-slate-400"}`}>{t.proofRequired ? "Needs photo" : "No proof"}</button>
-          <span className="text-[10px] text-slate-400">{t.mode === "both" ? "every day" : t.mode + " only"}{t.active === false ? " · paused" : ""}</span>
+          <button onClick={() => updateTask(t.id, { required: !t.required })} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${t.required ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-400"}`}>{t.required ? i18nTOf("manage_tasks_required", "Required") : i18nTOf("manage_tasks_optional", "Optional")}</button>
+          <button onClick={() => updateTask(t.id, { proofRequired: !t.proofRequired, proofType: !t.proofRequired ? (t.proofType || "photo") : t.proofType })} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${t.proofRequired ? "bg-sky-100 text-sky-600" : "bg-slate-100 text-slate-400"}`}>{t.proofRequired ? i18nTOf("manage_tasks_needs_photo", "Needs photo") : i18nTOf("manage_tasks_no_proof", "No proof")}</button>
+          <span className="text-[10px] text-slate-400">{t.mode === "both" ? i18nTOf("manage_tasks_every_day", "every day") : `${t.mode} ${i18nTOf("manage_tasks_only", "only")}`}{t.active === false ? ` · ${i18nTOf("manage_tasks_paused", "paused")}` : ""}</span>
         </div>
         {edit && (
           <>
@@ -10070,8 +10070,8 @@ function TaskEditRow({ t, activities, updateTask, removeTask }) {
               </div>
             </div>
             <div className="flex gap-2 mt-2">
-              <button onClick={() => updateTask(t.id, { active: t.active === false })} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">{t.active === false ? "Un-pause" : "Pause"}</button>
-              <button onClick={() => removeTask(t.id)} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center gap-1"><X size={14} /> Remove</button>
+              <button onClick={() => updateTask(t.id, { active: t.active === false })} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">{t.active === false ? i18nTOf("manage_act_un_pause", "Un-pause") : i18nTOf("manage_act_pause", "Pause")}</button>
+              <button onClick={() => removeTask(t.id)} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center gap-1"><X size={14} /> {i18nTOf("act_remove", "Remove")}</button>
             </div>
           </>
         )}
@@ -10113,8 +10113,8 @@ function AddTaskForm({ activities, onAdd, onCancel }) {
       <div className="flex flex-wrap gap-1.5 mb-2">{opts.map((a) => <button key={a.id} onClick={() => setActId(a.id)} className="text-[11px] font-semibold px-2.5 py-1 rounded-full" style={actId === a.id ? { background: a.color, color: "#fff" } : { background: "#f1f5f9", color: "#64748b" }}>{a.short || a.name}</button>)}</div>
       <div className="flex items-center gap-2 mb-2"><span className="text-xs text-slate-500">Stars</span>{[3, 5, 10, 15].map((n) => <button key={n} onClick={() => setStars(n)} className={`px-2.5 py-1 rounded-lg text-sm font-bold ${stars === n ? "bg-amber-400 text-white" : "bg-slate-100 text-slate-500"}`}>{n}</button>)}</div>
       <div className="flex flex-wrap gap-1.5 mb-2">
-        <button onClick={() => setRequired((v) => !v)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${required ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-400"}`}>{required ? "Required" : "Optional"}</button>
-        <button onClick={() => setProof((v) => !v)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${proof ? "bg-sky-100 text-sky-600" : "bg-slate-100 text-slate-400"}`}>{proof ? "Needs photo" : "No proof"}</button>
+        <button onClick={() => setRequired((v) => !v)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${required ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-400"}`}>{required ? i18nTOf("manage_tasks_required", "Required") : i18nTOf("manage_tasks_optional", "Optional")}</button>
+        <button onClick={() => setProof((v) => !v)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${proof ? "bg-sky-100 text-sky-600" : "bg-slate-100 text-slate-400"}`}>{proof ? i18nTOf("manage_tasks_needs_photo", "Needs photo") : i18nTOf("manage_tasks_no_proof", "No proof")}</button>
       </div>
       <div className="text-xs font-semibold text-slate-500 mb-1">When</div>
       <div className="flex gap-1.5 mb-3">{[["both", "Every day"], ["summer", "Summer only"], ["school", "School only"]].map(([k, l]) => <button key={k} onClick={() => setWhen(k)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${when === k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>)}</div>

@@ -141,6 +141,44 @@ const STRINGS = {
   more_languages:           { en: "Languages",                   es: "Idiomas" },
   more_languages_sub:       { en: "English / Spanish / Both — for the whole family", es: "Inglés / Español / Ambos — para toda la familia" },
 
+  // People page (Family & Helpers)
+  people_pending_requests:  { en: "Pending requests",                       es: "Solicitudes pendientes" },
+  people_deny_email:        { en: "Deny",                                   es: "Rechazar" },
+  people_remove_photo:      { en: "Remove photo",                           es: "Quitar foto" },
+  people_expired:           { en: "Expired",                                es: "Vencido" },
+  people_disabled:          { en: "Disabled",                               es: "Desactivado" },
+  people_active:            { en: "Active",                                 es: "Activo" },
+  people_can_approve_simple:{ en: "Can approve simple tasks",               es: "Puede aprobar tareas sencillas" },
+  people_lock_easy:         { en: "💛 Lock to Easy mode",                   es: "💛 Fijar en modo fácil" },
+  people_add_person:        { en: "Add a person",                           es: "Añadir una persona" },
+  people_access_ended:      { en: "access ended",                           es: "acceso terminado" },
+  people_guest_until:       { en: "guest until",                            es: "invitado hasta" },
+  people_ongoing_access:    { en: "ongoing access",                         es: "acceso permanente" },
+  people_temp_hint:         { en: "Temporary access auto-expires on its end date — a one-week sitter won't keep getting in.", es: "El acceso temporal vence en su fecha — la niñera de una semana no entra después." },
+
+  // Manage Activities + Manage Tasks
+  manage_activities_archive: { en: "Archive",                               es: "Archivo" },
+  manage_act_pause:          { en: "Pause",                                 es: "Pausar" },
+  manage_act_un_pause:       { en: "Un-pause",                              es: "Reanudar" },
+  manage_act_restore:        { en: "Restore",                               es: "Restaurar" },
+  manage_act_add:            { en: "Add an activity",                       es: "Añadir una actividad" },
+  manage_act_hint:           { en: "Edit, pause, archive, or add anything — hockey, rugby, whatever's next. Each activity carries its own color strip and can track a daily streak.", es: "Edita, pausa, archiva o añade cualquier cosa — hockey, rugby, lo que siga. Cada actividad lleva su tira de color y puede llevar una racha diaria." },
+  manage_tasks_required:     { en: "Required",                              es: "Obligatoria" },
+  manage_tasks_optional:     { en: "Optional",                              es: "Opcional" },
+  manage_tasks_needs_photo:  { en: "Needs photo",                           es: "Necesita foto" },
+  manage_tasks_no_proof:     { en: "No proof",                              es: "Sin prueba" },
+  manage_tasks_every_day:    { en: "every day",                             es: "todos los días" },
+  manage_tasks_only:         { en: "only",                                  es: "solo" },
+  manage_tasks_paused:       { en: "paused",                                es: "en pausa" },
+  manage_tasks_add:          { en: "Add a task",                            es: "Añadir una tarea" },
+  manage_tasks_chore_btn:    { en: "Chore",                                 es: "Trabajo" },
+  manage_tasks_task_btn:     { en: "Task",                                  es: "Tarea" },
+  manage_tasks_hint:         { en: "Add a chore (feed the dog), a one-off task (recital sheet music), pause anything, or remove it. Paused tasks drop off the board but keep their history.", es: "Añade un trabajo (darle de comer al perro), una tarea única (partitura del recital), pausa o quita lo que quieras. Las tareas en pausa salen del tablero pero conservan su historial." },
+
+  // Calendar
+  cal_upcoming_empty:        { en: "Nothing on the calendar yet.",          es: "Nada en el calendario todavía." },
+  cal_add_event_hint:        { en: "Add upcoming events — practices, classes, field trips, anything that affects today's plan.", es: "Añade eventos próximos — prácticas, clases, excursiones, cualquier cosa que afecte el plan de hoy." },
+
   // MoreMenu reorder UI
   more_header:              { en: "More",                           es: "Más" },
   more_edit_order:          { en: "Edit order",                     es: "Editar orden" },
