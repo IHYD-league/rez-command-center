@@ -28,6 +28,11 @@ export const toApp = {
   task: (r) => ({
     id: r.id,
     title: r.title,
+    // Per-task multilingual title overrides (Phase 2 of the
+    // multilingual roadmap). Empty {} on rows that pre-date the
+    // migration. i18n.taskTitle reads this first, then the static
+    // seeded map, then the raw title.
+    nameI18n: r.name_i18n ?? {},
     category: r.category,
     activityType: r.activity_type,
     activityId: r.activity_id,
@@ -259,6 +264,7 @@ export const toDb = {
     id: o.id,
     family_id: familyId,
     title: o.title,
+    name_i18n: o.nameI18n ?? {},
     category: o.category,
     activity_type: o.activityType,
     activity_id: o.activityId,

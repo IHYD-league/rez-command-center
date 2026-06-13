@@ -207,12 +207,22 @@ export function tt(key, langs, fallback) {
   return joinLangs(STRINGS[key], langs, fallback ?? key);
 }
 
-// Look up a seeded task's title.
+// Look up a task's title.
+// Resolution order:
+//   1. task.nameI18n  — per-task overrides set by a parent in
+//                       ManageTasks (Phase 2). Wins when present so
+//                       a custom task ("Tidy desk" / "Ordenar
+//                       escritorio") translates properly.
+//   2. TASK_TITLES    — Phase 1 static map keyed by seeded task id.
+//   3. task.title     — whatever the parent typed.
 export function taskTitle(task, langs) {
   if (!task) return "";
+  const override = task.nameI18n;
+  if (override && typeof override === "object" && Object.keys(override).length > 0) {
+    return joinLangs(override, langs, task.title || "");
+  }
   const map = TASK_TITLES[task.id];
   if (map) return joinLangs(map, langs, task.title || "");
-  // Untranslated custom task — show whatever the parent typed.
   return task.title || "";
 }
 
