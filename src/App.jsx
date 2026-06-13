@@ -7604,7 +7604,7 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
       const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
       updateBook(b.id, { customCoverPath: path });
     } catch (err) {
-      toast.error("Cover upload failed: " + (err.message || err));
+      toast.error(i18nTOf("br_cover_upload_fail", "Cover upload failed: {msg}").replace("{msg}", err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -7631,18 +7631,18 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
           <div className="flex items-center gap-1.5 flex-wrap mt-1">
             {b.level && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600">{b.level}</span>}
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">{b.lang}</span>
-            {b.status === "finished" && pace && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600">read in {pace}d</span>}
+            {b.status === "finished" && pace && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600">{i18nTOf("br_read_in_days", "read in {n}d").replace("{n}", pace)}</span>}
             {b.status === "finished" && b.rating > 0 && <span className="text-[10px]">{"⭐".repeat(b.rating)}</span>}
             {/* Honest pre-tracking badge — no date, just the era. */}
             {b.preTracking && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                Pre-tracking{b.eraLabel ? ` · ${b.eraLabel}` : ""}
+                {i18nTOf("br_pre_tracking", "Pre-tracking")}{b.eraLabel ? ` · ${b.eraLabel}` : ""}
               </span>
             )}
             {/* Re-read counter — only shows when > 1 to avoid clutter. */}
             {(b.readCount || 1) > 1 && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                Read {b.readCount}×
+                {i18nTOf("br_read_count", "Read {n}×").replace("{n}", b.readCount)}
               </span>
             )}
           </div>
@@ -7656,20 +7656,20 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
               accept="image/*"
               onChange={onUpload}
               className="hidden"
-              aria-label="Upload book cover"
+              aria-label={i18nTOf("br_upload_cover_aria", "Upload book cover")}
             />
             <button
               onClick={() => fileRef.current?.click()}
               disabled={uploading}
               className={`p-1 ${uploading ? "text-slate-300" : "text-slate-400 active:scale-90"}`}
-              aria-label={b.customCoverPath ? "Replace cover" : "Use my cover"}
-              title={uploading ? "Uploading…" : b.customCoverPath ? "Replace cover" : "Use my cover"}
+              aria-label={b.customCoverPath ? i18nTOf("br_replace_cover", "Replace cover") : i18nTOf("br_use_my_cover", "Use my cover")}
+              title={uploading ? i18nTOf("br_uploading", "Uploading…") : b.customCoverPath ? i18nTOf("br_replace_cover", "Replace cover") : i18nTOf("br_use_my_cover", "Use my cover")}
             >
               <Camera size={15} />
             </button>
           </>
         )}
-        <button onClick={() => setEdit((v) => !v)} className="p-1 text-slate-400" aria-label="Edit"><Pencil size={15} /></button>
+        <button onClick={() => setEdit((v) => !v)} className="p-1 text-slate-400" aria-label={i18nTOf("br_edit_aria", "Edit")}><Pencil size={15} /></button>
       </div>
       {edit && <BookEditPanel b={b} updateBook={updateBook} removeBook={removeBook} onClose={() => setEdit(false)} familyId={familyId} />}
     </Card>
@@ -7717,7 +7717,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
       const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
       updateBook(b.id, { customCoverPath: path });
     } catch (err) {
-      toast.error("Cover upload failed: " + (err.message || err));
+      toast.error(i18nTOf("br_cover_upload_fail", "Cover upload failed: {msg}").replace("{msg}", err.message || err));
     } finally {
       setUploading(false);
       if (coverFileRef.current) coverFileRef.current.value = "";
@@ -7776,7 +7776,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
   return (
     <div className={`mt-2 pt-2 border-t ${isBacklog ? "border-amber-200" : "border-slate-100"}`}>
       <div className={`text-[10px] uppercase tracking-wider font-bold mb-2 ${isBacklog ? "text-amber-700" : "text-slate-500"}`}>
-        Editing {isBacklog ? "backlog entry" : "book"}
+        {isBacklog ? i18nTOf("br_editing_backlog", "Editing backlog entry") : i18nTOf("br_editing_book", "Editing book")}
       </div>
 
       {/* Cover management — upload + revert apply IMMEDIATELY (writes to
@@ -7800,7 +7800,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
           )}
           <div className="flex-1 min-w-0">
             <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-              Cover {b.customCoverPath ? "· custom" : (b.coverUrl ? "· Open Library" : "· none")}
+              {i18nTOf("br_cover_label", "Cover")} {b.customCoverPath ? i18nTOf("br_cover_custom", "· custom") : (b.coverUrl ? i18nTOf("br_cover_ol", "· Open Library") : i18nTOf("br_cover_none", "· none"))}
             </div>
             <input
               ref={coverFileRef}
@@ -7808,7 +7808,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
               accept="image/*"
               onChange={onCoverUpload}
               className="hidden"
-              aria-label="Upload book cover"
+              aria-label={i18nTOf("br_upload_cover_aria", "Upload book cover")}
             />
             <div className="flex gap-1">
               <button
@@ -7819,16 +7819,16 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
                   uploading ? "bg-slate-200 text-slate-400" : "bg-white border border-slate-200 text-slate-600 active:scale-95"
                 }`}
               >
-                <Camera size={12} /> {uploading ? "Uploading…" : b.customCoverPath ? "Replace cover" : "Use my cover"}
+                <Camera size={12} /> {uploading ? i18nTOf("br_uploading", "Uploading…") : b.customCoverPath ? i18nTOf("br_replace_cover", "Replace cover") : i18nTOf("br_use_my_cover", "Use my cover")}
               </button>
               {b.customCoverPath && (
                 <button
                   type="button"
                   onClick={onClearCustomCover}
                   className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
-                  aria-label="Use the Open Library cover instead"
+                  aria-label={i18nTOf("br_use_ol_aria", "Use the Open Library cover instead")}
                 >
-                  Use OL cover
+                  {i18nTOf("br_use_ol_cover", "Use OL cover")}
                 </button>
               )}
             </div>
@@ -7839,19 +7839,19 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Book title"
+        placeholder={i18nTOf("br_book_title_ph", "Book title")}
         className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
       />
 
       <div className="flex gap-1.5 mb-2">
-        {["English", "Spanish"].map((l) => (
+        {[["English", i18nTOf("br_lang_english", "English")], ["Spanish", i18nTOf("br_lang_spanish", "Spanish")]].map(([key, label]) => (
           <button
-            key={l}
+            key={key}
             type="button"
-            onClick={() => setLang(l)}
-            className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === l ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}
+            onClick={() => setLang(key)}
+            className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === key ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}
           >
-            {l}
+            {label}
           </button>
         ))}
       </div>
@@ -7859,7 +7859,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
       <input
         value={level}
         onChange={(e) => setLevel(e.target.value)}
-        placeholder="Reading level (e.g. ~2nd grade)"
+        placeholder={i18nTOf("br_reading_level_ph", "Reading level (e.g. ~2nd grade)")}
         className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
       />
 
@@ -7869,29 +7869,34 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
           either field non-empty locks matchStatus to "confirmed" so
           auto-enrich won't overwrite. */}
       <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-        Canonical title & author <span className="text-slate-400 normal-case font-normal">(overrides Open Library)</span>
+        {i18nTOf("br_canonical_label", "Canonical title & author")} <span className="text-slate-400 normal-case font-normal">{i18nTOf("br_canonical_aside", "(overrides Open Library)")}</span>
       </div>
       <div className="grid grid-cols-2 gap-2 mb-2">
         <input
           value={canonicalTitle}
           onChange={(e) => setCanonicalTitle(e.target.value)}
-          placeholder="Canonical title"
+          placeholder={i18nTOf("br_canonical_title_ph", "Canonical title")}
           className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white"
-          aria-label="Canonical title"
+          aria-label={i18nTOf("br_canonical_title_aria", "Canonical title")}
         />
         <input
           value={canonicalAuthor}
           onChange={(e) => setCanonicalAuthor(e.target.value)}
-          placeholder="Author"
+          placeholder={i18nTOf("br_canonical_author_ph", "Author")}
           className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white"
-          aria-label="Canonical author"
+          aria-label={i18nTOf("br_canonical_author_aria", "Canonical author")}
         />
       </div>
 
       {/* Status pill row */}
-      <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Status</label>
+      <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">{i18nTOf("br_status_label", "Status")}</label>
       <div className="flex flex-wrap gap-1.5 mb-2">
-        {["reading", "finished", "wishlist", "dropped"].map((s) => (
+        {[
+          ["reading",  i18nTOf("br_status_reading", "reading")],
+          ["finished", i18nTOf("br_status_finished", "finished")],
+          ["wishlist", i18nTOf("br_status_wishlist", "wishlist")],
+          ["dropped",  i18nTOf("br_status_dropped", "dropped")],
+        ].map(([s, label]) => (
           <button
             key={s}
             type="button"
@@ -7905,7 +7910,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
                 : "bg-slate-100 text-slate-500"
             }`}
           >
-            {s}
+            {label}
           </button>
         ))}
       </div>
@@ -7914,7 +7919,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
       {!isBacklog && (
         <div className="grid grid-cols-2 gap-2 mb-2">
           <label className="block">
-            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block mb-1">Started</span>
+            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block mb-1">{i18nTOf("br_started_label", "Started")}</span>
             <input
               type="date"
               value={started}
@@ -7924,7 +7929,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
             />
           </label>
           <label className={`block ${status === "finished" ? "" : "opacity-50"}`}>
-            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block mb-1">Finished</span>
+            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block mb-1">{i18nTOf("br_finished_label", "Finished")}</span>
             <input
               type="date"
               value={finished}
@@ -7940,24 +7945,31 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
       {/* Backlog rows: era pill picker + custom */}
       {isBacklog && (
         <>
-          <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Era</label>
+          <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">{i18nTOf("br_era_label", "Era")}</label>
           <div className="flex flex-wrap gap-1.5 mb-2">
-            {[...ERA_PRESETS, "Custom"].map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setEraChoice(p)}
-                className={`text-[11px] font-semibold px-3 py-1 rounded-full ${eraChoice === p ? "bg-amber-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
-              >
-                {p}
-              </button>
-            ))}
+            {[...ERA_PRESETS, "Custom"].map((p) => {
+              const label =
+                p === "Kindergarten 2026" ? i18nTOf("br_era_kinder", "Kindergarten 2026")
+                : p === "Before May 2026" ? i18nTOf("br_era_before_may", "Before May 2026")
+                : p === "Custom" ? i18nTOf("br_era_custom", "Custom")
+                : p;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setEraChoice(p)}
+                  className={`text-[11px] font-semibold px-3 py-1 rounded-full ${eraChoice === p ? "bg-amber-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
           {eraChoice === "Custom" && (
             <input
               value={eraCustom}
               onChange={(e) => setEraCustom(e.target.value)}
-              placeholder='Custom era (e.g. "Summer 2025")'
+              placeholder={i18nTOf("br_era_custom_ph", "Custom era (e.g. \"Summer 2025\")")}
               className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
             />
           )}
@@ -7966,14 +7978,14 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
 
       {/* Rating only meaningful when finished, but editable anytime */}
       <div className="flex items-center gap-1 mb-2">
-        <span className="text-[11px] text-slate-500 mr-1">Rating</span>
+        <span className="text-[11px] text-slate-500 mr-1">{i18nTOf("br_rating_label", "Rating")}</span>
         {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
             type="button"
             onClick={() => setRating(rating === n ? 0 : n)}
             className="text-sm"
-            aria-label={`Rate ${n} stars`}
+            aria-label={i18nTOf("br_rate_n_stars", "Rate {n} stars").replace("{n}", n)}
           >
             {n <= rating ? "⭐" : "☆"}
           </button>
@@ -7983,7 +7995,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="Notes (optional)"
+        placeholder={i18nTOf("br_notes_optional_ph", "Notes (optional)")}
         rows={2}
         className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-3 bg-white resize-y"
       />
@@ -7994,7 +8006,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
           onClick={onClose}
           className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-500 font-bold text-sm"
         >
-          Cancel
+          {i18nTOf("br_cancel", "Cancel")}
         </button>
         <button
           type="button"
@@ -8002,7 +8014,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
           onClick={onSave}
           className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${canSave ? (isBacklog ? "bg-amber-600" : "bg-indigo-600") : "bg-slate-200 text-slate-400"}`}
         >
-          Save changes
+          {i18nTOf("br_save_changes", "Save changes")}
         </button>
       </div>
 
@@ -8011,13 +8023,12 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
         onClick={() => removeBook(b.id)}
         className="w-full py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center gap-1"
       >
-        <X size={13} /> Remove this book
+        <X size={13} /> {i18nTOf("br_remove_book", "Remove this book")}
       </button>
 
       {/* Honest note about re-classifying */}
       <div className="text-[10px] text-slate-400 mt-2 leading-snug">
-        To convert this book between tracked ↔ backlog, remove and re-add via
-        the matching button on the Reading Library header.
+        {i18nTOf("br_reclassify_hint", "To convert this book between tracked ↔ backlog, remove and re-add via the matching button on the Reading Library header.")}
       </div>
     </div>
   );
@@ -8030,13 +8041,13 @@ function AddBookForm({ onAdd, onCancel }) {
   const [started, setStarted] = useState(TODAY_ISO);
   return (
     <Card className="p-4 mb-3">
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Book title" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
-      <div className="flex gap-1.5 mb-2">{["English", "Spanish"].map((l) => <button key={l} onClick={() => setLang(l)} className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === l ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>)}</div>
-      <input value={level} onChange={(e) => setLevel(e.target.value)} placeholder="Reading level (e.g. ~2nd grade)" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
-      <label className="text-[11px] font-semibold text-slate-500 block mb-2">Started<input type="date" value={started} onChange={(e) => setStarted(e.target.value)} className="w-full mt-0.5 border border-slate-200 rounded-xl px-3 py-2 text-sm" /></label>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={i18nTOf("br_book_title_ph", "Book title")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
+      <div className="flex gap-1.5 mb-2">{[["English", i18nTOf("br_lang_english", "English")], ["Spanish", i18nTOf("br_lang_spanish", "Spanish")]].map(([key, label]) => <button key={key} onClick={() => setLang(key)} className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === key ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{label}</button>)}</div>
+      <input value={level} onChange={(e) => setLevel(e.target.value)} placeholder={i18nTOf("br_reading_level_ph", "Reading level (e.g. ~2nd grade)")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
+      <label className="text-[11px] font-semibold text-slate-500 block mb-2">{i18nTOf("br_started_label", "Started")}<input type="date" value={started} onChange={(e) => setStarted(e.target.value)} className="w-full mt-0.5 border border-slate-200 rounded-xl px-3 py-2 text-sm" /></label>
       <div className="flex gap-2">
-        <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">Cancel</button>
-        <button disabled={!title.trim()} onClick={() => onAdd({ id: "b_" + Date.now(), title: title.trim(), lang, status: "reading", started, finished: "", level: level.trim(), rating: 0, notes: "" })} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${title.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Add book</button>
+        <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">{i18nTOf("br_cancel", "Cancel")}</button>
+        <button disabled={!title.trim()} onClick={() => onAdd({ id: "b_" + Date.now(), title: title.trim(), lang, status: "reading", started, finished: "", level: level.trim(), rating: 0, notes: "" })} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${title.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>{i18nTOf("br_add_book", "Add book")}</button>
       </div>
     </Card>
   );
@@ -8060,40 +8071,47 @@ function AddBacklogBookForm({ onAdd, onCancel }) {
   return (
     <Card className="p-4 mb-3 border-2 border-amber-200 bg-amber-50/40">
       <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-amber-700 mb-2">
-        <Archive size={13} /> Backlog entry · no real date needed
+        <Archive size={13} /> {i18nTOf("br_backlog_kicker", "Backlog entry · no real date needed")}
       </div>
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Book title" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white" />
-      <div className="flex gap-1.5 mb-2">{["English", "Spanish"].map((l) => <button key={l} onClick={() => setLang(l)} className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === l ? "bg-amber-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>{l}</button>)}</div>
-      <input value={level} onChange={(e) => setLevel(e.target.value)} placeholder="Reading level (optional)" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white" />
-      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Era</label>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={i18nTOf("br_book_title_ph", "Book title")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white" />
+      <div className="flex gap-1.5 mb-2">{[["English", i18nTOf("br_lang_english", "English")], ["Spanish", i18nTOf("br_lang_spanish", "Spanish")]].map(([key, label]) => <button key={key} onClick={() => setLang(key)} className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === key ? "bg-amber-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>{label}</button>)}</div>
+      <input value={level} onChange={(e) => setLevel(e.target.value)} placeholder={i18nTOf("br_reading_level_opt_ph", "Reading level (optional)")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white" />
+      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">{i18nTOf("br_era_label", "Era")}</label>
       <div className="flex flex-wrap gap-1.5 mb-2">
-        {[...ERA_PRESETS, "Custom"].map((p) => (
-          <button
-            key={p}
-            type="button"
-            onClick={() => setEraChoice(p)}
-            className={`text-[11px] font-semibold px-3 py-1 rounded-full ${eraChoice === p ? "bg-amber-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
-          >
-            {p}
-          </button>
-        ))}
+        {[...ERA_PRESETS, "Custom"].map((p) => {
+          const label =
+            p === "Kindergarten 2026" ? i18nTOf("br_era_kinder", "Kindergarten 2026")
+            : p === "Before May 2026" ? i18nTOf("br_era_before_may", "Before May 2026")
+            : p === "Custom" ? i18nTOf("br_era_custom", "Custom")
+            : p;
+          return (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setEraChoice(p)}
+              className={`text-[11px] font-semibold px-3 py-1 rounded-full ${eraChoice === p ? "bg-amber-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
       {eraChoice === "Custom" && (
         <input
           value={eraCustom}
           onChange={(e) => setEraCustom(e.target.value)}
-          placeholder='Custom era (e.g. "Summer 2025")'
+          placeholder={i18nTOf("br_era_custom_ph", "Custom era (e.g. \"Summer 2025\")")}
           className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
         />
       )}
       <input
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="Notes (optional)"
+        placeholder={i18nTOf("br_notes_optional_ph", "Notes (optional)")}
         className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-3 bg-white"
       />
       <div className="flex gap-2">
-        <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-500 font-bold text-sm">Cancel</button>
+        <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-500 font-bold text-sm">{i18nTOf("br_cancel", "Cancel")}</button>
         <button
           disabled={!canSave}
           onClick={() =>
@@ -8113,7 +8131,7 @@ function AddBacklogBookForm({ onAdd, onCancel }) {
           }
           className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${canSave ? "bg-amber-600" : "bg-slate-200 text-slate-400"}`}
         >
-          Add to backlog
+          {i18nTOf("br_add_to_backlog", "Add to backlog")}
         </button>
       </div>
     </Card>
