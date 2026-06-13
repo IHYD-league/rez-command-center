@@ -5481,25 +5481,30 @@ function RewardsKid({ rewards, starBank, requestReward, redemptions }) {
       <div className="rounded-3xl p-5 text-white text-center" style={{ background: "linear-gradient(135deg,#8b5cf6,#6366f1)" }}>
         <Gift size={28} className="mx-auto" />
         <div className="text-3xl font-extrabold mt-1">{starBank} ⭐</div>
-        <div className="text-sm opacity-90">in your star bank</div>
+        <div className="text-sm opacity-90">{i18nTOf("rk_bank_subtitle", "in your star bank")}</div>
       </div>
       <SectionTitle icon={<Trophy size={16} className="text-amber-500" />}>{i18nTOf("sec_rewards_to_work", "Rewards to work toward")}</SectionTitle>
       {sorted.map((r) => {
         const afford = starBank >= r.starCost;
         const remaining = r.starCost - starBank;
         const reqd = redemptions.find((x) => x.rewardId === r.id);
+        const statusLabel = reqd?.status === "requested" ? i18nTOf("rk_asked", "Asked!")
+          : reqd?.status === "approved" ? i18nTOf("rk_status_approved", "approved")
+          : reqd?.status === "denied" ? i18nTOf("rk_status_denied", "denied")
+          : reqd?.status === "declined" ? i18nTOf("rk_status_declined", "declined")
+          : (reqd?.status || "");
         return (
           <Card key={r.id} className="p-4 mb-2.5 flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-violet-100 grid place-items-center text-xl">🎁</div>
             <div className="flex-1">
               <div className="font-bold text-sm">{r.title}</div>
-              <div className="text-[11px] text-slate-400">{afford ? "You can get this! 🎉" : `${remaining} more ⭐ to go`}</div>
+              <div className="text-[11px] text-slate-400">{afford ? i18nTOf("rk_can_get", "You can get this! 🎉") : i18nTOf("rk_more_to_go", "{n} more ⭐ to go").replace("{n}", remaining)}</div>
               {!afford && <div className="mt-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-violet-400" style={{ width: `${Math.min(100, (starBank / r.starCost) * 100)}%` }} /></div>}
             </div>
             <div className="text-right">
               <StarPill n={r.starCost} tone={afford ? "emerald" : "slate"} />
-              {afford && !reqd && <button onClick={() => requestReward(r)} className="block mt-1 text-[11px] font-bold text-violet-600">Ask →</button>}
-              {reqd && <div className="text-[10px] mt-1 font-semibold text-amber-600">{reqd.status === "requested" ? "Asked!" : reqd.status}</div>}
+              {afford && !reqd && <button onClick={() => requestReward(r)} className="block mt-1 text-[11px] font-bold text-violet-600">{i18nTOf("rk_ask", "Ask →")}</button>}
+              {reqd && <div className="text-[10px] mt-1 font-semibold text-amber-600">{statusLabel}</div>}
             </div>
           </Card>
         );
@@ -5564,7 +5569,7 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
           );
         })}
       </div>
-      <p className="text-[11px] text-slate-400 px-1 mt-2">Win badges every single day — even before the big rewards. 🎉</p>
+      <p className="text-[11px] text-slate-400 px-1 mt-2">{i18nTOf("ks_trophy_footer", "Win badges every single day — even before the big rewards. 🎉")}</p>
 
       <SectionTitle icon={<Award size={16} className="text-emerald-500" />}>{i18nTOf("sec_stars_earned", "Stars I've earned")}</SectionTitle>
       {approved.length === 0 && (gifted?.length || 0) === 0 && (
@@ -5598,7 +5603,7 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
             <div key={iso || "no-date"}>
               <div className="flex items-baseline justify-between px-1 mt-3 mb-1.5">
                 <div className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-700">
-                  {iso ? fmtBilingualDay(iso) : "Undated / Sin fecha"}
+                  {iso ? fmtBilingualDay(iso) : i18nTOf("ks_undated", "Undated")}
                 </div>
                 <div className="text-[11px] font-extrabold text-emerald-700 tabular-nums">+{dayTotal}⭐</div>
               </div>
@@ -5618,10 +5623,10 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
                       <div className="flex-1 text-sm font-semibold flex flex-col">
                         <span className="flex items-center gap-1">
                           <Sparkles size={11} className="text-amber-500 shrink-0" />
-                          {g.label || "Bonus"}
+                          {g.label || i18nTOf("ks_bonus_fallback", "Bonus")}
                         </span>
                         <span className="text-[11px] text-slate-400 font-normal">
-                          bonus{gTask?.title ? ` · ${gTask.title}` : ""}
+                          {i18nTOf("ks_bonus_prefix", "bonus")}{gTask ? ` · ${i18nTitleOf(gTask)}` : ""}
                         </span>
                       </div>
                       <StarPill n={g.stars} tone="emerald" />
@@ -5699,14 +5704,14 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
     if (!g.last || (p.playedOn || "") > g.last) g.last = p.playedOn;
   });
   const ranked = Object.entries(grouped)
-    .map(([songId, g]) => ({ song: byId[songId] || { id: songId, title: "(missing)" }, ...g }))
+    .map(([songId, g]) => ({ song: byId[songId] || { id: songId, title: i18nTOf("mps_missing_song", "(missing)") }, ...g }))
     .sort((a, b) => (b.count - a.count) || ((b.last || "").localeCompare(a.last || "")))
     .slice(0, 10);
   if (ranked.length === 0) {
     return (
       <>
         <SectionTitle icon={<Music size={16} className="text-violet-500" />}>{i18nTOf("sec_most_played", "Most played songs")}</SectionTitle>
-        <Card className="p-3 text-center text-xs text-slate-400">No songs logged yet. Tap drums → log one!</Card>
+        <Card className="p-3 text-center text-xs text-slate-400">{i18nTOf("mps_no_songs", "No songs logged yet. Tap drums → log one!")}</Card>
       </>
     );
   }
@@ -5722,12 +5727,12 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
       >
         <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
           <Music size={16} className="text-violet-500" />
-          Most played songs
-          <span className="text-[11px] font-normal text-slate-400">· top {ranked.length}</span>
+          {i18nTOf("mps_section", "Most played songs")}
+          <span className="text-[11px] font-normal text-slate-400">· {i18nTOf("mps_top_n", "top {n}").replace("{n}", ranked.length)}</span>
         </div>
         <div className="flex items-center gap-1.5 text-slate-400">
           <span className="text-[11px] font-bold text-violet-600 bg-violet-50 rounded-full px-2 py-0.5">
-            {totalPlays} {totalPlays === 1 ? "play" : "plays"}
+            {totalPlays} {totalPlays === 1 ? i18nTOf("mps_plays_one", "play") : i18nTOf("mps_plays_many", "plays")}
           </span>
           <ChevronLeft size={14} className={`transition-transform ${collapsed ? "-rotate-90" : "rotate-90"}`} />
         </div>
@@ -5747,7 +5752,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
                   <div className="font-bold text-sm text-slate-800 truncate">{song.title}</div>
                   {(song.artist || last) && (
                     <div className="text-[11px] text-slate-400 truncate">
-                      {song.artist || ""}{song.artist && last ? " · " : ""}{last ? `last: ${fmtShort(last)}` : ""}
+                      {song.artist || ""}{song.artist && last ? " · " : ""}{last ? i18nTOf("mps_last", "last: {date}").replace("{date}", fmtShort(last)) : ""}
                     </div>
                   )}
                 </div>
@@ -5757,7 +5762,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
               </button>
               {open && (
                 <div className="border-t border-slate-100 px-3 py-2 bg-slate-50">
-                  <div className="text-[11px] font-bold text-slate-500 mb-1">Play history</div>
+                  <div className="text-[11px] font-bold text-slate-500 mb-1">{i18nTOf("mps_play_history", "Play history")}</div>
                   <div className="space-y-1">
                     {plays
                       .slice()
@@ -5780,7 +5785,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
                                 type="text"
                                 value={draft.notes}
                                 onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
-                                placeholder="Notes (optional)…"
+                                placeholder={i18nTOf("mps_notes_ph", "Notes (optional)…")}
                                 className="text-[11px] border border-slate-200 rounded px-1.5 py-1 w-full mb-1.5"
                               />
                               <div className="flex gap-1">
@@ -5797,14 +5802,14 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
                                   }}
                                   className="flex-1 text-[10px] font-bold bg-indigo-600 text-white rounded py-1 active:scale-95"
                                 >
-                                  {isKid ? "Ask parent" : "Save"}
+                                  {isKid ? i18nTOf("mps_ask_parent", "Ask parent") : i18nTOf("mps_save", "Save")}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setEditingPlayId(null)}
                                   className="flex-1 text-[10px] font-bold bg-slate-200 text-slate-700 rounded py-1 active:scale-95"
                                 >
-                                  Cancel
+                                  {i18nTOf("mps_cancel", "Cancel")}
                                 </button>
                               </div>
                             </div>
@@ -5817,7 +5822,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
                             <div className="flex items-center gap-1 shrink-0">
                               {pendingReq ? (
                                 <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5">
-                                  ⏳ {pendingReq.kind === "remove" ? "remove" : "edit"} pending
+                                  {pendingReq.kind === "remove" ? i18nTOf("mps_pending_remove", "⏳ remove pending") : i18nTOf("mps_pending_edit", "⏳ edit pending")}
                                 </span>
                               ) : (
                                 <>
@@ -5829,7 +5834,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
                                         setDraft({ playedOn: p.playedOn || TODAY_ISO, notes: p.notes || "" });
                                       }}
                                       className="text-slate-300 hover:text-indigo-500"
-                                      title="Edit this play"
+                                      title={i18nTOf("mps_edit_play", "Edit this play")}
                                     >
                                       <Pencil size={11} />
                                     </button>
@@ -5838,20 +5843,25 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        const songTitle = song.canonicalTitle || song.title || "this song";
-                                        const when = p.playedOn ? fmtShort(p.playedOn) : "an unknown date";
+                                        const songTitle = song.canonicalTitle || song.title || i18nTOf("mps_this_song", "this song");
+                                        const when = p.playedOn ? fmtShort(p.playedOn) : i18nTOf("mps_unknown_date", "an unknown date");
+                                        const notesPart = p.notes ? `\n${p.notes}` : "";
+                                        const askMsg = i18nTOf("mps_confirm_ask", "Ask a parent to remove this play?\n\n\"{song}\" — {when}{notes}\n\nIt'll show up in the parent's Approval queue. The play count won't change until they approve.")
+                                          .replace("{song}", songTitle).replace("{when}", when).replace("{notes}", notesPart);
+                                        const removeMsg = i18nTOf("mps_confirm_remove", "Remove this play?\n\n\"{song}\" — {when}{notes}\n\nThe play count drops by 1 and this can't be undone.")
+                                          .replace("{song}", songTitle).replace("{when}", when).replace("{notes}", notesPart);
                                         if (isKid) {
-                                          if (window.confirm(`Ask a parent to remove this play?\n\n"${songTitle}" — ${when}${p.notes ? `\n${p.notes}` : ""}\n\nIt'll show up in the parent's Approval queue. The play count won't change until they approve.`)) {
+                                          if (window.confirm(askMsg)) {
                                             requestSongPlayChange(p.id, "remove", null);
                                           }
                                         } else {
-                                          if (window.confirm(`Remove this play?\n\n"${songTitle}" — ${when}${p.notes ? `\n${p.notes}` : ""}\n\nThe play count drops by 1 and this can't be undone.`)) {
+                                          if (window.confirm(removeMsg)) {
                                             removeSongPlay(p.id);
                                           }
                                         }
                                       }}
                                       className="text-slate-300 hover:text-rose-500"
-                                      title={isKid ? "Ask parent to remove this play" : "Remove this play"}
+                                      title={isKid ? i18nTOf("mps_ask_remove", "Ask parent to remove this play") : i18nTOf("mps_remove_play", "Remove this play")}
                                     >
                                       <X size={12} />
                                     </button>
