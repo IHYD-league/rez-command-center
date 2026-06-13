@@ -299,10 +299,41 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
         if (dErr) { console.error(`${def.table} delete:`, dErr.message); pushSyncError(def.table, "delete", dErr.message); }
 
         if (rows.length) {
+          // Resilience: batch upsert first (fast path); on failure
+          // (single bad row violates a constraint), retry per row so
+          // the good rows still land. Mike's reward_requests denied/
+          // declined incident took out every subsequent write — never
+          // again. Each failed row gets its own banner entry with the
+          // row id so the parent can identify and fix the source.
           const { error: uErr } = await supabase
             .from(def.table)
             .upsert(rows, { onConflict: def.key });
-          if (uErr) { console.error(`${def.table} upsert:`, uErr.message); pushSyncError(def.table, "upsert", uErr.message); }
+          if (uErr) {
+            console.warn(`${def.table} batch upsert failed (${uErr.message}); retrying per row…`);
+            let recovered = 0;
+            const failed = [];
+            for (const row of rows) {
+              const { error: rowErr } = await supabase
+                .from(def.table)
+                .upsert([row], { onConflict: def.key });
+              if (rowErr) {
+                failed.push({ id: row[def.key], message: rowErr.message });
+              } else {
+                recovered++;
+              }
+            }
+            if (failed.length === 0) {
+              console.info(`${def.table}: batch failed but all ${recovered} rows recovered individually.`);
+            } else {
+              for (const f of failed) {
+                console.error(`${def.table} row ${f.id} upsert:`, f.message);
+                pushSyncError(def.table, `upsert (row ${f.id})`, f.message);
+              }
+              if (recovered > 0) {
+                console.info(`${def.table}: ${recovered} good rows saved; ${failed.length} row(s) blocked — see banner.`);
+              }
+            }
+          }
         }
       } catch (e) {
         const msg = e.message || String(e);

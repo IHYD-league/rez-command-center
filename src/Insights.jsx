@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { Drum, Music, BookOpen, Image as ImageIcon, Heart, TrendingUp, Sparkles, Check, X, RotateCcw, Camera, Save } from "lucide-react";
 import { searchOpenLibrary, pickFirstMatch as pickBookMatch } from "./lib/enrichBook.js";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
+import { toast } from "./lib/toast.js";
 import { buildAlbumCoverMap, resolveSongCover } from "./lib/albumCover.js";
 import { EnrichedSongRow, SongMatchPicker } from "./SongRow.jsx";
 
@@ -202,7 +203,7 @@ function EnrichedBookRow({ b, updateBook, familyId }) {
       const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
       updateBook(b.id, { customCoverPath: path });
     } catch (err) {
-      alert("Cover upload failed: " + (err.message || err));
+      toast.error("Cover upload failed: " + (err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
