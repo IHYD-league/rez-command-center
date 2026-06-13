@@ -282,10 +282,14 @@ grant execute on function public.deny_registration(uuid) to authenticated;
 -- 2. Data tables (one per entity the user listed)
 -- =============================================================
 
+-- name_i18n carries per-task title overrides keyed by lang code
+-- (added 2026-06-13). Phase 1 used a static map keyed by seeded
+-- task id; this column lets a parent translate any custom task too.
 create table if not exists public.tasks (
   id text primary key,
   family_id uuid not null references public.families(id) on delete cascade,
   title text not null,
+  name_i18n jsonb not null default '{}'::jsonb,
   category text,
   activity_type text,
   activity_id text,

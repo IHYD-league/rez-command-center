@@ -2245,7 +2245,7 @@ function SummerQuestRoute(props) {
   }
   return (
     <SummerQuest
-      child={kid.name || "Reznor"}
+      child={kid.name || "your kid"}
       initialMode={mode}
       initialDone={done}
       onSave={save}
@@ -2276,7 +2276,7 @@ function CoachModeRoute(props) {
   }
   return (
     <ParentCompanion
-      child={kid.name || "Reznor"}
+      child={kid.name || "your kid"}
       mode={mode}
       done={done}
       onSave={save}
@@ -6511,7 +6511,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                     />
                     {alreadyFinished
                       ? "✓ Already finished"
-                      : "Reznor finished this book today 📚"}
+                      : `${kidName(users)} finished this book today 📚`}
                   </label>
                 );
               })()}
@@ -9029,7 +9029,7 @@ function MoreParent(props) {
     { k: "slideshow", icon: <Play size={18} />, label: "Milestone Slideshows", sub: "Monthly · 6-month · 1-year recaps" },
     { k: "audit", icon: <AlertCircle size={18} />, label: "Data audit", sub: "Check the math · find drift · spot orphans" },
     { k: "privacy", icon: <Lock size={18} />, label: "Privacy & Safety", sub: "Family isolation · what's stored · own your data" },
-    { k: "languages", icon: <GraduationCap size={18} />, label: "Languages", sub: "English / Spanish / Both — for Reznor + you" },
+    { k: "languages", icon: <GraduationCap size={18} />, label: "Languages", sub: "English / Spanish / Both — for the whole family" },
   ];
   // Apply per-parent saved order. Items not in the saved list slot in
   // at the end so a new menu entry shows up automatically. The setting
@@ -9260,7 +9260,7 @@ function BoardThemePicker({ boardTheme, setBoardTheme, users, setCurrentUserId, 
       toast.error("Couldn't find the kid's profile.");
       return;
     }
-    const ok = window.confirm("Go to Reznor's game board?");
+    const ok = window.confirm(`Go to ${kid.name || "the kid"}'s game board?`);
     if (!ok) return;
     setCurrentUserId?.(kid.id);
     setTab?.("board");
@@ -9318,7 +9318,7 @@ function BoardThemePicker({ boardTheme, setBoardTheme, users, setCurrentUserId, 
                 <div>
                   <div className="font-bold text-sm text-slate-800">{t.name}</div>
                   <div className="text-[11px] text-slate-400">
-                    {isActive ? "Tap again → Reznor's board" : "Tap to switch"}
+                    {isActive ? `Tap again → ${kid?.name || "the kid"}'s board` : "Tap to switch"}
                   </div>
                 </div>
                 {isActive && (
@@ -10033,10 +10033,38 @@ function TaskEditRow({ t, activities, updateTask, removeTask }) {
           <span className="text-[10px] text-slate-400">{t.mode === "both" ? "every day" : t.mode + " only"}{t.active === false ? " · paused" : ""}</span>
         </div>
         {edit && (
-          <div className="flex gap-2 mt-2">
-            <button onClick={() => updateTask(t.id, { active: t.active === false })} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">{t.active === false ? "Un-pause" : "Pause"}</button>
-            <button onClick={() => removeTask(t.id)} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center gap-1"><X size={14} /> Remove</button>
-          </div>
+          <>
+            {/* Per-task Spanish title override — Phase 2 multilingual.
+                Lets a parent translate custom tasks ("Tidy desk" →
+                "Ordenar el escritorio") so they read correctly in
+                Spanish-only / Both modes. Seeded tasks already
+                translate via the Phase 1 static map; this input wins
+                when a value is present. */}
+            <div className="mt-2 bg-slate-50 rounded-xl p-2.5">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1.5">
+                Spanish name <span className="font-normal text-slate-400 normal-case">(optional)</span>
+              </div>
+              <input
+                value={(t.nameI18n && t.nameI18n.es) || ""}
+                onChange={(e) => {
+                  const next = { ...(t.nameI18n || {}) };
+                  const v = e.target.value;
+                  if (v && v.trim()) next.es = v;
+                  else delete next.es;
+                  updateTask(t.id, { nameI18n: next });
+                }}
+                placeholder="e.g. Ordenar el escritorio"
+                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm bg-white"
+              />
+              <div className="text-[10px] text-slate-400 mt-1">
+                Shows in Spanish / Both mode. Leave blank to keep English everywhere.
+              </div>
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => updateTask(t.id, { active: t.active === false })} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">{t.active === false ? "Un-pause" : "Pause"}</button>
+              <button onClick={() => removeTask(t.id)} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center gap-1"><X size={14} /> Remove</button>
+            </div>
+          </>
         )}
       </div>
     </div>
