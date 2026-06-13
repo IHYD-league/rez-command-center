@@ -52,6 +52,10 @@ export const toApp = {
     // TaskSheet's iteration-2 reader will use this when present and
     // fall back to the proofType branches otherwise.
     statSchema: r.stat_schema ?? {},
+    // any_day: when true, the today filter ignores mode + days and
+    // the task is available every day. Default false. Used by the
+    // "Available any day" toggle in TaskEditRow.
+    anyDay: r.any_day ?? false,
   }),
 
   reward: (r) => ({
@@ -290,6 +294,7 @@ export const toDb = {
     // even when empty so the column normalizer doesn't blank out
     // existing rows in the same batch.
     stat_schema: o.statSchema ?? {},
+    any_day: o.anyDay ?? false,
   }),
 
   reward: (familyId) => (o) => ({
