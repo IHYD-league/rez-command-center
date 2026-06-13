@@ -820,6 +820,10 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       if (naSet.has(t.id)) return false;
       // Pinned bypass: calendar / board-game additions always show.
       if (pinnedToday.has(t.id)) return true;
+      // any_day bypass: flexible-schedule activities (Taekwondo
+      // practice, makeup piano) appear every day even if mode/days
+      // would otherwise filter them out.
+      if (t.anyDay) return true;
       // Otherwise apply the standard schedule filter.
       return (t.mode === "both" || t.mode === mode)
         && (!t.days || t.days.includes(WEEKDAY));
@@ -838,6 +842,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       if (!naIds.has(t.id)) return false;
       if (t.active === false) return false;
       if (pinnedToday.has(t.id)) return true;
+      if (t.anyDay) return true;
       return (t.mode === "both" || t.mode === mode)
         && (!t.days || t.days.includes(WEEKDAY));
     });
@@ -10928,7 +10933,17 @@ function TaskEditRow({ t, activities, updateTask, removeTask }) {
           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: d.color + "22", color: d.color }}>{d.label}</span>
           <button onClick={() => updateTask(t.id, { required: !t.required })} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${t.required ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-400"}`}>{t.required ? i18nTOf("manage_tasks_required", "Required") : i18nTOf("manage_tasks_optional", "Optional")}</button>
           <button onClick={() => updateTask(t.id, { proofRequired: !t.proofRequired, proofType: !t.proofRequired ? (t.proofType || "photo") : t.proofType })} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${t.proofRequired ? "bg-sky-100 text-sky-600" : "bg-slate-100 text-slate-400"}`}>{t.proofRequired ? i18nTOf("manage_tasks_needs_photo", "Needs photo") : i18nTOf("manage_tasks_no_proof", "No proof")}</button>
-          <span className="text-[10px] text-slate-400">{t.mode === "both" ? i18nTOf("manage_tasks_every_day", "every day") : `${t.mode} ${i18nTOf("manage_tasks_only", "only")}`}{t.active === false ? ` · ${i18nTOf("manage_tasks_paused", "paused")}` : ""}</span>
+          <button
+            onClick={() => updateTask(t.id, { anyDay: !t.anyDay })}
+            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${t.anyDay ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-400"}`}
+            title={t.anyDay
+              ? "Available every day — ignores the mode/days schedule"
+              : "Tap to make this available every day"
+            }
+          >
+            {t.anyDay ? "🗓️ Any day" : "Fixed days"}
+          </button>
+          <span className="text-[10px] text-slate-400">{t.anyDay ? "any day" : (t.mode === "both" ? i18nTOf("manage_tasks_every_day", "every day") : `${t.mode} ${i18nTOf("manage_tasks_only", "only")}`)}{t.active === false ? ` · ${i18nTOf("manage_tasks_paused", "paused")}` : ""}</span>
         </div>
         {edit && (
           <>
