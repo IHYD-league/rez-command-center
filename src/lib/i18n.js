@@ -141,6 +141,36 @@ const STRINGS = {
   field_screenshots:          { en: "Screenshots / photos",                es: "Capturas / fotos" },
   field_tap_to_add_photo:     { en: "Tap to add a photo",                  es: "Tócalo para añadir una foto" },
   field_uploading:            { en: "Uploading…",                          es: "Subiendo…" },
+  // Drum sub-fields (brand names like Drumeo / Melodics / Drumscribe
+  // stay untranslated; only the unit / label localizes)
+  field_drumeo_min:           { en: "Drumeo min",                            es: "Drumeo min" },
+  field_melodics_min:         { en: "Melodics min",                          es: "Melodics min" },
+  field_drumscribe_songs:     { en: "Drumscribe / YouTube songs",            es: "Drumscribe / canciones de YouTube" },
+  field_drumscribe_placeholder: { en: "Song 1, Song 2…",                    es: "Canción 1, Canción 2…" },
+  field_drums_goal_hint:      { en: "🎯 Goal: 1 hour · Stretch: 2 hours. Parent can adjust stars for effort.", es: "🎯 Meta: 1 hora · Reto: 2 horas. Un adulto puede ajustar las estrellas según el esfuerzo." },
+  // Photo / Spanish quick fields
+  field_title_optional:       { en: "Title (optional)",                      es: "Título (opcional)" },
+  field_name_your_work:       { en: "Name your work",                        es: "Pon nombre a tu trabajo" },
+  // Reading sub-fields
+  field_book_title:           { en: "Book title",                            es: "Título del libro" },
+  field_book_search:          { en: "Find a book — typos OK (fuzzy match)…", es: "Busca un libro — los errores están bien (búsqueda flexible)…" },
+  field_book_pick_or_type:    { en: "Pick from library, or type a new one below", es: "Elige de la biblioteca o escribe uno nuevo abajo" },
+  field_book_search_placeholder: { en: "Search books he's read or is reading…", es: "Busca libros que ha leído o está leyendo…" },
+  field_book_title_required:  { en: "Book title *",                        es: "Título del libro *" },
+  field_book_title_synced:    { en: "Title (synced from pick)",            es: "Título (sincronizado con la elección)" },
+  field_picked:               { en: "Picked",                              es: "Elegido" },
+  field_book_language:        { en: "Language",                              es: "Idioma" },
+  field_book_minutes:         { en: "Minutes",                               es: "Minutos" },
+  field_finished_today_round: { en: "He finished this book today",           es: "Terminó el libro hoy" },
+  // Reading Library headline stats
+  ril_this_month:             { en: "this month",                            es: "este mes" },
+  ril_avg_per_book:           { en: "avg / book",                            es: "promedio / libro" },
+  ril_books_finished_lower:   { en: "books finished",                        es: "libros terminados" },
+  // Approval queue header
+  app_queue_title:            { en: "Approval Queue",                        es: "Cola de aprobaciones" },
+  app_queue_hint:             { en: "Stars stay pending until you approve.", es: "Las estrellas quedan pendientes hasta que apruebes." },
+  app_approved_today:         { en: "Approved Today",                        es: "Aprobado hoy" },
+  app_banked:                 { en: "⭐ banked",                              es: "⭐ guardadas" },
 };
 
 // Seeded task titles. Keyed by task.id from SEED_TASKS so the lookup
