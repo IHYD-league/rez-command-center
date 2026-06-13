@@ -36,7 +36,7 @@ function SongGridTile({ s, onTap, selected = false }) {
       type="button"
       onClick={() => onTap?.(s)}
       className={`flex flex-col items-stretch text-left active:scale-[0.97] transition ${selected ? "ring-2 ring-cyan-500 rounded-xl" : ""}`}
-      aria-label={t("ml_open_aria", "Open {title}").replace("{title}", title)}
+      aria-label={t("ml_open_aria", "Open {title}").replaceAll("{title}", title)}
     >
       <div className="aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-100 mb-1 relative">
         {displayCover ? (
@@ -84,7 +84,7 @@ function SongShelfTile({ s, onTap, selected, rearranging, onNudgeLeft, onNudgeRi
         onClick={onTap}
         disabled={!onTap}
         className="w-full aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-100 relative active:scale-[0.97] transition disabled:active:scale-100"
-        aria-label={t("ml_open_aria", "Open {title}").replace("{title}", title)}
+        aria-label={t("ml_open_aria", "Open {title}").replaceAll("{title}", title)}
       >
         {displayCover ? (
           <img
@@ -356,8 +356,8 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
 
       <div className="text-[11px] text-slate-400 px-1 mb-2">
         {q
-          ? t("ml_match_count", "{n} of {total} matching").replace("{n}", sorted.length).replace("{total}", songs.length)
-          : t("ml_total_count", "{n} songs").replace("{n}", songs.length)}
+          ? t("ml_match_count", "{n} of {total} matching").replaceAll("{n}", sorted.length).replaceAll("{total}", songs.length)
+          : t("ml_total_count", "{n} songs").replaceAll("{n}", songs.length)}
       </div>
 
       {sorted.length === 0 ? (
@@ -448,7 +448,7 @@ export default function MusicLibrary({ songs = [], songPlays = [], updateSong, f
               </button>
             )}
             <div className="text-[10px] text-slate-400 ml-auto">
-              {savedOrder.length > 0 ? t("ml_custom_order", "custom order") : t("ml_sorted_by", "sorted by {label}").replace("{label}", sortLabel(sort))}
+              {savedOrder.length > 0 ? t("ml_custom_order", "custom order") : t("ml_sorted_by", "sorted by {label}").replaceAll("{label}", sortLabel(sort))}
             </div>
           </div>
           <div className="-mx-4 overflow-x-auto scrollbar-thin pb-32">

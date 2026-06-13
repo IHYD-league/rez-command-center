@@ -584,7 +584,10 @@ const STRINGS = {
   ob_grandparent_sub:         { en: "Today's checklist + family notes, ready when you are.", es: "La lista de hoy + notas de la familia, listas cuando quieras." },
   ob_helper_sub:              { en: "Today's checklist + handoff notes for the family.", es: "La lista de hoy + notas para el siguiente adulto." },
   ob_guest_sub:               { en: "Quick checklist for today.",                es: "Lista rápida para hoy." },
-  ob_greeting:                { en: "Hi, {name}!",                               es: "¡Hola, {name}!" },
+  // Greeting renders the bilingual word ONCE, then the name once.
+  // Avoids the duplicate-name display in "Both" mode (was: "Hi, Mike! /
+  // ¡Hola, Mike!" — Mike's feedback: "Hi / hola works, name once").
+  ob_hi:                      { en: "Hi",                                        es: "Hola" },
   ob_friend:                  { en: "friend",                                    es: "amig@" },
 
   // KidGameHome — kid landing

@@ -687,9 +687,9 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                 <div ref={bankRef} data-star-bank className="text-2xl font-extrabold leading-none mt-1" style={{ display: "inline-block", transformOrigin: "left center" }}><AnimatedNumber value={stars} /></div>
                 {(earnedToday > 0 || giftedToday > 0) && (
                   <div className="text-[10px] font-bold text-amber-200 mt-0.5">
-                    {earnedToday > 0 && <span>{t("kgh_earned_today", "+{n} earned today").replace("{n}", earnedToday)}</span>}
+                    {earnedToday > 0 && <span>{t("kgh_earned_today", "+{n} earned today").replaceAll("{n}", earnedToday)}</span>}
                     {earnedToday > 0 && giftedToday > 0 && <span className="opacity-70"> · </span>}
-                    {giftedToday > 0 && <span>{t("kgh_gift_today", "+{n}⭐ gift today").replace("{n}", giftedToday)}</span>}
+                    {giftedToday > 0 && <span>{t("kgh_gift_today", "+{n}⭐ gift today").replaceAll("{n}", giftedToday)}</span>}
                   </div>
                 )}
               </>
@@ -778,7 +778,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               type="button"
               onClick={onTapHeroLevel}
               className="w-full text-left mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10 active:scale-[0.99] transition"
-              aria-label={t("kgh_replay_aria", "Replay level {n} celebration").replace("{n}", level.value)}
+              aria-label={t("kgh_replay_aria", "Replay level {n} celebration").replaceAll("{n}", level.value)}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
@@ -789,7 +789,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                 </div>
               </div>
               <div className="text-sm font-extrabold mt-0.5">
-                {t("kgh_lv_title", "Lv {n} · {title}").replace("{n}", level.value).replace("{title}", level.title)}
+                {t("kgh_lv_title", "Lv {n} · {title}").replaceAll("{n}", level.value).replaceAll("{title}", level.title)}
               </div>
               <div className="mt-1.5">
                 <ProgressBar have={level.xpIntoLevel} need={level.xpToNext} color="#fcd34d" />
@@ -809,7 +809,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                 </div>
               </div>
               <div className="text-sm font-extrabold mt-0.5">
-                {t("kgh_lv_title", "Lv {n} · {title}").replace("{n}", level.value).replace("{title}", level.title)}
+                {t("kgh_lv_title", "Lv {n} · {title}").replaceAll("{n}", level.value).replaceAll("{title}", level.title)}
               </div>
               <div className="mt-1.5">
                 <ProgressBar have={level.xpIntoLevel} need={level.xpToNext} color="#fcd34d" />
@@ -830,13 +830,13 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                 <Trophy size={12} className="text-amber-300" /> {t("kgh_treasure_streak", "Treasure streak")}
               </div>
               <div className="text-[11px] font-bold text-white/90 tabular-nums">
-                {treasureStreak === 1 ? t("kgh_treasure_days_one", "1 day") : t("kgh_treasure_days_many", "{n} days").replace("{n}", treasureStreak)}
+                {treasureStreak === 1 ? t("kgh_treasure_days_one", "1 day") : t("kgh_treasure_days_many", "{n} days").replaceAll("{n}", treasureStreak)}
               </div>
             </div>
             <div className="text-sm font-extrabold mt-0.5">
               {treasureStreak === 1
                 ? t("kgh_treasure_one_day", "🗝️ 1 day in a row")
-                : t("kgh_treasure_many_days", "🗝️ {n} days in a row opening the chest").replace("{n}", treasureStreak)}
+                : t("kgh_treasure_many_days", "🗝️ {n} days in a row opening the chest").replaceAll("{n}", treasureStreak)}
             </div>
             {treasureStreak >= 3 && (
               <div className="mt-0.5 text-[11px] text-amber-200 font-bold">
@@ -910,7 +910,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                 <>
                   <span className="text-slate-300">·</span>
                   <span>
-                    {t("kgh_parts_label", "{done} / {total} parts").replace("{done}", upNext.subtasks.filter((s) => s.done).length).replace("{total}", upNext.subtasks.length)}
+                    {t("kgh_parts_label", "{done} / {total} parts").replaceAll("{done}", upNext.subtasks.filter((s) => s.done).length).replaceAll("{total}", upNext.subtasks.length)}
                   </span>
                 </>
               )}
@@ -993,7 +993,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               <div className="text-[11px] text-white/85 font-semibold mt-1.5">
                 {(streak?.current ?? 0) >= (streak?.milestone ?? 365)
                   ? t("kgh_you_did_it", "🏆 You did it!")
-                  : t("kgh_dont_break", "Don't break the chain · {n} days to go").replace("{n}", Math.max(0, (streak?.milestone ?? 365) - (streak?.current ?? 0)))}
+                  : t("kgh_dont_break", "Don't break the chain · {n} days to go").replaceAll("{n}", Math.max(0, (streak?.milestone ?? 365) - (streak?.current ?? 0)))}
               </div>
             </div>
           </div>
@@ -1075,7 +1075,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               : "bg-slate-300 text-slate-500"
           }`}
         >
-          {firstUndone ? t("kgh_start_quest", "▶ Start Quest: {title}").replace("{title}", firstUndone.title) : t("kgh_all_done", "All quests done! 🎉")}
+          {firstUndone ? t("kgh_start_quest", "▶ Start Quest: {title}").replaceAll("{title}", firstUndone.title) : t("kgh_all_done", "All quests done! 🎉")}
         </button>
         <button
           onClick={onOpenMenu}

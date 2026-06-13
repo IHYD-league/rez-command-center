@@ -148,7 +148,7 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 text-white shrink-0" onClick={(e) => e.stopPropagation()}>
         <div className="text-xs text-white/70 font-semibold">
-          {t("pg_lightbox_index", "{i} of {n}").replace("{i}", index + 1).replace("{n}", photos.length)}
+          {t("pg_lightbox_index", "{i} of {n}").replaceAll("{i}", index + 1).replaceAll("{n}", photos.length)}
         </div>
         <button
           type="button"
@@ -201,7 +201,7 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }) {
           <CalIcon size={12} />
           {fmtDate(photo.date)}
           {photo.time && <span className="text-white/55">· {photo.time}</span>}
-          {photo.uploader && <span className="text-white/55">· {t("pg_by_label", "by {name}").replace("{name}", photo.uploader)}</span>}
+          {photo.uploader && <span className="text-white/55">· {t("pg_by_label", "by {name}").replaceAll("{name}", photo.uploader)}</span>}
           {photo.activity && photo.caption && (
             <span className="text-white/55">· {photo.activity.name}</span>
           )}
@@ -274,7 +274,7 @@ function AddMemoryForm({ activities, user, familyId, onSave }) {
       reset();
       setOpen(false);
     } catch (err) {
-      toast.error(t("pg_upload_fail", "Upload failed: {msg}").replace("{msg}", err.message || err));
+      toast.error(t("pg_upload_fail", "Upload failed: {msg}").replaceAll("{msg}", err.message || err));
       setBusy(false);
     }
   };
