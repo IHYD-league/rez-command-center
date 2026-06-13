@@ -12,7 +12,7 @@ import { prefersReducedMotion } from "./lib/motion.js";
 const ROLE_MESSAGES = {
   kid:         { sub: "This is your command center. Earn stars. Crush quests.", cue: "Tap to begin your adventure" },
   parent:      { sub: "Approvals, rewards, and everyone's day in one place.", cue: "Tap to continue" },
-  grandparent: { sub: "Reznor's checklist + family notes, ready when you are.", cue: "Tap to continue" },
+  grandparent: { sub: "Today's checklist + family notes, ready when you are.", cue: "Tap to continue" },
   helper:      { sub: "Today's checklist + handoff notes for the family.", cue: "Tap to continue" },
   guest:       { sub: "Quick checklist for today.", cue: "Tap to continue" },
 };

@@ -63,11 +63,11 @@ const CONTACTS = [
   { label: "Dad (Mike)", value: "Call / text Mike" },
   { label: "Mom (Krissie)", value: "Call / text Krissie" },
   { label: "Emergency", value: "911" },
-  { label: "Pediatrician", value: "TODO: add number" },
+  { label: "Pediatrician", value: "—" },
 ];
 
 const CARE_NOTES = [
-  "Allergies: TODO add",
+  "Allergies: none on file",
   "Drums can be split into two short sessions if he's tired.",
   "Screen time only counts toward Duolingo / Melodics if it's the actual app.",
   "Spanish exposure counts — music, shows, or talking all help.",
@@ -148,12 +148,21 @@ const SEED_HANDOFF = [
   { id: "h2", authorId: "u_sara", note: "Bed made, breakfast done. Heading to park for movement now.", pinned: false, time: "8:15 AM" },
 ];
 
+// Status labels read through i18n at render time so a bilingual /
+// Spanish-only family sees translated text. Color classes stay flat
+// (they're not language-sensitive). Use `STATUS_LABEL(status)` for
+// the human label and STATUS_META[status].color for the chip class.
 const STATUS_META = {
-  not_started: { label: "Not started", color: "bg-slate-100 text-slate-500" },
-  pending: { label: "Pending approval", color: "bg-amber-100 text-amber-700" },
-  approved: { label: "Approved", color: "bg-emerald-100 text-emerald-700" },
-  needs_fix: { label: "Needs fix", color: "bg-rose-100 text-rose-700" },
-  skipped: { label: "Skipped", color: "bg-slate-100 text-slate-400" },
+  not_started: { color: "bg-slate-100 text-slate-500" },
+  pending:     { color: "bg-amber-100 text-amber-700" },
+  approved:    { color: "bg-emerald-100 text-emerald-700" },
+  needs_fix:   { color: "bg-rose-100 text-rose-700" },
+  skipped:     { color: "bg-slate-100 text-slate-400" },
+  draft:       { color: "bg-amber-100 text-amber-700" },
+};
+const STATUS_LABEL = (status) => {
+  const k = `status_${status || "not_started"}`;
+  return i18nTOf(k, status || "Not started");
 };
 
 // Real device date. Module-level constants — a tab kept open past local
@@ -169,6 +178,12 @@ const today = new Date();
 const WEEKDAY = today.toLocaleDateString("en-US", { weekday: "long" });
 const TODAY_ISO = isoLocal(today);
 const YESTERDAY_ISO = isoLocal(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
+// Resolve the active kid's display name from the users list. Falls
+// back to "your kid" so the strings stay grammatical for any family
+// that hasn't picked one. Used in confirm dialogs, tooltips, stat
+// detail headers — every place we used to hard-code "Reznor".
+const kidName = (users) => (users || []).find((u) => u.role === "kid")?.name || "your kid";
+
 const fmtDate = (d) => d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 const fmtShort = (d) => d ? new Date(d + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 // Bilingual day-break header — Reznor speaks Spanish + English; Mike
@@ -1916,7 +1931,7 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
     const delta = newStars - oldStars;
     const summary = delta === 0
       ? `Save changes to "${trimmed}"?\n\nStar amount stays at ${newStars}.`
-      : `Save changes to "${trimmed}"?\n\nReznor's bank will ${delta > 0 ? "go up by " + delta : "drop by " + Math.abs(delta)} stars.`;
+      : `Save changes to "${trimmed}"?\n\nThe star bank will ${delta > 0 ? "go up by " + delta : "drop by " + Math.abs(delta)} stars.`;
     if (!window.confirm(summary)) return;
     // Stamp bookTitle / songTitle alongside the ids so ProofThumb's
     // title fallback always has data to work with, even if the book
@@ -1943,7 +1958,7 @@ function EditGiftSheet({ updateGift, removeGift, tasks = [], activities = [], bo
   };
 
   const onDelete = () => {
-    const msg = `Delete this gift?\n\n"${gift.label || "Bonus"}" (+${gift.stars}⭐)\n\nReznor's bank will drop by ${gift.stars} stars and the row goes away.`;
+    const msg = `Delete this gift?\n\n"${gift.label || "Bonus"}" (+${gift.stars}⭐)\n\nThe star bank will drop by ${gift.stars} stars and the row goes away.`;
     if (!window.confirm(msg)) return;
     removeGift(gift.id);
     giftEditor.close();
@@ -2806,7 +2821,7 @@ function LoginScreen({ users, currentProfileId, onPick, onSignOut, sessionEmail 
           className="text-center text-violet-300/50 text-[10px] mt-4"
           style={{ textShadow: "0 2px 4px rgba(0,0,0,0.5)" }}
         >
-          Prototype role-switcher · TODO: real auth + server-enforced access windows
+          Pick a profile to use. Sign out when you're done sharing the device.
         </p>
 
         {/* Stone-arch footer band — sign-out lives here */}
@@ -2984,7 +2999,7 @@ function MissionCard({ task, comp, onOpen, mode, priorities, users, activities, 
               <div className="flex items-center gap-1.5 flex-wrap mt-1">
                 <PriorityBadge level={lvl} scope={ov?.scope} />
                 {st && <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">🔥 {st.current}</span>}
-                {submitted && <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${m.color}`}>{m.label}</span>}
+                {submitted && <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${m.color}`}>{STATUS_LABEL(status)}</span>}
               </div>
             </div>
             <StarPill n={task.starValue} tone={doneish ? "emerald" : "amber"} />
@@ -3111,11 +3126,12 @@ function StatDetail({
     .filter((c) => c.status === "pending" && c.completionDate === TODAY_ISO)
     .sort((a, b) => (b.id || "").localeCompare(a.id || ""));
 
+  const KID = kidName(users);
   const TITLES = {
-    earned: { title: "Earned today", subtitle: "Every star Reznor banked since midnight." },
+    earned: { title: "Earned today", subtitle: `Every star ${KID} banked since midnight.` },
     pending: { title: "Pending approval (today)", subtitle: "Today's submissions waiting on a grown-up." },
     bank: { title: "Total star bank", subtitle: "What's in the piggy right now, and where it came from." },
-    available: { title: "Stars available today", subtitle: "Every star Reznor could earn if he finished everything on today's list." },
+    available: { title: "Stars available today", subtitle: `Every star ${KID} could earn if everything on today's list got done.` },
   };
   const meta = TITLES[kind] || TITLES.earned;
 
@@ -3553,7 +3569,7 @@ function StarLedger({
                   <button
                     type="button"
                     onClick={() => {
-                      if (window.confirm(`Delete this gift?\n\n"${row.label}" (+${row.stars}⭐)\n\nReznor's bank will drop by ${row.stars} stars.`)) {
+                      if (window.confirm(`Delete this gift?\n\n"${row.label}" (+${row.stars}⭐)\n\nThe star bank will drop by ${row.stars} stars.`)) {
                         onRemoveGift(row.id);
                       }
                     }}
@@ -3731,7 +3747,7 @@ function DayBreakdown({
                         <button
                           type="button"
                           onClick={() => {
-                            if (window.confirm(`Delete this gift?\n\n"${g.label || "Bonus"}" (+${g.stars}⭐)\n\nReznor's bank will drop by ${g.stars} stars.`)) {
+                            if (window.confirm(`Delete this gift?\n\n"${g.label || "Bonus"}" (+${g.stars}⭐)\n\nThe star bank will drop by ${g.stars} stars.`)) {
                               onRemoveGift(g.id);
                             }
                           }}
@@ -4347,7 +4363,7 @@ function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }
   const pace = perDay <= 15 ? "Chill pace 🐢" : perDay <= 35 ? "Hero pace 🦸" : "Legend pace ⚡";
   let run = 0;
   const WISH_STATUS = {
-    requested: { label: "Waiting for Mom/Dad ⏳", cls: "bg-amber-100 text-amber-600" },
+    requested: { label: "Waiting for a parent ⏳", cls: "bg-amber-100 text-amber-600" },
     approved: { label: "Approved! 🎉", cls: "bg-emerald-100 text-emerald-600" },
     // DB constraint uses "declined"; we accept "denied" as a legacy
     // alias from any pre-fix saved rows so the kid view still renders.
@@ -5286,7 +5302,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
                   </div>
                 ))}
               </div>
-              <div className="text-[11px] text-slate-400 px-1 mt-2">Photos & videos uploaded for this build the year-long portfolio. (TODO: video playback + cloud storage in the real build.)</div>
+              <div className="text-[11px] text-slate-400 px-1 mt-2">Every photo you attach here joins the year-long portfolio.</div>
             </>
           )}
 
@@ -6142,7 +6158,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
           {onMarkDone && (!comp || comp.status === "draft") && (
             <button
               onClick={(e) => { e.stopPropagation(); onMarkDone(task); }}
-              title={comp?.status === "draft" ? "Open the saved draft" : "Mark done for Reznor (with photo proof if needed)"}
+              title={comp?.status === "draft" ? "Open the saved draft" : `Mark done${users ? ` for ${kidName(users)}` : ""} (with photo proof if needed)`}
               className="p-1.5 rounded-lg shrink-0 text-emerald-600 hover:bg-emerald-50"
             >
               <Check size={16} />
@@ -6152,7 +6168,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (window.confirm(`Mark "${i18nTitleOf(task)}" as N/A for today?\n\nIt won't show on Reznor's board and the treasure-day streak will ignore it. You can restore it from the "N/A today" strip below.`)) {
+                if (window.confirm(`Mark "${i18nTitleOf(task)}" as N/A for today?\n\nIt won't show on the board and the treasure-day streak will ignore it. You can restore it from the "N/A today" strip below.`)) {
                   markTaskNA(TODAY_ISO, task.id);
                 }
               }}
@@ -6169,7 +6185,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
                 const wasApproved = comp.status === "approved";
                 const stars = comp.awardedStars || comp.pendingStars || 0;
                 const msg = `Mark "${i18nTitleOf(task)}" as NOT done?` +
-                  (wasApproved && stars ? `\n\nThis will remove ${stars} ⭐ from Reznor's bank.` : "") +
+                  (wasApproved && stars ? `\n\nThis will remove ${stars} ⭐ from the star bank.` : "") +
                   (wasApproved ? "\nIf the streak was bumped today, it walks back too." : "");
                 if (window.confirm(msg)) undoTask(task.id);
               }}
@@ -6724,7 +6740,7 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
             const play = songPlays.find((p) => p.id === req.playId);
             const song = play ? songs.find((s) => s.id === play.songId) : null;
             const songTitle = song?.canonicalTitle || song?.title || "(deleted song)";
-            const who = users.find((u) => u.id === req.by)?.name || "Reznor";
+            const who = users.find((u) => u.id === req.by)?.name || kidName(users);
             const kindLabel = req.kind === "remove" ? "Remove play" : "Edit play";
             const tileBg = req.kind === "remove" ? "bg-rose-50" : "bg-indigo-50";
             const tileFg = req.kind === "remove" ? "text-rose-700" : "text-indigo-700";
@@ -6792,7 +6808,7 @@ function WishApproveRow({ w, decideRewardRequest }) {
   );
 }
 
-function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward, updateReward, removeReward, rewardRequests, decideRewardRequest }) {
+function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward, updateReward, removeReward, rewardRequests, decideRewardRequest, users = [] }) {
   const requested = redemptions.filter((r) => r.status === "requested");
   const wishes = (rewardRequests || []).filter((w) => w.status === "requested");
   const [adding, setAdding] = useState(false);
@@ -6816,7 +6832,7 @@ function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward
       <h2 className="font-extrabold text-lg px-1">Rewards Store</h2>
       <p className="text-xs text-slate-400 px-1">Bank: {starBank} ⭐ · add, edit, or remove anything he's into.</p>
 
-      <SectionTitle icon={<Sparkles size={16} className="text-violet-500" />}>Wishes from Reznor {wishes.length > 0 && <span className="text-[11px] font-normal text-violet-500">· {wishes.length} new</span>}</SectionTitle>
+      <SectionTitle icon={<Sparkles size={16} className="text-violet-500" />}>Wishes from {kidName(users)} {wishes.length > 0 && <span className="text-[11px] font-normal text-violet-500">· {wishes.length} new</span>}</SectionTitle>
       {wishes.length === 0 && <p className="text-xs text-slate-400 px-1">No new wishes. When he dreams one up, set the stars and approve it here.</p>}
       {wishes.map((w) => <WishApproveRow key={w.id} w={w} decideRewardRequest={decideRewardRequest} />)}
 
@@ -6981,7 +6997,7 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm" />
           <button onClick={() => { if (title.trim()) { addEvent({ title, date, category: "Activity", notes: "" }); setTitle(""); } }} className="px-4 rounded-xl bg-indigo-600 text-white font-bold text-sm"><Plus size={16} /></button>
         </div>
-        <div className="text-[11px] text-slate-400 mt-2">TODO: ICS / Google Calendar / school schedule import</div>
+        <div className="text-[11px] text-slate-400 mt-2">Add upcoming events — practices, classes, field trips, anything that affects today's plan.</div>
       </Card>
     </div>
   );
@@ -9188,7 +9204,7 @@ function BoardThemePicker({ boardTheme, setBoardTheme, users, setCurrentUserId, 
   const kid = (users || []).find((u) => u.role === "kid");
   const jumpToBoard = () => {
     if (!kid) {
-      alert("Couldn't find Reznor's profile.");
+      alert("Couldn't find the kid's profile.");
       return;
     }
     const ok = window.confirm("Go to Reznor's game board?");
@@ -10148,7 +10164,7 @@ function HelperChecklist({ todaysTasks, compByTask, submitTask, undoTask, user, 
                 <div className="font-semibold text-sm">{i18nTitleOf(t)}</div>
                 <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                   <PriorityBadge level={lvl} scope={ov?.scope} />
-                  <span className="text-[11px] text-slate-400">{c ? STATUS_META[c.status].label : `${t.minutes} min`}</span>
+                  <span className="text-[11px] text-slate-400">{c ? STATUS_LABEL(c.status) : `${t.minutes} min`}</span>
                 </div>
               </div>
               {!done && (
