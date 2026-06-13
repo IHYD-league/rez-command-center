@@ -73,7 +73,7 @@ function SongPickerRow({ s, count, onPick }) {
   );
 }
 
-export default function SongLogger({ songs, songPlays, addSong, addSongPlay, fuzzyMatch }) {
+export default function SongLogger({ songs, songPlays, addSong, addSongPlay, fuzzyMatch, onSongLogged, todayIso }) {
   const [q, setQ] = useState("");
   const [sessionLog, setSessionLog] = useState([]); // [{id, songId, title}]
   const inputRef = useRef(null);
@@ -84,6 +84,20 @@ export default function SongLogger({ songs, songPlays, addSong, addSongPlay, fuz
     (songPlays || []).forEach((p) => { m[p.songId] = (m[p.songId] || 0) + 1; });
     return m;
   }, [songPlays]);
+
+  // Today's plays per song — drives the "are you sure you want to add
+  // it again?" guard. Krissie kept double-tapping in the picker and
+  // ending up with the same song logged 2-4 times for one practice.
+  const todayPlayCount = useMemo(() => {
+    if (!todayIso) return {};
+    const m = {};
+    (songPlays || []).forEach((p) => {
+      if ((p.playedOn || p.played_on) !== todayIso) return;
+      const sid = p.songId || p.song_id;
+      if (sid) m[sid] = (m[sid] || 0) + 1;
+    });
+    return m;
+  }, [songPlays, todayIso]);
 
   // Cover dedup map — songs sharing (canonical_artist, canonical_album)
   // see one cover everywhere. Same helper Music Library + Insights use.
@@ -143,12 +157,23 @@ export default function SongLogger({ songs, songPlays, addSong, addSongPlay, fuz
   };
 
   const logSong = (song) => {
+    const title = song.canonicalTitle || song.title || "(unknown)";
+    // Duplicate guard — Krissie was tapping the picker row twice when
+    // the response felt slow and ending up with 3 plays for one song.
+    // Confirm before adding a same-day repeat. Yes proceeds (real
+    // re-listen), No bails (accidental double-tap).
+    const alreadyToday = todayPlayCount[song.id] || 0;
+    if (alreadyToday > 0) {
+      const msg = `"${title}" is already logged ${alreadyToday} time${alreadyToday === 1 ? "" : "s"} today.\n\nAdd another play?`;
+      if (!window.confirm(msg)) return;
+    }
     addSongPlay(song.id);
+    onSongLogged?.(title);
     setSessionLog((prev) => [
       {
         key: Date.now() + "_" + Math.random().toString(36).slice(2, 5),
         songId: song.id,
-        title: song.canonicalTitle || song.title || "(unknown)",
+        title,
       },
       ...prev,
     ]);
@@ -161,7 +186,10 @@ export default function SongLogger({ songs, songPlays, addSong, addSongPlay, fuz
     if (!title) return;
     const newId = addSong({ title });
     if (!newId) return;
+    // New songs can't be a same-day duplicate by definition (we just
+    // created the row). No confirm needed here.
     addSongPlay(newId);
+    onSongLogged?.(title);
     setSessionLog((prev) => [
       { key: Date.now() + "_" + Math.random().toString(36).slice(2, 5), songId: newId, title },
       ...prev,

@@ -1688,7 +1688,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
         {detailId && (() => {
           const t = tasks.find((x) => x.id === detailId);
           if (!t) return null;
-          return <DetailSheet task={t} onClose={() => setDetailId(null)} activities={activities} streaks={streaks} completions={completions} priorities={priorities} setPriority={setPriority} clearPriority={clearPriority} updateTask={updateTask} removeTask={(id) => { removeTask(id); setDetailId(null); }} setStreak={setStreak} stopStreak={stopStreak} bumpStreak={bumpStreak} taskNotes={taskNotes} addTaskNote={addTaskNote} users={users} />;
+          return <DetailSheet task={t} onClose={() => setDetailId(null)} activities={activities} streaks={streaks} completions={completions} priorities={priorities} setPriority={setPriority} clearPriority={clearPriority} updateTask={updateTask} removeTask={(id) => { removeTask(id); setDetailId(null); }} setStreak={setStreak} stopStreak={stopStreak} bumpStreak={bumpStreak} taskNotes={taskNotes} addTaskNote={addTaskNote} users={users} songs={songs} songPlays={songPlays} />;
         })()}
         {progressActId && (() => {
           const a = activities.find((x) => x.id === progressActId);
@@ -5062,6 +5062,76 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
 
             {isDrums && (
               <>
+                {/* Today's session card — surfaces every song already
+                    logged today before the parent edits the inputs.
+                    Mike's frustration: he'd save a draft, add songs later
+                    via the picker, and the songList field stayed empty
+                    even though play rows existed. Now we read song_plays
+                    directly and show them, with a one-tap "Add to list"
+                    that fills the songList field if it's still empty.
+                    Songs added via the picker BELOW also flow into
+                    songList automatically (see onSongLogged below) so
+                    going forward the field stays in sync. */}
+                {(() => {
+                  const todaysPlays = (songPlays || [])
+                    .filter((p) => (p.playedOn || p.played_on) === TODAY_ISO);
+                  if (todaysPlays.length === 0) return null;
+                  const byId = Object.fromEntries((songs || []).map((s) => [s.id, s]));
+                  const titles = todaysPlays.map((p) => {
+                    const s = byId[p.songId || p.song_id];
+                    return s ? (s.canonicalTitle || s.title || "(unknown)") : "(unknown)";
+                  });
+                  // Total session minutes derived from current input
+                  // state so the card always matches what's typed.
+                  const totalMin = (Number(drumeo) || 0) + (Number(melodics) || 0);
+                  const missing = titles.filter((t) => !songList.toLowerCase().includes(t.toLowerCase()));
+                  return (
+                    <div className="rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 p-3 shadow-sm">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-[10px] uppercase tracking-widest font-extrabold text-amber-700 flex items-center gap-1.5">
+                          🥁 Today's session
+                        </div>
+                        <div className="text-[11px] font-extrabold text-amber-700 tabular-nums">
+                          {totalMin} min · {todaysPlays.length} {todaysPlays.length === 1 ? "play" : "plays"}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 mb-2">
+                        <div className="rounded-xl bg-white/60 backdrop-blur p-2 text-center">
+                          <div className="text-lg font-extrabold text-amber-700 leading-none">{Number(drumeo) || 0}</div>
+                          <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">Drumeo</div>
+                        </div>
+                        <div className="rounded-xl bg-white/60 backdrop-blur p-2 text-center">
+                          <div className="text-lg font-extrabold text-amber-700 leading-none">{Number(melodics) || 0}</div>
+                          <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">Melodics</div>
+                        </div>
+                        <div className="rounded-xl bg-white/60 backdrop-blur p-2 text-center">
+                          <div className="text-lg font-extrabold text-amber-700 leading-none">{todaysPlays.length}</div>
+                          <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">Songs</div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {titles.map((t, i) => (
+                          <span key={i} className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+                            ✓ {t}
+                          </span>
+                        ))}
+                      </div>
+                      {missing.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const append = missing.join(", ");
+                            setSongList((prev) => prev.trim() ? `${prev.trim()}, ${append}` : append);
+                          }}
+                          className="w-full text-[11px] font-bold py-1.5 rounded-lg bg-white text-amber-700 border border-amber-300 active:scale-[0.99]"
+                        >
+                          + Add {missing.length} missing song{missing.length === 1 ? "" : "s"} to the list below
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <div className="grid grid-cols-2 gap-2">
                   <Field label={i18nTOf("field_drumeo_min", "Drumeo min")}><input type="number" value={drumeo} onChange={(e) => setDrumeo(e.target.value)} className="input" /></Field>
                   <Field label={i18nTOf("field_melodics_min", "Melodics min")}><input type="number" value={melodics} onChange={(e) => setMelodics(e.target.value)} className="input" /></Field>
@@ -5074,6 +5144,18 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     addSong={addSong}
                     addSongPlay={addSongPlay}
                     fuzzyMatch={fuzzyMatch}
+                    todayIso={TODAY_ISO}
+                    onSongLogged={(title) => {
+                      // Auto-sync the picker into the typed-songList
+                      // field so the parent doesn't have to remember to
+                      // type what they just tapped. Idempotent — already-
+                      // present titles aren't re-appended.
+                      setSongList((prev) => {
+                        const t = (prev || "").trim();
+                        if (t.toLowerCase().includes(title.toLowerCase())) return prev;
+                        return t ? `${t}, ${title}` : title;
+                      });
+                    }}
                   />
                 )}
                 <div className="bg-amber-50 rounded-2xl p-3 text-xs text-amber-700">{i18nTOf("field_drums_goal_hint", "🎯 Goal: 1 hour · Stretch: 2 hours. Parent can adjust stars for effort.")}</div>
@@ -5308,7 +5390,7 @@ function HistoryCalendar({ activityId, color, streaks }) {
   );
 }
 
-function DetailSheet({ task, onClose, activities, streaks, completions, priorities, setPriority, clearPriority, updateTask, removeTask, setStreak, stopStreak, bumpStreak, taskNotes, addTaskNote, users }) {
+function DetailSheet({ task, onClose, activities, streaks, completions, priorities, setPriority, clearPriority, updateTask, removeTask, setStreak, stopStreak, bumpStreak, taskNotes, addTaskNote, users, songs = [], songPlays = [] }) {
   const d = actFor(task, activities);
   const aid = task.activityId || TYPE_TO_ACT[task.activityType];
   const s = streaks[aid];
@@ -5318,6 +5400,38 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
   const notes = taskNotes?.[task.id] || [];
   const proofs = completions.filter((c) => c.taskId === task.id).flatMap((c) => (c.proof || []).filter((p) => p.path || p.url));
   const { handleClose, dragHandlers, backdropStyle, sheetStyle } = useBottomSheet({ onClose });
+
+  // Drums-aware "Today's session" card — Mike's rule: tapping the drums
+  // task ANYWHERE should show how long for Drumeo + Melodics + every
+  // song played today. Pulls from the latest drums completion today
+  // (any status: draft, pending, approved) so saved-drafts surface
+  // their minutes immediately. Songs come from song_plays filtered to
+  // today regardless of the completion — covers the case where Reznor
+  // logged plays via the picker on the kid app without any completion
+  // attached yet.
+  const isDrumsTask = task.proofType === "drums" || /drum/i.test(task.activityType || "");
+  const drumsSession = (() => {
+    if (!isDrumsTask) return null;
+    const todaysComp = completions
+      .filter((c) => c.taskId === task.id && c.completionDate === TODAY_ISO)
+      .sort((a, b) => (b.id || "").localeCompare(a.id || ""))[0];
+    const drumeo = Number(todaysComp?.extra?.drumeo) || 0;
+    const melodics = Number(todaysComp?.extra?.melodics) || 0;
+    const todaysPlays = (songPlays || []).filter((p) => (p.playedOn || p.played_on) === TODAY_ISO);
+    const byId = Object.fromEntries((songs || []).map((s) => [s.id, s]));
+    const songTitles = todaysPlays.map((p) => {
+      const s = byId[p.songId || p.song_id];
+      return s ? (s.canonicalTitle || s.title || "(unknown)") : "(unknown)";
+    });
+    return {
+      drumeo,
+      melodics,
+      totalMin: drumeo + melodics,
+      songCount: todaysPlays.length,
+      songTitles,
+      status: todaysComp?.status || null,
+    };
+  })();
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center">
@@ -5351,6 +5465,70 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
         <div className="p-4">
           {tab === "stats" && (
             <>
+              {/* Drums Today — the data-and-stats card Mike wanted.
+                  Renders ABOVE the streak strip + calendar so tapping
+                  drums anywhere immediately shows what's been played.
+                  Only renders when there's actual session data so we
+                  don't show a wall of zeros on a fresh day. */}
+              {drumsSession && (drumsSession.totalMin > 0 || drumsSession.songCount > 0) && (
+                <div
+                  className="rounded-3xl p-4 mb-3 text-white relative overflow-hidden border-2 border-white/15 shadow-xl"
+                  style={{
+                    background: "linear-gradient(135deg, #1e293b 0%, #4338ca 35%, #7c3aed 70%, #f97316 100%)",
+                  }}
+                >
+                  <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "18%", top: "22%", color: "rgba(255,255,255,0.5)", fontSize: 12 }}>✦</span>
+                  <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "72%", top: "20%", color: "rgba(255,255,255,0.4)", fontSize: 10 }}>✦</span>
+                  <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "88%", top: "70%", color: "rgba(255,255,255,0.35)", fontSize: 14 }}>✦</span>
+                  <div className="relative">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-extrabold flex items-center gap-1.5">
+                        🥁 Today's drum session
+                      </div>
+                      {drumsSession.status === "draft" && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-amber-200 bg-amber-500/30 rounded-full px-2 py-0.5 border border-amber-300/40">
+                          draft
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-baseline gap-2 mb-3">
+                      <span className="text-5xl font-extrabold tracking-tight leading-none" style={{ textShadow: "0 0 12px rgba(253,224,71,0.55)" }}>
+                        {drumsSession.totalMin}
+                      </span>
+                      <span className="text-sm font-bold text-white/70">min total</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                        <div className="text-xl font-extrabold leading-none">{drumsSession.drumeo}</div>
+                        <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Drumeo</div>
+                      </div>
+                      <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                        <div className="text-xl font-extrabold leading-none">{drumsSession.melodics}</div>
+                        <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Melodics</div>
+                      </div>
+                      <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                        <div className="text-xl font-extrabold leading-none">{drumsSession.songCount}</div>
+                        <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Songs</div>
+                      </div>
+                    </div>
+                    {drumsSession.songTitles.length > 0 && (
+                      <>
+                        <div className="text-[10px] uppercase tracking-wider font-bold text-white/70 mb-1">
+                          Played today
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {drumsSession.songTitles.map((t, i) => (
+                            <span key={i} className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/15 backdrop-blur text-white border border-white/20">
+                              🎸 {t}
+                            </span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {s && <div className="grid grid-cols-2 gap-2 mb-3">
                 <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-orange-500">🔥{s.current}</div><div className="text-[11px] text-slate-400">{i18nTOf("ds_current_streak", "current streak")}</div></Card>
                 <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-slate-700">{s.longest}</div><div className="text-[11px] text-slate-400">{i18nTOf("ds_best_ever", "best ever")}</div></Card>
@@ -7006,7 +7184,13 @@ function RewardEditRow({ r, updateReward, removeReward }) {
         {edit
           ? <div className="flex items-center gap-1"><input type="number" value={r.starCost} onChange={(e) => updateReward(r.id, { starCost: Number(e.target.value) })} className="w-16 border border-slate-200 rounded px-1.5 py-0.5 text-sm" /><span className="text-xs">⭐</span></div>
           : <StarPill n={r.starCost} />}
-        <button onClick={() => setEdit((v) => !v)} className="p-1.5 text-slate-400"><Pencil size={15} /></button>
+        <button
+          onClick={() => setEdit((v) => !v)}
+          className="p-1.5 text-slate-400 hover:text-slate-600 active:scale-90"
+          aria-label={edit ? i18nTOf("act_close", "Close") : i18nTOf("act_edit", "Edit")}
+        >
+          {edit ? <X size={16} /> : <Pencil size={15} />}
+        </button>
       </div>
       {edit && (
         <div className="flex gap-2 mt-2">
@@ -7806,8 +7990,18 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
 
   return (
     <div className={`mt-2 pt-2 border-t ${isBacklog ? "border-amber-200" : "border-slate-100"}`}>
-      <div className={`text-[10px] uppercase tracking-wider font-bold mb-2 ${isBacklog ? "text-amber-700" : "text-slate-500"}`}>
-        {isBacklog ? i18nTOf("br_editing_backlog", "Editing backlog entry") : i18nTOf("br_editing_book", "Editing book")}
+      <div className={`flex items-center justify-between mb-2 ${isBacklog ? "text-amber-700" : "text-slate-500"}`}>
+        <div className="text-[10px] uppercase tracking-wider font-bold">
+          {isBacklog ? i18nTOf("br_editing_backlog", "Editing backlog entry") : i18nTOf("br_editing_book", "Editing book")}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="-mr-1 -mt-1 p-1.5 rounded-full hover:bg-slate-100 active:scale-90"
+          aria-label={i18nTOf("br_cancel", "Cancel")}
+        >
+          <X size={16} />
+        </button>
       </div>
 
       {/* Cover management — upload + revert apply IMMEDIATELY (writes to
@@ -10110,7 +10304,13 @@ function TaskEditRow({ t, activities, updateTask, removeTask }) {
             ? <input value={t.title} onChange={(e) => updateTask(t.id, { title: e.target.value })} className="font-bold text-sm flex-1 min-w-0 border border-slate-200 rounded px-1.5 py-0.5" />
             : <div className="font-bold text-sm flex-1 min-w-0">{i18nTitleOf(t)}</div>}
           <div className="flex items-center gap-1 shrink-0"><input type="number" value={t.starValue} onChange={(e) => updateTask(t.id, { starValue: Number(e.target.value) })} className="w-12 border border-slate-200 rounded px-1.5 py-0.5 text-sm" /><span className="text-xs">⭐</span></div>
-          <button onClick={() => setEdit((v) => !v)} className="p-1 text-slate-400 shrink-0"><Pencil size={15} /></button>
+          <button
+            onClick={() => setEdit((v) => !v)}
+            className="p-1 text-slate-400 hover:text-slate-600 active:scale-90 shrink-0"
+            aria-label={edit ? i18nTOf("act_close", "Close") : i18nTOf("act_edit", "Edit")}
+          >
+            {edit ? <X size={16} /> : <Pencil size={15} />}
+          </button>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: d.color + "22", color: d.color }}>{d.label}</span>
