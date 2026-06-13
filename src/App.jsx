@@ -7599,7 +7599,10 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
       {/* Tile-tap expand: same focused editor pattern for Grid and Shelf.
           BookRow renders the full edit toolkit; close button dismisses. */}
       {(viewMode === "grid" || viewMode === "shelf") && focusedBook && (
-        <div className="fixed inset-x-0 bottom-0 z-30 max-w-md mx-auto bg-white border-t border-slate-200 shadow-2xl rounded-t-2xl p-3 max-h-[80vh] overflow-y-auto">
+        <div
+          className="fixed inset-x-0 z-[60] max-w-md mx-auto bg-white border-t border-slate-200 shadow-2xl rounded-t-2xl p-3 max-h-[70vh] overflow-y-auto"
+          style={{ bottom: "calc(72px + env(safe-area-inset-bottom))" }}
+        >
           <div className="flex items-center justify-between mb-2">
             <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">{i18nTOf("rl_editing", "Editing")}</div>
             <button onClick={() => setFocusedBookId(null)} className="text-slate-400 p-1" aria-label={i18nTOf("rl_close_aria", "Close")}>
