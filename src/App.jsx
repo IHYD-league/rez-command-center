@@ -1014,6 +1014,43 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
 
   const addAward = (a) => setAwards((prev) => [a, ...prev]);
   const removeAward = (id) => setAwards((prev) => prev.filter((a) => a.id !== id));
+  // saveDraft — write a work-in-progress completion to the day's slot
+  // without firing the submit gauntlet (no auto-approve, no streak
+  // bump, no juice, no celebrate, no kid pop). Mike: Drums is 45min-
+  // 2hr across Drumeo + Melodics + Drumscribe + songs; he wants to
+  // log pieces as Reznor finishes them and submit once it's all
+  // there. Status: 'draft'. Replaces today's prior draft for the
+  // same task, but never clobbers an already-submitted row.
+  const saveDraft = (taskId, payload) => {
+    const t = tasks.find((x) => x.id === taskId);
+    if (!t) return;
+    const kid = users.find((u) => u.role === "kid");
+    const kidId = kid?.id || currentUserId;
+    setCompletions((prev) => {
+      // If today's row for this task isn't draft and isn't not-started
+      // (e.g., already pending / approved / needs_fix), don't overwrite
+      // it — a draft save shouldn't undo a submission. The existing
+      // edit-in-place flow handles that case instead.
+      const todays = prev.find((c) => c.taskId === taskId && (c.completionDate || null) === TODAY_ISO);
+      if (todays && todays.status !== "draft") return prev;
+      const others = prev.filter((c) => !(c.taskId === taskId && (c.completionDate || null) === TODAY_ISO));
+      return [...others, {
+        id: todays?.id || ("cmp_" + Date.now()),
+        taskId,
+        status: "draft",
+        awardedStars: 0,
+        pendingStars: 0,
+        completedBy: kidId,
+        submittedBy: currentProfileId || currentUserId,
+        approvedBy: null,
+        notes: payload.notes || "",
+        proof: payload.proof || [],
+        extra: payload.extra || {},
+        completionDate: TODAY_ISO,
+      }];
+    });
+    setOpenTask(null);
+  };
   // Patch any field on an existing completion — used by the Completion
   // Detail sheet to retroactively add photos, edit notes, etc.
   // Krissie's ask: parents (and Reznor) need a way to drop a photo onto
@@ -1518,7 +1555,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
-    submitTask, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest,
+    submitTask, saveDraft, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest,
     openCompletionId, setOpenCompletionId, updateCompletion, addCompletionPhoto, removeCompletionPhoto,
     pendingRegistrations, approveRegistration, denyRegistration, currentProfileId, setCurrentUserId,
     kidData,
@@ -1570,6 +1607,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
             role={user.role}
             onClose={() => setOpenTask(null)}
             onSubmit={submitTask}
+            onSaveDraft={saveDraft}
             familyId={familyId}
             songs={songs}
             songPlays={songPlays}
@@ -2858,7 +2896,7 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
           .filter((t) => !topIds.has(t.id))
           .filter((t) => {
             const c = compByTask[t.id];
-            return !c || ["not_started", "needs_fix"].includes(c?.status);
+            return !c || ["not_started", "needs_fix", "draft"].includes(c?.status);
           });
         if (extras.length === 0) return null;
         const orderedExtras = sortByLevel(extras, mode, priorities);
@@ -4182,6 +4220,30 @@ function formatHistoryValue(v) {
   return String(v);
 }
 
+// Inline thumbnail row for the multi-photo upload UI in TaskSheet.
+// Resolves the storage path to a signed URL on demand. Tap → remove.
+function PhotoThumbnail({ photo, onRemove }) {
+  const signed = useSignedUrl(photo?.path || null);
+  const src = photo?.url || signed;
+  return (
+    <div className="relative w-20 h-20 rounded-xl bg-slate-100 overflow-hidden shrink-0">
+      {src ? (
+        <img src={src} alt="" className="w-full h-full object-cover" />
+      ) : (
+        <div className="w-full h-full grid place-items-center text-slate-300"><Camera size={18} /></div>
+      )}
+      <button
+        type="button"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove?.(); }}
+        className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-slate-900/70 text-white grid place-items-center"
+        title="Remove photo"
+      >
+        <X size={11} />
+      </button>
+    </div>
+  );
+}
+
 function StatRow({ label, value }) {
   return (
     <div className="flex items-center justify-between text-sm py-2 px-3 rounded-xl bg-slate-50">
@@ -4424,17 +4486,30 @@ function StreakCard({ e, hero }) {
 }
 
 // ===================== TASK SHEET (submit flow) =====================
-function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, songPlays, addSong, addSongPlay, books = [], updateBook, addBook, updateCompletion, actorId }) {
+function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, familyId, songs, songPlays, addSong, addSongPlay, books = [], updateBook, addBook, updateCompletion, actorId }) {
   const [notes, setNotes] = useState(existing?.notes || "");
   const [bookTitle, setBookTitle] = useState(existing?.extra?.bookTitle || "");
   const [lang, setLang] = useState(existing?.extra?.lang || "English");
   const [minutes, setMinutes] = useState(existing?.extra?.minutes || task.minutes);
-  const [photo, setPhoto] = useState(existing?.proof?.[0] || null);
+  // Photos — up to 3 per task. Initialised from any existing proof
+  // (filter to photo entries with a path or url). Mike: "One photo
+  // is too limiting. But 3 should be the max for an activity."
+  const MAX_PHOTOS = 3;
+  const [photos, setPhotos] = useState(() => {
+    if (!existing?.proof) return [];
+    return existing.proof
+      .filter((p) => (p?.type === "photo" || p?.path || p?.url) && (p?.path || p?.url))
+      .slice(0, MAX_PHOTOS);
+  });
   const [uploading, setUploading] = useState(false);
-  const [drumeo, setDrumeo] = useState("");
-  const [melodics, setMelodics] = useState("");
-  const [songList, setSongList] = useState("");
-  const [title, setTitle] = useState("");
+  // Initialise drum subs from a saved draft so reopening picks up
+  // where the parent left off (Drumeo 17 min, then Melodics 37 min,
+  // etc.). Otherwise default to empty so a fresh submission still
+  // shows blank inputs.
+  const [drumeo, setDrumeo] = useState(existing?.extra?.drumeo ? String(existing.extra.drumeo) : "");
+  const [melodics, setMelodics] = useState(existing?.extra?.melodics ? String(existing.extra.melodics) : "");
+  const [songList, setSongList] = useState(existing?.extra?.songList || "");
+  const [title, setTitle] = useState(existing?.extra?.title || "");
   // Reading picker — bookId is set when an existing book is selected;
   // markFinished is the "I finished this book today" checkbox that
   // flips the book's status to finished on submit. Both flow into
@@ -4502,19 +4577,33 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
   // Upload the file to family-photos under <familyId>/proof/ and store
   // the returned path on the photo object. The legacy `url` field is
   // omitted; display code resolves path → signed URL on demand.
+  // handleFile appends one upload to the photos array, capped at
+  // MAX_PHOTOS. Reading the existing length captures it as of the
+  // tap, so a rapid double-tap can't sneak past the cap.
   const handleFile = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
+    if (photos.length >= MAX_PHOTOS) {
+      alert(`Max ${MAX_PHOTOS} photos per task.`);
+      e.target.value = "";
+      return;
+    }
     setUploading(true);
     try {
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
-      setPhoto({ type: "photo", name, path });
+      setPhotos((prev) => (prev.length >= MAX_PHOTOS ? prev : [...prev, { type: "photo", name, path }]));
     } catch (err) {
       alert("Photo upload failed: " + (err.message || err));
     } finally {
       setUploading(false);
+      e.target.value = ""; // allow picking the same file again after remove
     }
   };
+  const removePhotoAt = (idx) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  // Back-compat shims for code paths that read `photo` / `photoPreview`
+  // (single-photo gating, the "use as book cover" checkbox, etc.).
+  // They now reflect the first photo in the array.
+  const photo = photos[0] || null;
   const photoPreview = useSignedUrl(photo?.path);
 
   // gates
@@ -4522,12 +4611,12 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
   let gateMsg = "";
   if (uploading) { ready = false; gateMsg = "Photo still uploading…"; }
   if (isReading && !bookTitle.trim()) { ready = false; gateMsg = "Enter the book title to submit."; }
-  if (isPhoto && !photo) { ready = false; gateMsg = "Add a photo of your work to submit."; }
+  if (isPhoto && photos.length === 0) { ready = false; gateMsg = "Add a photo of your work to submit."; }
   if (isDrums && (!drumeo && !melodics && !songList)) { ready = false; gateMsg = "Log at least one of Drumeo / Melodics / songs."; }
 
   const doSubmit = () => {
     // Strip any legacy preview URL from the stored proof item.
-    const proof = photo ? [{ type: "photo", name: photo.name, path: photo.path }] : [];
+    const proof = photos.map((p) => ({ type: "photo", name: p.name, path: p.path }));
     const extra = {};
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
@@ -4610,6 +4699,19 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
     } else {
       onSubmit(task.id, { notes, proof, extra });
     }
+  };
+
+  // doSaveDraft writes the in-progress state without firing the
+  // submit gauntlet. No gate enforcement (drafts can be partial), no
+  // streak bump, no juice. The parent picks back up next time they
+  // tap into the task.
+  const doSaveDraft = () => {
+    const proof = photos.map((p) => ({ type: "photo", name: p.name, path: p.path }));
+    const extra = {};
+    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
+    if (isPhoto) Object.assign(extra, { title });
+    if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    onSaveDraft?.(task.id, { notes, proof, extra });
   };
 
   const alreadyApproved = existing?.status === "approved";
@@ -4832,20 +4934,28 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
             {isPhoto && (
               <>
                 <Field label="Title (optional)"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Name your work" className="input" /></Field>
-                <label className="block">
-                  <div className="text-xs font-semibold text-slate-500 mb-1">Photo of your work *</div>
-                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-4 flex flex-col items-center gap-2 cursor-pointer hover:bg-slate-50">
-                    {photoPreview ? <img src={photoPreview} alt="proof" className="h-28 rounded-xl object-cover" /> : <Camera size={28} className="text-slate-300" />}
-                    <span className="text-xs text-slate-400">{uploading ? "Uploading…" : (photo ? photo.name : "Tap to add a photo")}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      {...(task.category === "Chores" ? { capture: "environment" } : {})}
-                      onChange={handleFile}
-                      className="hidden"
-                    />
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 mb-1">
+                    Photos of your work * <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
                   </div>
-                </label>
+                  <div className="flex flex-wrap gap-2">
+                    {photos.map((p, i) => (<PhotoThumbnail key={i} photo={p} onRemove={() => removePhotoAt(i)} />))}
+                    {photos.length < MAX_PHOTOS && (
+                      <label className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-200 grid place-items-center cursor-pointer hover:bg-slate-50 shrink-0">
+                        {uploading
+                          ? <span className="text-[10px] text-slate-400">Uploading…</span>
+                          : <Camera size={20} className="text-slate-300" />}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          {...(task.category === "Chores" ? { capture: "environment" } : {})}
+                          onChange={handleFile}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
               </>
             )}
 
@@ -4866,14 +4976,22 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
                   />
                 )}
                 <div className="bg-amber-50 rounded-2xl p-3 text-xs text-amber-700">🎯 Goal: 1 hour · Stretch: 2 hours. Parent can adjust stars for effort.</div>
-                <label className="block">
-                  <div className="text-xs font-semibold text-slate-500 mb-1">Screenshot proof (Drumeo/Melodics)</div>
-                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-3 flex items-center gap-2 cursor-pointer hover:bg-slate-50">
-                    {photoPreview ? <img src={photoPreview} alt="proof" className="h-12 rounded object-cover" /> : <Camera size={20} className="text-slate-300" />}
-                    <span className="text-xs text-slate-400">{uploading ? "Uploading…" : (photo ? photo.name : "Add screenshot")}</span>
-                    <input type="file" accept="image/*" onChange={handleFile} className="hidden" />
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 mb-1">
+                    Screenshots / photos <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
                   </div>
-                </label>
+                  <div className="flex flex-wrap gap-2">
+                    {photos.map((p, i) => (<PhotoThumbnail key={i} photo={p} onRemove={() => removePhotoAt(i)} />))}
+                    {photos.length < MAX_PHOTOS && (
+                      <label className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-200 grid place-items-center cursor-pointer hover:bg-slate-50 shrink-0">
+                        {uploading
+                          ? <span className="text-[10px] text-slate-400">Uploading…</span>
+                          : <Camera size={20} className="text-slate-300" />}
+                        <input type="file" accept="image/*" onChange={handleFile} className="hidden" />
+                      </label>
+                    )}
+                  </div>
+                </div>
               </>
             )}
 
@@ -4886,35 +5004,28 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
                 isPhoto/isDrums use, so doSubmit packs it into proof
                 regardless of task type. */}
             {!isPhoto && !isDrums && (
-              <label className="block">
-                <div className="text-xs font-semibold text-slate-500 mb-1">Photo (optional)</div>
-                <div className="border-2 border-dashed border-slate-200 rounded-2xl p-3 flex items-center gap-2 cursor-pointer hover:bg-slate-50">
-                  {photoPreview ? (
-                    <img src={photoPreview} alt="proof" className="h-12 rounded object-cover" />
-                  ) : (
-                    <Camera size={20} className="text-slate-300" />
-                  )}
-                  <span className="text-xs text-slate-400 flex-1 truncate">
-                    {uploading ? "Uploading…" : (photo ? (photo.name || "Photo attached") : "Tap to add a photo")}
-                  </span>
-                  {photo && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPhoto(null); }}
-                      className="text-[11px] font-bold text-slate-400 shrink-0"
-                    >
-                      Remove
-                    </button>
-                  )}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    {...(task.category === "Chores" ? { capture: "environment" } : {})}
-                    onChange={handleFile}
-                    className="hidden"
-                  />
+              <div>
+                <div className="text-xs font-semibold text-slate-500 mb-1">
+                  Photos (optional) <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
                 </div>
-              </label>
+                <div className="flex flex-wrap gap-2">
+                  {photos.map((p, i) => (<PhotoThumbnail key={i} photo={p} onRemove={() => removePhotoAt(i)} />))}
+                  {photos.length < MAX_PHOTOS && (
+                    <label className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-200 grid place-items-center cursor-pointer hover:bg-slate-50 shrink-0">
+                      {uploading
+                        ? <span className="text-[10px] text-slate-400">Uploading…</span>
+                        : <Camera size={20} className="text-slate-300" />}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        {...(task.category === "Chores" ? { capture: "environment" } : {})}
+                        onChange={handleFile}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
             )}
 
             {/* "Also use this as the book cover" — visible only for a
@@ -4961,6 +5072,27 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, familyId, songs, s
                 ? "Save changes 💾"
                 : (task.approvalRequired ? "Submit for Stars ⭐" : "Mark Done ✓")}
             </button>
+            {/* Save progress — keeps everything entered so far as a
+                draft. No streak bump, no stars, no Approvals queue
+                appearance. Reopen the task to pick up where you left
+                off. Hidden in edit mode (the row is already submitted).
+                Mike: Drums is 45min-2hr; he wants to log Drumeo first,
+                come back later for Melodics, then add songs one at a
+                time. */}
+            {!canEdit && onSaveDraft && (
+              <button
+                type="button"
+                onClick={doSaveDraft}
+                disabled={uploading}
+                className={`w-full mt-2 py-3 rounded-2xl font-bold text-sm transition ${
+                  uploading
+                    ? "bg-slate-100 text-slate-400"
+                    : "bg-amber-50 text-amber-700 border border-amber-200 active:scale-95"
+                }`}
+              >
+                💾 Save progress — come back later
+              </button>
+            )}
             <button onClick={handleClose} className="w-full py-2 text-slate-400 text-sm font-semibold">Cancel</button>
           </div>
         )}
@@ -5648,7 +5780,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [] }) {
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
-  const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix"].includes(compByTask[t.id]?.status));
+  const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix", "draft"].includes(compByTask[t.id]?.status));
   const todo = sortByLevel(todoRaw, mode, priorities);
   return (
     <div className="px-4 pt-4">
@@ -5978,10 +6110,19 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
           </div>
           {setPriority && <button onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }} className={`p-1.5 rounded-lg shrink-0 ${lvl !== "normal" ? "text-slate-700" : "text-slate-300"}`}><Flag size={16} className={lvl !== "normal" ? "fill-current" : ""} /></button>}
           <StarPill n={comp?.awardedStars || comp?.pendingStars || task.starValue} tone={tone === "emerald" ? "emerald" : "amber"} />
-          {onMarkDone && !comp && (
+          {/* Draft badge — a parent's saved work-in-progress lives
+              here too (todo list includes drafts so they don't fall
+              off the radar). Show "draft" with a pencil so they
+              know to come back. Click still opens the task sheet. */}
+          {comp?.status === "draft" && (
+            <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 shrink-0 flex items-center gap-1">
+              <Pencil size={10} /> Draft
+            </span>
+          )}
+          {onMarkDone && (!comp || comp.status === "draft") && (
             <button
               onClick={(e) => { e.stopPropagation(); onMarkDone(task); }}
-              title="Mark done for Reznor (with photo proof if needed)"
+              title={comp?.status === "draft" ? "Open the saved draft" : "Mark done for Reznor (with photo proof if needed)"}
               className="p-1.5 rounded-lg shrink-0 text-emerald-600 hover:bg-emerald-50"
             >
               <Check size={16} />

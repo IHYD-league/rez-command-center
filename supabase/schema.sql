@@ -319,7 +319,7 @@ create table if not exists public.completions (
   id text primary key,
   family_id uuid not null references public.families(id) on delete cascade,
   task_id text not null,
-  status text not null check (status in ('pending','approved','needs_fix','skipped')),
+  status text not null check (status in ('draft','pending','approved','needs_fix','skipped')),
   awarded_stars int not null default 0,
   pending_stars int not null default 0,
   completed_by text references public.profiles(id) on delete set null,
