@@ -17,7 +17,7 @@ import SongLogger from "./SongLogger.jsx";
 import BoardGame, { BOARD_THEMES, DEFAULT_BOARD_THEME } from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
-import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel } from "./lib/statTemplates.js";
+import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { supabase } from "./lib/supabase.js";
 import { toApp } from "./data/transform.js";
@@ -4227,6 +4227,72 @@ function CompletionDetailSheet({
               const isPhotoRow = pt === "photo";
               const x = completion?.extra || {};
               const compDate = completion?.completionDate || "";
+
+              // Generic schema-driven hero — kicks in when the task
+              // has a stat_schema AND no special-case branch matches.
+              // Basketball / piano / soccer / etc. land here.
+              // Numbers (minutes/count) become tile rows; minutes is
+              // promoted as the hero number; text values become pill
+              // chips. Matches the polished look of the drums hero
+              // without the song-plays join (those are drums-only).
+              if (hasStatSchema(task) && !isDrumsRow && !isReadingRow && !isPhotoRow) {
+                const fields = task.statSchema.practice || [];
+                const numericFields = fields.filter((f) => f.type === "minutes" || f.type === "count");
+                const textFields = fields.filter((f) => f.type === "text");
+                const filledNumerics = numericFields.filter((f) => Number(x[f.key]) > 0);
+                const filledTexts = textFields.filter((f) => x[f.key] && String(x[f.key]).trim());
+                if (filledNumerics.length === 0 && filledTexts.length === 0) return null;
+                // Hero number: first minutes field with a value wins;
+                // otherwise the highest count.
+                const minutesField = numericFields.find((f) => f.type === "minutes" && Number(x[f.key]) > 0);
+                const heroVal = minutesField ? Number(x[minutesField.key]) : Math.max(0, ...filledNumerics.map((f) => Number(x[f.key]) || 0));
+                const heroLabel = minutesField ? "min total" : (filledNumerics[0]?.label || "");
+                return (
+                  <div
+                    className="rounded-3xl p-4 mb-2 text-white relative overflow-hidden border-2 border-white/15 shadow-xl"
+                    style={{ background: "linear-gradient(135deg, #4338ca 0%, #7c3aed 45%, #ec4899 100%)" }}
+                  >
+                    <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "20%", top: "20%", color: "rgba(255,255,255,0.5)", fontSize: 12 }}>✦</span>
+                    <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "78%", top: "26%", color: "rgba(255,255,255,0.4)", fontSize: 10 }}>✦</span>
+                    <div className="relative">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-extrabold flex items-center gap-1.5 mb-2">
+                        📊 What he did
+                      </div>
+                      {heroVal > 0 && (
+                        <div className="flex items-baseline gap-2 mb-3">
+                          <span className="text-5xl font-extrabold tracking-tight leading-none" style={{ textShadow: "0 0 12px rgba(253,224,71,0.55)" }}>
+                            {heroVal}
+                          </span>
+                          <span className="text-sm font-bold text-white/70">{heroLabel}</span>
+                        </div>
+                      )}
+                      {filledNumerics.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                          {filledNumerics.slice(0, 6).map((f) => (
+                            <div key={f.key} className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                              <div className="text-xl font-extrabold leading-none">{Number(x[f.key]) || 0}</div>
+                              <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1 truncate">{f.label}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {filledTexts.length > 0 && (
+                        <>
+                          <div className="text-[10px] uppercase tracking-wider font-bold text-white/70 mb-1.5">Notes</div>
+                          <div className="space-y-1">
+                            {filledTexts.map((f) => (
+                              <div key={f.key} className="text-[12px] text-white/90">
+                                <span className="text-white/60 font-bold">{f.label}: </span>{x[f.key]}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
               if (isDrumsRow) {
                 const drumeo = Number(x.drumeo) || 0;
                 const melodics = Number(x.melodics) || 0;
@@ -4769,6 +4835,38 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   const isDrums = task.proofType === "drums";
   const isPhoto = task.proofType === "photo";
 
+  // Schema-driven generic stats path. Only kicks in when the task
+  // has a stat_schema AND no proofType special case is active —
+  // drums/reading/photo keep their existing polished branches.
+  // Basketball / piano / soccer / etc. (no proofType set) hit this
+  // branch and render inputs straight from task.statSchema.practice.
+  const useSchemaFields = hasStatSchema(task) && !isReading && !isDrums && !isPhoto;
+  const schemaFields = useSchemaFields ? (task.statSchema.practice || []) : [];
+  const [schemaValues, setSchemaValues] = useState(() => {
+    const seed = {};
+    if (!useSchemaFields) return seed;
+    for (const f of schemaFields) {
+      const v = existing?.extra?.[f.key];
+      seed[f.key] = v === undefined || v === null ? "" : String(v);
+    }
+    return seed;
+  });
+  const setSchemaField = (key, value) => setSchemaValues((prev) => ({ ...prev, [key]: value }));
+  // Pack the schema values into extra. Numbers (minutes/count) are
+  // coerced; text stays string. Empty strings are stripped so the
+  // row's extra stays clean instead of carrying "" for every blank.
+  const schemaExtra = () => {
+    if (!useSchemaFields) return {};
+    const out = {};
+    for (const f of schemaFields) {
+      const raw = schemaValues[f.key];
+      if (raw === undefined || raw === "") continue;
+      if (f.type === "minutes" || f.type === "count") out[f.key] = Number(raw) || 0;
+      else out[f.key] = String(raw);
+    }
+    return out;
+  };
+
   // Picker list: books filtered by free-text + sorted by "what's
   // most useful at submit time" — reading-in-progress first (most
   // likely match), then wishlist, then archive (re-read candidates),
@@ -4839,6 +4937,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    if (useSchemaFields) Object.assign(extra, schemaExtra());
     onSaveDraft(task.id, { notes, proof, extra });
   };
   const handleFile = async (e) => {
@@ -4895,6 +4994,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    if (useSchemaFields) Object.assign(extra, schemaExtra());
 
     // Reading-side writes — keep the catalog in sync with what just got
     // read. This is the unification Mike asked for: one book, one row,
@@ -4985,6 +5085,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    if (useSchemaFields) Object.assign(extra, schemaExtra());
     onSaveDraft?.(task.id, { notes, proof, extra });
   };
 
@@ -5103,6 +5204,41 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
 
         {(!alreadyApproved || canEdit) && (
           <div className="mt-4 space-y-3">
+            {/* Schema-driven stat inputs — Plan B iter 2.
+                Renders only for tasks with a stat_schema AND no
+                proofType special case. Drums / reading / photo
+                tasks keep their existing polished UI below. */}
+            {useSchemaFields && schemaFields.length > 0 && (
+              <div className="rounded-2xl bg-gradient-to-br from-indigo-50 via-violet-50 to-pink-50 border border-indigo-100 p-3">
+                <div className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-700 mb-2 flex items-center gap-1">
+                  📊 Stats
+                </div>
+                <div className="space-y-2">
+                  {schemaFields.map((f) => {
+                    const v = schemaValues[f.key] ?? "";
+                    const isNumeric = f.type === "minutes" || f.type === "count";
+                    const unit = f.type === "minutes" ? "min" : null;
+                    return (
+                      <Field key={f.key} label={f.label}>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type={isNumeric ? "number" : "text"}
+                            inputMode={isNumeric ? "numeric" : undefined}
+                            min={isNumeric ? 0 : undefined}
+                            value={v}
+                            onChange={(e) => setSchemaField(f.key, e.target.value)}
+                            placeholder={isNumeric ? "0" : ""}
+                            className="input"
+                          />
+                          {unit && <span className="text-xs text-slate-400 shrink-0">{unit}</span>}
+                        </div>
+                      </Field>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {isReading && (
               <>
                 {/* Book picker — search existing books to avoid duplicates.
