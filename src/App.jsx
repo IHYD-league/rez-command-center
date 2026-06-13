@@ -17,6 +17,7 @@ import SongLogger from "./SongLogger.jsx";
 import BoardGame, { BOARD_THEMES, DEFAULT_BOARD_THEME } from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
+import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { supabase } from "./lib/supabase.js";
@@ -1210,17 +1211,39 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }));
   };
   const removeCompletionPhoto = (completionId, path) => {
-    setCompletions((prev) => prev.map((c) => {
-      if (c.id !== completionId) return c;
-      const existing = Array.isArray(c.proof) ? c.proof : [];
-      return { ...c, proof: existing.filter((p) => p.path !== path) };
-    }));
+    setCompletions((prev) => {
+      const next = prev.map((c) => {
+        if (c.id !== completionId) return c;
+        const existing = Array.isArray(c.proof) ? c.proof : [];
+        return { ...c, proof: existing.filter((p) => p.path !== path) };
+      });
+      // Storage GC — fire-and-forget after the state update so the
+      // ref-count check sees the post-update completions array.
+      // Dedup may mean this path is still referenced by another row;
+      // the helper will skip the delete in that case.
+      maybeDeleteUnusedPaths([path], {
+        completions: next, books, songs, gifted: giftedRaw, albumPhotos, users, awards,
+      });
+      return next;
+    });
   };
   const undoTask = (taskId) => {
     // "Unmark today" — only touch today's completion. Yesterday's row stays
     // in the array so history isn't destroyed.
     const c = completions.find((x) => x.taskId === taskId && (x.completionDate || null) === TODAY_ISO);
-    setCompletions((prev) => prev.filter((x) => !(x.taskId === taskId && (x.completionDate || null) === TODAY_ISO)));
+    setCompletions((prev) => {
+      const next = prev.filter((x) => !(x.taskId === taskId && (x.completionDate || null) === TODAY_ISO));
+      // Cascade-delete proof photos that nobody else uses. Ref-count
+      // against the post-update completions array so the removed
+      // row's own paths don't self-reference.
+      const proofPaths = pathsFromProof(c?.proof);
+      if (proofPaths.length > 0) {
+        maybeDeleteUnusedPaths(proofPaths, {
+          completions: next, books, songs, gifted: giftedRaw, albumPhotos, users, awards,
+        });
+      }
+      return next;
+    });
     setSubProgress((prev) => { const n = { ...prev }; delete n[taskId]; return n; });
     if (c && c.status === "approved") {
       const t = tasks.find((x) => x.id === taskId);
@@ -1471,7 +1494,21 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const addTaskNote = (taskId, text) => { if (!text.trim()) return; setTaskNotes((prev) => ({ ...prev, [taskId]: [{ text: text.trim(), by: currentUserId, time: "now" }, ...(prev[taskId] || [])] })); };
   const addBook = (b) => setBooks((prev) => [b, ...prev]);
   const updateBook = (id, patch) => setBooks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
-  const removeBook = (id) => setBooks((prev) => prev.filter((b) => b.id !== id));
+  const removeBook = (id) => {
+    const target = books.find((b) => b.id === id);
+    setBooks((prev) => {
+      const next = prev.filter((b) => b.id !== id);
+      // GC the book's custom cover (if any) after the row is gone.
+      // Dedup may keep the path alive via another book / completion
+      // proof / cover; helper handles that.
+      if (target?.customCoverPath) {
+        maybeDeleteUnusedPaths([target.customCoverPath], {
+          completions, books: next, songs, gifted: giftedRaw, albumPhotos, users, awards,
+        });
+      }
+      return next;
+    });
+  };
   const toggleSub = (taskId, subId) => {
     const t = tasks.find((x) => x.id === taskId);
     if (!t?.subtasks) return;
@@ -1542,7 +1579,19 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     ]);
   };
   const removeSong = (id) => {
-    setSongs((prev) => prev.filter((s) => s.id !== id));
+    const target = songs.find((s) => s.id === id);
+    setSongs((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      // GC the song's custom cover (if any) — albumCover dedup means
+      // the path might still be in use by another song from the same
+      // canonical album; helper checks before deleting.
+      if (target?.customCoverPath) {
+        maybeDeleteUnusedPaths([target.customCoverPath], {
+          completions, books, songs: next, gifted: giftedRaw, albumPhotos, users, awards,
+        });
+      }
+      return next;
+    });
     setSongPlays((prev) => prev.filter((p) => p.songId !== id));
   };
   const removeSongPlay = (id) => setSongPlays((prev) => prev.filter((p) => p.id !== id));
