@@ -503,6 +503,46 @@ const STRINGS = {
   ml_editing:                 { en: "Editing",                                 es: "Editando" },
   ml_close_aria:              { en: "Close",                                   es: "Cerrar" },
 
+  // KidStars page
+  ks_trophy_footer:           { en: "Win badges every single day — even before the big rewards. 🎉", es: "Gana insignias cada día — incluso antes de los grandes premios. 🎉" },
+  ks_undated:                 { en: "Undated",                                  es: "Sin fecha" },
+  ks_bonus_fallback:          { en: "Bonus",                                    es: "Bono" },
+  ks_bonus_prefix:            { en: "bonus",                                    es: "bono" },
+
+  // MostPlayedSongs (kid + parent view)
+  mps_section:                { en: "Most played songs",                        es: "Canciones más tocadas" },
+  mps_no_songs:               { en: "No songs logged yet. Tap drums → log one!", es: "Aún no hay canciones. ¡Toca batería → registra una!" },
+  mps_top_n:                  { en: "top {n}",                                  es: "top {n}" },
+  mps_plays_one:              { en: "play",                                     es: "reproducción" },
+  mps_plays_many:             { en: "plays",                                    es: "reproducciones" },
+  mps_last:                   { en: "last: {date}",                             es: "última: {date}" },
+  mps_play_history:           { en: "Play history",                             es: "Historial" },
+  mps_notes_ph:               { en: "Notes (optional)…",                        es: "Notas (opcional)…" },
+  mps_ask_parent:             { en: "Ask parent",                               es: "Pedir a un adulto" },
+  mps_save:                   { en: "Save",                                     es: "Guardar" },
+  mps_cancel:                 { en: "Cancel",                                   es: "Cancelar" },
+  mps_pending_remove:         { en: "⏳ remove pending",                         es: "⏳ quitar pendiente" },
+  mps_pending_edit:           { en: "⏳ edit pending",                           es: "⏳ editar pendiente" },
+  mps_edit_play:              { en: "Edit this play",                           es: "Editar esta reproducción" },
+  mps_ask_remove:             { en: "Ask parent to remove this play",           es: "Pedir a un adulto que quite esta reproducción" },
+  mps_remove_play:            { en: "Remove this play",                         es: "Quitar esta reproducción" },
+  mps_confirm_ask:            { en: "Ask a parent to remove this play?\n\n\"{song}\" — {when}{notes}\n\nIt'll show up in the parent's Approval queue. The play count won't change until they approve.", es: "¿Pedir a un adulto que quite esta reproducción?\n\n\"{song}\" — {when}{notes}\n\nAparecerá en la cola de aprobaciones. El conteo no cambia hasta que aprueben." },
+  mps_confirm_remove:         { en: "Remove this play?\n\n\"{song}\" — {when}{notes}\n\nThe play count drops by 1 and this can't be undone.", es: "¿Quitar esta reproducción?\n\n\"{song}\" — {when}{notes}\n\nEl conteo baja 1 y no se puede deshacer." },
+  mps_this_song:              { en: "this song",                                es: "esta canción" },
+  mps_unknown_date:           { en: "an unknown date",                          es: "una fecha desconocida" },
+  mps_missing_song:           { en: "(missing)",                                es: "(no encontrada)" },
+
+  // RewardsKid
+  rk_bank_subtitle:           { en: "in your star bank",                        es: "en tu banco de estrellas" },
+  rk_can_get:                 { en: "You can get this! 🎉",                     es: "¡Puedes conseguirlo! 🎉" },
+  rk_more_to_go:              { en: "{n} more ⭐ to go",                        es: "{n} más ⭐ para conseguirlo" },
+  rk_ask:                     { en: "Ask →",                                    es: "Pedir →" },
+  rk_asked:                   { en: "Asked!",                                   es: "¡Pedido!" },
+  rk_status_approved:         { en: "approved",                                  es: "aprobado" },
+  rk_status_denied:           { en: "denied",                                    es: "rechazado" },
+  rk_status_declined:         { en: "declined",                                  es: "rechazado" },
+  rk_status_requested:        { en: "requested",                                 es: "pedido" },
+
   // Summary stat tile labels (parent Today + kid Stars)
   stat_stars_available:       { en: "Stars available today",                 es: "Estrellas disponibles hoy" },
   stat_earned_today:          { en: "Earned today",                          es: "Ganadas hoy" },
