@@ -1233,24 +1233,47 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // bug class entirely. Both call sites (parent home inline + the
   // Approvals tab) now pass the completion id.
   const decide = (completionId, decision, bonus = 0) => {
-    setCompletions((prev) => prev.map((c) => {
-      if (c.id !== completionId) return c;
-      if (decision === "approve") return { ...c, status: "approved", awardedStars: c.pendingStars + bonus, pendingStars: 0, approvedBy: currentProfileId || currentUserId };
-      if (decision === "needs_fix") return { ...c, status: "needs_fix", pendingStars: 0 };
-      if (decision === "reject") return { ...c, status: "skipped", pendingStars: 0, awardedStars: 0 };
-      return c;
-    }));
+    // Look up the target row in the pre-update array so we can
+    // build the patch from c.pendingStars accurately. setCompletions
+    // hasn't applied yet on this tick so `completions.find` returns
+    // the row as it was when the parent tapped Approve.
+    const target = completions.find((c) => c.id === completionId);
+    if (!target) return;
+    // Build patch + audit summary by decision. Routing through
+    // updateCompletion (instead of raw setCompletions) layers an
+    // `extra.history` entry so weeks later "who approved this with
+    // a +5 bonus?" has an answer in the CompletionDetailSheet's
+    // Edit history. Audit lives in jsonb — no schema change.
+    let patch;
+    let summary;
+    const actor = currentProfileId || currentUserId;
     if (decision === "approve") {
-      // Resolve the completion → its task → its activity for streak
-      // bumps and star-burst fly amount. We look it up in the current
-      // (pre-update) completions array since the setCompletions above
-      // hasn't applied yet on this tick.
-      const target = completions.find((c) => c.id === completionId);
-      const tk = target ? tasks.find((x) => x.id === target.taskId) : null;
+      patch = {
+        status: "approved",
+        awardedStars: target.pendingStars + bonus,
+        pendingStars: 0,
+        approvedBy: actor,
+      };
+      summary = bonus > 0 ? `Approved with +${bonus} bonus` : "Approved";
+    } else if (decision === "needs_fix") {
+      patch = { status: "needs_fix", pendingStars: 0 };
+      summary = "Marked Needs fix";
+    } else if (decision === "reject") {
+      patch = { status: "skipped", pendingStars: 0, awardedStars: 0 };
+      summary = "Rejected";
+    } else {
+      return;
+    }
+    updateCompletion(completionId, patch, { by: actor, summary });
+    // Effects — streak bump, juice, star-burst fly. Unchanged from
+    // the previous implementation; just moved below the audit write
+    // so the order is "record, then react."
+    if (decision === "approve") {
+      const tk = tasks.find((x) => x.id === target.taskId);
       const aid = tk?.activityId || TYPE_TO_ACT[tk?.activityType];
       if (aid) bumpStreak(aid); // only bumps if that activity is being tracked
       juice.burst("success", "approve");
-      const flyValue = (target?.pendingStars || 0) + (bonus || 0);
+      const flyValue = (target.pendingStars || 0) + (bonus || 0);
       starBurst.fly({ value: flyValue || 1 });
     } else if (decision === "needs_fix") {
       juice.burst("warning", "nope");
