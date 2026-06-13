@@ -4682,7 +4682,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     const f = e.target.files?.[0];
     if (!f) return;
     if (photos.length >= MAX_PHOTOS) {
-      toast.error(`Max ${MAX_PHOTOS} photos per task.`);
+      toast.error(i18nTOf("ts_max_photos", "Max {n} photos per task.").replace("{n}", MAX_PHOTOS));
       e.target.value = "";
       return;
     }
@@ -4691,7 +4691,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
       setPhotos((prev) => (prev.length >= MAX_PHOTOS ? prev : [...prev, { type: "photo", name, path }]));
     } catch (err) {
-      toast.error("Photo upload failed: " + (err.message || err));
+      toast.error(i18nTOf("ts_photo_upload_fail", "Photo upload failed: {msg}").replace("{msg}", err.message || err));
     } finally {
       setUploading(false);
       e.target.value = ""; // allow picking the same file again after remove
@@ -4707,10 +4707,10 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   // gates
   let ready = true;
   let gateMsg = "";
-  if (uploading) { ready = false; gateMsg = "Photo still uploading…"; }
-  if (isReading && !bookTitle.trim()) { ready = false; gateMsg = "Enter the book title to submit."; }
-  if (isPhoto && photos.length === 0) { ready = false; gateMsg = "Add a photo of your work to submit."; }
-  if (isDrums && (!drumeo && !melodics && !songList)) { ready = false; gateMsg = "Log at least one of Drumeo / Melodics / songs."; }
+  if (uploading) { ready = false; gateMsg = i18nTOf("ts_gate_uploading", "Photo still uploading…"); }
+  if (isReading && !bookTitle.trim()) { ready = false; gateMsg = i18nTOf("ts_gate_book_title", "Enter the book title to submit."); }
+  if (isPhoto && photos.length === 0) { ready = false; gateMsg = i18nTOf("ts_gate_photo", "Add a photo of your work to submit."); }
+  if (isDrums && (!drumeo && !melodics && !songList)) { ready = false; gateMsg = i18nTOf("ts_gate_drums", "Log at least one of Drumeo / Melodics / songs."); }
 
   const doSubmit = () => {
     // Strip any legacy preview URL from the stored proof item.
@@ -4911,16 +4911,16 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
           <div className="w-11 h-11 rounded-2xl bg-amber-100 grid place-items-center"><TaskIcon type={task.activityType} /></div>
           <div>
             <div className="font-extrabold text-lg">{i18nTitleOf(task)}</div>
-            <div className="text-xs text-slate-400">{task.minutes} min · worth {task.starValue} ⭐{task.bonusStarValue ? ` (+${task.bonusStarValue} bonus possible)` : ""}</div>
+            <div className="text-xs text-slate-400">{i18nTOf("ts_minutes_worth", "{m} min · worth {n} ⭐").replace("{m}", task.minutes).replace("{n}", task.starValue)}{task.bonusStarValue ? i18nTOf("ts_bonus_possible", " (+{n} bonus possible)").replace("{n}", task.bonusStarValue) : ""}</div>
           </div>
         </div>
 
         {alreadyApproved && (
           <div className="mt-4 bg-emerald-50 text-emerald-700 rounded-2xl p-3 text-sm font-semibold flex items-center gap-2">
             <Check size={16} />
-            <span className="flex-1">Approved — {existing.awardedStars} ⭐ banked! 🎉</span>
+            <span className="flex-1">{i18nTOf("ts_approved_banked", "Approved — {n} ⭐ banked! 🎉").replace("{n}", existing.awardedStars)}</span>
             {canEdit && (
-              <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-600 bg-emerald-100 rounded-full px-2 py-0.5">edit mode</span>
+              <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-600 bg-emerald-100 rounded-full px-2 py-0.5">{i18nTOf("ts_edit_mode", "edit mode")}</span>
             )}
           </div>
         )}
@@ -4945,11 +4945,11 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
                       {pickerBooks.map((b) => {
                         const statusLabel =
-                          b.preTracking ? `Archive · ${b.eraLabel || "era unset"}`
-                          : b.status === "finished" ? "Finished"
-                          : b.status === "wishlist" ? "Wishlist"
-                          : b.status === "dropped" ? "Dropped"
-                          : "Reading";
+                          b.preTracking ? i18nTOf("ts_book_archive", "Archive · {era}").replace("{era}", b.eraLabel || i18nTOf("ts_book_era_unset", "era unset"))
+                          : b.status === "finished" ? i18nTOf("ts_book_status_finished", "Finished")
+                          : b.status === "wishlist" ? i18nTOf("ts_book_status_wishlist", "Wishlist")
+                          : b.status === "dropped" ? i18nTOf("ts_book_status_dropped", "Dropped")
+                          : i18nTOf("ts_book_status_reading", "Reading");
                         const statusColor =
                           b.preTracking ? "bg-amber-100 text-amber-800"
                           : b.status === "finished" ? "bg-emerald-100 text-emerald-700"
@@ -4965,17 +4965,17 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                             className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
                           >
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-bold text-slate-800 truncate">{b._display || "(untitled)"}</div>
+                              <div className="text-sm font-bold text-slate-800 truncate">{b._display || i18nTOf("ts_book_untitled", "(untitled)")}</div>
                               <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${statusColor}`}>{statusLabel}</span>
                                 {b.lang && <span className="text-[10px] text-slate-500">{b.lang}</span>}
                                 {(b.readCount || 1) > 1 && (
                                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                                    Read {b.readCount}×
+                                    {i18nTOf("ts_read_count", "Read {n}×").replace("{n}", b.readCount)}
                                   </span>
                                 )}
                                 {isRereadCandidate && (
-                                  <span className="text-[10px] text-amber-600 font-bold">round {((b.readCount || 1) + 1)}?</span>
+                                  <span className="text-[10px] text-amber-600 font-bold">{i18nTOf("ts_round_hint", "round {n}?").replace("{n}", (b.readCount || 1) + 1)}</span>
                                 )}
                               </div>
                             </div>
@@ -4988,12 +4988,12 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-2">
                       <Check size={14} className="text-emerald-600 shrink-0" />
                       <div className="flex-1 text-[12px] text-emerald-800 font-bold truncate">
-                        {i18nTOf("field_picked", "Picked")}: {pickedBook.canonicalTitle || pickedBook.title || "(untitled)"}
+                        {i18nTOf("field_picked", "Picked")}: {pickedBook.canonicalTitle || pickedBook.title || i18nTOf("ts_book_untitled", "(untitled)")}
                         {(pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped") && (
-                          <span className="text-[10px] text-amber-700 ml-1">(this will be Round {(pickedBook.readCount || 1) + 1})</span>
+                          <span className="text-[10px] text-amber-700 ml-1">{i18nTOf("ts_round_inline", "(this will be Round {n})").replace("{n}", (pickedBook.readCount || 1) + 1)}</span>
                         )}
                       </div>
-                      <button onClick={clearPick} className="text-emerald-600 p-1" aria-label="Clear picked book">
+                      <button onClick={clearPick} className="text-emerald-600 p-1" aria-label={i18nTOf("ts_picked_clear", "Clear picked book")}>
                         <X size={14} />
                       </button>
                     </div>
@@ -5003,15 +5003,15 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                   <input
                     value={bookTitle}
                     onChange={(e) => { setBookTitle(e.target.value); if (pickedBook) setBookId(null); }}
-                    placeholder="e.g. Dog Man"
+                    placeholder={i18nTOf("ts_book_title_ph", "e.g. Dog Man")}
                     className="input"
                   />
                 </Field>
                 <div className="flex gap-2">
-                  <button onClick={() => setLang("English")} className={`flex-1 py-2 rounded-2xl text-sm font-semibold ${lang === "English" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>English</button>
-                  <button onClick={() => setLang("Spanish")} className={`flex-1 py-2 rounded-2xl text-sm font-semibold ${lang === "Spanish" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>Spanish 🇪🇸</button>
+                  <button onClick={() => setLang("English")} className={`flex-1 py-2 rounded-2xl text-sm font-semibold ${lang === "English" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{i18nTOf("ts_lang_english", "English")}</button>
+                  <button onClick={() => setLang("Spanish")} className={`flex-1 py-2 rounded-2xl text-sm font-semibold ${lang === "Spanish" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{i18nTOf("ts_lang_spanish", "Spanish 🇪🇸")}</button>
                 </div>
-                <Field label="Minutes read"><input type="number" value={minutes} onChange={(e) => setMinutes(e.target.value)} className="input" /></Field>
+                <Field label={i18nTOf("ts_minutes_read", "Minutes read")}><input type="number" value={minutes} onChange={(e) => setMinutes(e.target.value)} className="input" /></Field>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -5020,9 +5020,9 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     className="w-4 h-4"
                   />
                   <span className="text-sm text-slate-700">
-                    ✅ He finished this book today
+                    {i18nTOf("ts_finished_today", "✅ He finished this book today")}
                     {pickedBook && (pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped")
-                      ? ` (Round ${(pickedBook.readCount || 1) + 1})`
+                      ? i18nTOf("ts_round_suffix", " (Round {n})").replace("{n}", (pickedBook.readCount || 1) + 1)
                       : ""}
                   </span>
                 </label>
@@ -5041,7 +5041,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     {photos.length < MAX_PHOTOS && (
                       <label className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-200 grid place-items-center cursor-pointer hover:bg-slate-50 shrink-0">
                         {uploading
-                          ? <span className="text-[10px] text-slate-400">Uploading…</span>
+                          ? <span className="text-[10px] text-slate-400">{i18nTOf("ts_uploading_small", "Uploading…")}</span>
                           : <Camera size={20} className="text-slate-300" />}
                         <input
                           type="file"
@@ -5083,7 +5083,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     {photos.length < MAX_PHOTOS && (
                       <label className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-200 grid place-items-center cursor-pointer hover:bg-slate-50 shrink-0">
                         {uploading
-                          ? <span className="text-[10px] text-slate-400">Uploading…</span>
+                          ? <span className="text-[10px] text-slate-400">{i18nTOf("ts_uploading_small", "Uploading…")}</span>
                           : <Camera size={20} className="text-slate-300" />}
                         <input type="file" accept="image/*" onChange={handleFile} className="hidden" />
                       </label>
@@ -5111,7 +5111,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                   {photos.length < MAX_PHOTOS && (
                     <label className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-200 grid place-items-center cursor-pointer hover:bg-slate-50 shrink-0">
                       {uploading
-                        ? <span className="text-[10px] text-slate-400">Uploading…</span>
+                        ? <span className="text-[10px] text-slate-400">{i18nTOf("ts_uploading_small", "Uploading…")}</span>
                         : <Camera size={20} className="text-slate-300" />}
                       <input
                         type="file"
@@ -5147,9 +5147,9 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     className="w-4 h-4 mt-0.5"
                   />
                   <span>
-                    Also use this as the book's cover
+                    {i18nTOf("ts_also_cover_label", "Also use this as the book's cover")}
                     <span className="block text-[11px] font-normal text-indigo-600/80 mt-0.5">
-                      Only do this if the photo IS the book cover (not Reznor reading). The Reading Library will show it.
+                      {i18nTOf("ts_also_cover_hint", "Only do this if the photo IS the book cover (not the kid reading). The Reading Library will show it.")}
                     </span>
                   </span>
                 </label>
