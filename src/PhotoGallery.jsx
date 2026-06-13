@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { X, ChevronLeft, ChevronRight, Calendar as CalIcon, Image as ImageIcon, Heart, Plus, Camera } from "lucide-react";
 import { useSignedUrl, uploadFamilyPhoto } from "./lib/storage.js";
 import { toast } from "./lib/toast.js";
+import { tOf } from "./lib/i18n.js";
+const t = (k, fb) => tOf(k, fb);
 
 /* =====================================================================
    PhotoGallery — Phase 1 + Phase 2 (Memories).
@@ -61,7 +63,7 @@ function PhotoTile({ photo, activity, onOpen }) {
       type="button"
       onClick={onOpen}
       className="relative aspect-square rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 active:scale-[0.98] transition group"
-      aria-label={`${activity?.name || "Photo"} — ${fmtDate(photo.date)}`}
+      aria-label={`${activity?.name || t("pg_photo_aria", "Photo")} — ${fmtDate(photo.date)}`}
     >
       {url ? (
         <img
@@ -79,8 +81,8 @@ function PhotoTile({ photo, activity, onOpen }) {
       {isMemory && (
         <div
           className="absolute top-1 right-1 w-6 h-6 rounded-full bg-pink-500/95 grid place-items-center text-white shadow"
-          aria-label="Memory"
-          title="Memory"
+          aria-label={t("pg_memory_aria", "Memory")}
+          title={t("pg_memory_aria", "Memory")}
         >
           <Heart size={12} fill="currentColor" />
         </div>
@@ -146,13 +148,13 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 text-white shrink-0" onClick={(e) => e.stopPropagation()}>
         <div className="text-xs text-white/70 font-semibold">
-          {index + 1} of {photos.length}
+          {t("pg_lightbox_index", "{i} of {n}").replace("{i}", index + 1).replace("{n}", photos.length)}
         </div>
         <button
           type="button"
           onClick={onClose}
           className="w-9 h-9 rounded-full bg-white/15 grid place-items-center active:scale-95"
-          aria-label="Close"
+          aria-label={t("pg_lightbox_close", "Close")}
         >
           <X size={20} />
         </button>
@@ -174,7 +176,7 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }) {
             style={{ touchAction: "pan-y" }}
           />
         ) : (
-          <div className="text-white/60 text-sm">Loading…</div>
+          <div className="text-white/60 text-sm">{t("pg_lightbox_loading", "Loading…")}</div>
         )}
       </div>
 
@@ -192,14 +194,14 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }) {
             />
           )}
           <span className="truncate">
-            {photo.caption || photo.activity?.name || (photo.source === "memories" ? "Memory" : "Photo")}
+            {photo.caption || photo.activity?.name || (photo.source === "memories" ? t("pg_memory_aria", "Memory") : t("pg_photo_aria", "Photo"))}
           </span>
         </div>
         <div className="text-[12px] text-white/75 mt-1 flex items-center gap-2 flex-wrap">
           <CalIcon size={12} />
           {fmtDate(photo.date)}
           {photo.time && <span className="text-white/55">· {photo.time}</span>}
-          {photo.uploader && <span className="text-white/55">· by {photo.uploader}</span>}
+          {photo.uploader && <span className="text-white/55">· {t("pg_by_label", "by {name}").replace("{name}", photo.uploader)}</span>}
           {photo.activity && photo.caption && (
             <span className="text-white/55">· {photo.activity.name}</span>
           )}
@@ -216,7 +218,7 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }) {
         type="button"
         onClick={(e) => { e.stopPropagation(); onPrev(); }}
         className="hidden sm:flex absolute left-2 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 items-center justify-center text-white"
-        aria-label="Previous"
+        aria-label={t("pg_lightbox_prev", "Previous")}
       >
         <ChevronLeft size={22} />
       </button>
@@ -224,7 +226,7 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }) {
         type="button"
         onClick={(e) => { e.stopPropagation(); onNext(); }}
         className="hidden sm:flex absolute right-2 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 items-center justify-center text-white"
-        aria-label="Next"
+        aria-label={t("pg_lightbox_next", "Next")}
       >
         <ChevronRight size={22} />
       </button>
@@ -272,7 +274,7 @@ function AddMemoryForm({ activities, user, familyId, onSave }) {
       reset();
       setOpen(false);
     } catch (err) {
-      toast.error("Upload failed: " + (err.message || err));
+      toast.error(t("pg_upload_fail", "Upload failed: {msg}").replace("{msg}", err.message || err));
       setBusy(false);
     }
   };
@@ -283,7 +285,7 @@ function AddMemoryForm({ activities, user, familyId, onSave }) {
         onClick={() => setOpen(true)}
         className="w-full mb-3 rounded-2xl border-2 border-dashed border-pink-300 bg-pink-50 text-pink-700 py-3 font-extrabold text-sm flex items-center justify-center gap-2 active:scale-[0.99]"
       >
-        <Plus size={16} /> Add a memory
+        <Plus size={16} /> {t("pg_add_memory", "Add a memory")}
         <Heart size={14} className="text-pink-500" />
       </button>
     );
@@ -292,13 +294,13 @@ function AddMemoryForm({ activities, user, familyId, onSave }) {
     <div className="mb-3 rounded-2xl bg-white border-2 border-pink-200 p-3 shadow-sm">
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs font-extrabold uppercase tracking-wider text-pink-600 flex items-center gap-1.5">
-          <Heart size={12} /> New Memory
+          <Heart size={12} /> {t("pg_new_memory", "New Memory")}
         </div>
         <button
           type="button"
           onClick={() => { reset(); setOpen(false); }}
           className="text-slate-400 p-1"
-          aria-label="Cancel"
+          aria-label={t("pg_cancel_aria", "Cancel")}
         >
           <X size={16} />
         </button>
@@ -307,12 +309,12 @@ function AddMemoryForm({ activities, user, familyId, onSave }) {
         type="text"
         value={caption}
         onChange={(e) => setCaption(e.target.value)}
-        placeholder="Caption — what's this from? (optional)"
+        placeholder={t("pg_caption_ph", "Caption — what's this from? (optional)")}
         className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2"
       />
       <div className="grid grid-cols-2 gap-2 mb-3">
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Date</label>
+          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">{t("pg_date_label", "Date")}</label>
           <input
             type="date"
             value={takenAt}
@@ -321,13 +323,13 @@ function AddMemoryForm({ activities, user, familyId, onSave }) {
           />
         </div>
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Activity (optional)</label>
+          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">{t("pg_activity_optional", "Activity (optional)")}</label>
           <select
             value={activityId}
             onChange={(e) => setActivityId(e.target.value)}
             className="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm bg-white"
           >
-            <option value="">— none —</option>
+            <option value="">{t("pg_activity_none", "— none —")}</option>
             {activeActivities.map((a) => (
               <option key={a.id} value={a.id}>{a.name}</option>
             ))}
@@ -349,10 +351,10 @@ function AddMemoryForm({ activities, user, familyId, onSave }) {
           busy ? "bg-slate-200 text-slate-400" : "bg-pink-600 text-white active:scale-95"
         }`}
       >
-        <Camera size={16} /> {busy ? "Uploading…" : "Pick a photo"}
+        <Camera size={16} /> {busy ? t("pg_uploading", "Uploading…") : t("pg_pick_photo", "Pick a photo")}
       </button>
       <div className="text-[11px] text-slate-400 mt-2 text-center">
-        Photos are private to your family. The album lives in the same gallery as Schoolwork.
+        {t("pg_privacy_hint", "Photos are private to your family. The album lives in the same gallery as Schoolwork.")}
       </div>
     </div>
   );
@@ -469,9 +471,9 @@ export default function PhotoGallery({ completions = [], tasks = [], activities 
       {memoriesCount > 0 && (
         <div className="flex items-center gap-1 bg-slate-100 rounded-2xl p-1 mb-3 text-[11px] font-bold">
           {[
-            { k: "all",        label: "All",        count: photos.length },
-            { k: "schoolwork", label: "Schoolwork", count: schoolworkCount },
-            { k: "memories",   label: "Memories",   count: memoriesCount },
+            { k: "all",        label: t("pg_filter_all", "All"),               count: photos.length },
+            { k: "schoolwork", label: t("pg_filter_schoolwork", "Schoolwork"), count: schoolworkCount },
+            { k: "memories",   label: t("pg_filter_memories", "Memories"),     count: memoriesCount },
           ].map((s) => (
             <button
               key={s.k}
@@ -491,14 +493,14 @@ export default function PhotoGallery({ completions = [], tasks = [], activities 
       <div className="flex items-center justify-between gap-2 mb-3">
         <div className="text-sm text-slate-500">
           <span className="font-extrabold text-slate-800">{filtered.length}</span>
-          {" "}{filtered.length === 1 ? "photo" : "photos"}
+          {" "}{filtered.length === 1 ? t("pg_count_one", "photo") : t("pg_count_many", "photos")}
           {activeActivity && (
             <button
               type="button"
               onClick={() => setActiveActivity(null)}
               className="ml-2 text-[11px] font-bold text-indigo-600"
             >
-              clear filter
+              {t("pg_clear_filter", "clear filter")}
             </button>
           )}
         </div>
@@ -508,14 +510,14 @@ export default function PhotoGallery({ completions = [], tasks = [], activities 
             onClick={() => setSortDir("desc")}
             className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${sortDir === "desc" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}
           >
-            Newest
+            {t("pg_sort_newest", "Newest")}
           </button>
           <button
             type="button"
             onClick={() => setSortDir("asc")}
             className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${sortDir === "asc" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}
           >
-            Oldest
+            {t("pg_sort_oldest", "Oldest")}
           </button>
         </div>
       </div>
@@ -534,7 +536,7 @@ export default function PhotoGallery({ completions = [], tasks = [], activities 
                 : "bg-white text-slate-600 border-slate-200"
             }`}
           >
-            All · {photos.length}
+            {t("pg_filter_all", "All")} · {photos.length}
           </button>
           {facets.map((f) => {
             const on = activeActivity === f.id;
@@ -567,12 +569,12 @@ export default function PhotoGallery({ completions = [], tasks = [], activities 
         <div className="rounded-3xl bg-slate-50 border border-slate-100 p-10 text-center text-slate-400">
           <ImageIcon size={32} className="mx-auto mb-2 text-slate-300" />
           <div className="text-sm font-semibold">
-            {photos.length === 0 ? "No photos yet." : "No photos in this filter."}
+            {photos.length === 0 ? t("pg_empty_none", "No photos yet.") : t("pg_empty_filter", "No photos in this filter.")}
           </div>
           <div className="text-[11px] mt-1">
             {photos.length === 0
-              ? "Tap a chore that asks for a photo — proofs show up here."
-              : "Pick another activity above, or clear the filter."}
+              ? t("pg_empty_hint_none", "Tap a chore that asks for a photo — proofs show up here.")
+              : t("pg_empty_hint_filter", "Pick another activity above, or clear the filter.")}
           </div>
         </div>
       ) : (

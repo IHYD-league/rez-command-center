@@ -5,6 +5,8 @@ import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 import { toast } from "./lib/toast.js";
 import { buildAlbumCoverMap, resolveSongCover } from "./lib/albumCover.js";
 import { EnrichedSongRow, SongMatchPicker } from "./SongRow.jsx";
+import { tOf } from "./lib/i18n.js";
+const t = (k, fb) => tOf(k, fb);
 
 /* =====================================================================
    Insights — Phase 3.
@@ -83,7 +85,7 @@ function SectionHead({ icon: Icon, title, since, color = "#6366f1" }) {
       </div>
       {since && (
         <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
-          since {fmtShort(since)}
+          {t("ins_since_prefix", "since")} {fmtShort(since)}
         </div>
       )}
     </div>
@@ -181,13 +183,21 @@ function EnrichedBookRow({ b, updateBook, familyId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [b.id, b.matchStatus, b.title]);
 
+  const statusLabel = (() => {
+    switch (b.status) {
+      case "finished": return t("ins_status_finished", "finished");
+      case "wishlist": return t("ins_status_wishlist", "wishlist");
+      case "dropped":  return t("ins_status_dropped", "dropped");
+      default:         return t("ins_status_reading", "reading");
+    }
+  })();
   const statusBadge = (
     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
       b.status === "finished" ? "bg-emerald-100 text-emerald-700"
         : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
         : b.status === "dropped" ? "bg-slate-200 text-slate-500"
         : "bg-amber-100 text-amber-700"
-    }`}>{b.status || "reading"}</span>
+    }`}>{statusLabel}</span>
   );
 
   const onConfirm = () => updateBook && updateBook(b.id, { matchStatus: "confirmed" });
@@ -203,7 +213,7 @@ function EnrichedBookRow({ b, updateBook, familyId }) {
       const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
       updateBook(b.id, { customCoverPath: path });
     } catch (err) {
-      toast.error("Cover upload failed: " + (err.message || err));
+      toast.error(t("ins_cover_upload_fail", "Cover upload failed: {msg}").replace("{msg}", err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -230,7 +240,7 @@ function EnrichedBookRow({ b, updateBook, familyId }) {
         )}
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-slate-800 truncate">
-            {b.canonicalTitle || b.title || "(untitled)"}
+            {b.canonicalTitle || b.title || t("ins_untitled", "(untitled)")}
           </div>
           <div className="text-[11px] text-slate-500 truncate">
             {b.canonicalAuthor || ""}
@@ -248,23 +258,23 @@ function EnrichedBookRow({ b, updateBook, familyId }) {
             disabled={busy}
             className="flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-emerald-500 text-white active:scale-95 flex items-center justify-center gap-1"
           >
-            <Check size={12} /> Looks right
+            <Check size={12} /> {t("ins_looks_right", "Looks right")}
           </button>
           <button
             type="button"
             onClick={() => setPicking(true)}
             className="flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-slate-100 text-slate-700 active:scale-95 flex items-center justify-center gap-1"
           >
-            <RotateCcw size={12} /> Pick another
+            <RotateCcw size={12} /> {t("ins_pick_another", "Pick another")}
           </button>
           <button
             type="button"
             onClick={onSkip}
             disabled={busy}
             className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
-            aria-label="Skip enrichment"
+            aria-label={t("ins_skip_aria", "Skip enrichment")}
           >
-            Skip
+            {t("ins_skip", "Skip")}
           </button>
         </div>
       )}
@@ -279,7 +289,7 @@ function EnrichedBookRow({ b, updateBook, familyId }) {
             accept="image/*"
             onChange={onUpload}
             className="hidden"
-            aria-label="Upload book cover"
+            aria-label={t("ins_upload_book_cover", "Upload book cover")}
           />
           <button
             type="button"
@@ -291,16 +301,16 @@ function EnrichedBookRow({ b, updateBook, familyId }) {
                 : "bg-white border border-slate-200 text-slate-600 active:scale-95"
             }`}
           >
-            <Camera size={12} /> {uploading ? "Uploading…" : b.customCoverPath ? "Replace cover" : "Use my cover"}
+            <Camera size={12} /> {uploading ? t("ins_uploading", "Uploading…") : b.customCoverPath ? t("ins_replace_cover", "Replace cover") : t("ins_use_my_cover", "Use my cover")}
           </button>
           {b.customCoverPath && (
             <button
               type="button"
               onClick={onClearCustom}
               className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 active:scale-95"
-              aria-label="Use the Open Library cover instead"
+              aria-label={t("ins_use_ol_aria", "Use the Open Library cover instead")}
             >
-              Use OL cover
+              {t("ins_use_ol_cover", "Use OL cover")}
             </button>
           )}
         </div>
@@ -381,9 +391,9 @@ function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
     <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-2">
       <div className="flex items-center justify-between mb-2">
         <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-          Pick the right match
+          {t("ins_pick_right_match", "Pick the right match")}
         </div>
-        <button onClick={onClose} className="text-slate-400" aria-label="Cancel">
+        <button onClick={onClose} className="text-slate-400" aria-label={t("pg_cancel_aria", "Cancel")}>
           <X size={14} />
         </button>
       </div>
@@ -393,17 +403,17 @@ function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
             type="text"
             value={titleQuery}
             onChange={(e) => setTitleQuery(e.target.value)}
-            placeholder="Book title"
+            placeholder={t("ins_book_title", "Book title")}
             className="text-[12px] px-2 py-1.5 rounded-md border border-slate-200 bg-white"
-            aria-label="Book title"
+            aria-label={t("ins_book_title", "Book title")}
           />
           <input
             type="text"
             value={authorQuery}
             onChange={(e) => setAuthorQuery(e.target.value)}
-            placeholder="Author (helps disambiguate)"
+            placeholder={t("ins_author_helps", "Author (helps disambiguate)")}
             className="text-[12px] px-2 py-1.5 rounded-md border border-slate-200 bg-white"
-            aria-label="Author"
+            aria-label={t("ins_author", "Author")}
           />
         </div>
         <button
@@ -415,12 +425,12 @@ function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
               : "bg-amber-600 text-white active:scale-95"
           }`}
         >
-          {busy ? "Searching…" : "Search Open Library"}
+          {busy ? t("ins_searching", "Searching…") : t("ins_search_ol", "Search Open Library")}
         </button>
       </form>
-      {error && <div className="text-[12px] text-rose-500 mb-1">Search failed: {error}</div>}
+      {error && <div className="text-[12px] text-rose-500 mb-1">{t("ins_search_failed", "Search failed: {msg}").replace("{msg}", error)}</div>}
       {candidates && candidates.length === 0 && !busy && (
-        <div className="text-[12px] text-slate-400 mb-1">No matches — try the author above, or save the values as-is below.</div>
+        <div className="text-[12px] text-slate-400 mb-1">{t("ins_no_matches", "No matches — try the author above, or save the values as-is below.")}</div>
       )}
       {/* Manual override — save the typed title + author as canonical
           without any OL result. For books OL doesn't have (Spanish kids'
@@ -440,7 +450,7 @@ function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
           }}
           className="w-full text-[11px] font-bold px-2 py-1.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 active:scale-95 flex items-center justify-center gap-1 mb-2"
         >
-          <Save size={12} /> Save "{titleQuery.trim()}"{authorQuery.trim() ? ` by ${authorQuery.trim()}` : ""}
+          <Save size={12} /> {t("ins_save_as", 'Save "{title}"').replace("{title}", titleQuery.trim())}{authorQuery.trim() ? t("ins_save_by", " by {author}").replace("{author}", authorQuery.trim()) : ""}
         </button>
       )}
       {candidates && candidates.length > 0 && (
@@ -577,7 +587,7 @@ export default function Insights({
       if (b.level) byLevel.set(b.level, (byLevel.get(b.level) || 0) + 1);
       if (b.preTracking) {
         backlogCount += 1;
-        const era = b.eraLabel || "Era unset";
+        const era = b.eraLabel || t("ins_era_unset", "Era unset");
         eraCounts.set(era, (eraCounts.get(era) || 0) + 1);
         continue; // skip date logic
       }
@@ -634,7 +644,7 @@ export default function Insights({
         const t = (tasks || []).find((x) => x.id === c.taskId);
         const aid = t?.activityId || TYPE_TO_ACT[t?.activityType];
         const act = (activities || []).find((a) => a.id === aid);
-        const name = act?.name || "Other";
+        const name = act?.name || t("ins_other_bucket", "Other");
         byActivity.set(name, (byActivity.get(name) || 0) + 1);
       }
     }
@@ -664,40 +674,39 @@ export default function Insights({
       <div className="rounded-2xl p-4 text-white mb-4 relative overflow-hidden"
            style={{ background: "linear-gradient(135deg, #4338ca 0%, #7c3aed 55%, #ec4899 100%)" }}>
         <Sparkles size={64} className="absolute -right-4 -top-4 text-white/15" />
-        <div className="text-xs uppercase tracking-wider font-bold opacity-85">Family Insights</div>
-        <div className="text-xl font-extrabold mt-0.5">Numbers behind the work</div>
+        <div className="text-xs uppercase tracking-wider font-bold opacity-85">{t("ins_header_kicker", "Family Insights")}</div>
+        <div className="text-xl font-extrabold mt-0.5">{t("ins_header_title", "Numbers behind the work")}</div>
         <div className="text-[11px] opacity-85 mt-2 leading-snug">
-          Tracking granular logs since {fmtDate("2026-06-06")}. The streaks
-          go further back than the minutes do — that's honest, not a bug.
+          {t("ins_header_intro", "Tracking granular logs since {date}. The streaks go further back than the minutes do — that's honest, not a bug.").replace("{date}", fmtDate("2026-06-06"))}
         </div>
       </div>
 
       {/* -------- PRACTICE TIME -------- */}
-      <SectionHead icon={Drum} title="Practice time" since={practiceStats.earliest} color="#7c3aed" />
+      <SectionHead icon={Drum} title={t("ins_practice_title", "Practice time")} since={practiceStats.earliest} color="#7c3aed" />
       <Card>
         <div className="flex items-baseline gap-2">
           <span className="text-4xl font-extrabold text-slate-800 leading-none">{practiceStats.totalMin}</span>
-          <span className="text-sm font-bold text-slate-400 leading-none">minutes total</span>
+          <span className="text-sm font-bold text-slate-400 leading-none">{t("ins_minutes_total", "minutes total")}</span>
         </div>
         <div className="text-[11px] text-slate-500 mt-1">
           Drumeo {practiceStats.drumeoMin}m · Melodics {practiceStats.melodicsMin}m
         </div>
         <DayBars data={practiceStats.last14} color="#7c3aed" suffix=" min" />
         <div className="text-[11px] text-slate-400 mt-1.5 flex items-center justify-between">
-          <span>Last 14 days · {practiceStats.last14Sum} min</span>
-          {practiceStats.totalMin === 0 && <EmptyLine>No minutes logged yet.</EmptyLine>}
+          <span>{t("ins_last14_label", "Last 14 days · {n} min").replace("{n}", practiceStats.last14Sum)}</span>
+          {practiceStats.totalMin === 0 && <EmptyLine>{t("ins_no_minutes", "No minutes logged yet.")}</EmptyLine>}
         </div>
       </Card>
 
       {/* -------- MOST-PLAYED SONGS -------- */}
-      <SectionHead icon={Music} title="Most-played songs" since={topSongs.earliest} color="#0891b2" />
+      <SectionHead icon={Music} title={t("ins_songs_title", "Most-played songs")} since={topSongs.earliest} color="#0891b2" />
       <Card>
         <div className="flex items-baseline gap-2 mb-3">
           <span className="text-3xl font-extrabold text-slate-800 leading-none">{topSongs.total}</span>
-          <span className="text-sm font-bold text-slate-400 leading-none">plays · {topSongs.songsTouched} songs</span>
+          <span className="text-sm font-bold text-slate-400 leading-none">{t("ins_songs_summary", "plays · {n} songs").replace("{n}", topSongs.songsTouched)}</span>
         </div>
         {topSongs.list.length === 0 ? (
-          <EmptyLine>No song plays logged yet.</EmptyLine>
+          <EmptyLine>{t("ins_no_songplays", "No song plays logged yet.")}</EmptyLine>
         ) : (
           <div className="space-y-2">
             {topSongs.list.map((s, i) => (
@@ -712,8 +721,7 @@ export default function Insights({
             ))}
             {topSongs.list.some((s) => s.matchStatus === "auto") && (
               <div className="text-[10px] text-slate-400 mt-2 leading-snug">
-                Auto-matched songs need a parent thumbs-up. Tap ✓ to lock,
-                "Pick another" to fix it, or "Skip" to leave the row as free text.
+                {t("ins_songs_auto_hint", "Auto-matched songs need a parent thumbs-up. Tap ✓ to lock, \"Pick another\" to fix it, or \"Skip\" to leave the row as free text.")}
               </div>
             )}
           </div>
@@ -721,13 +729,13 @@ export default function Insights({
       </Card>
 
       {/* -------- BOOKS -------- */}
-      <SectionHead icon={BookOpen} title="Books" since={booksStats.earliest} color="#b45309" />
+      <SectionHead icon={BookOpen} title={t("ins_books_title", "Books")} since={booksStats.earliest} color="#b45309" />
       <Card>
         <div className="grid grid-cols-3 gap-2 mb-3">
           {[
-            ["Reading", booksStats.buckets.reading || 0, "#b45309"],
-            ["Finished", booksStats.buckets.finished || 0, "#15803d"],
-            ["Wishlist", booksStats.buckets.wishlist || 0, "#7c3aed"],
+            [t("ins_books_reading", "Reading"), booksStats.buckets.reading || 0, "#b45309"],
+            [t("ins_books_finished", "Finished"), booksStats.buckets.finished || 0, "#15803d"],
+            [t("ins_books_wishlist", "Wishlist"), booksStats.buckets.wishlist || 0, "#7c3aed"],
           ].map(([label, n, color]) => (
             <div key={label} className="rounded-xl bg-slate-50 p-3 text-center">
               <div className="text-2xl font-extrabold leading-none" style={{ color }}>{n}</div>
@@ -736,7 +744,7 @@ export default function Insights({
           ))}
         </div>
         {booksStats.total === 0 ? (
-          <EmptyLine>No books on the shelf yet.</EmptyLine>
+          <EmptyLine>{t("ins_no_books", "No books on the shelf yet.")}</EmptyLine>
         ) : (
           <>
             {(booksStats.byLang.length > 0 || booksStats.byLevel.length > 0) && (
@@ -755,7 +763,7 @@ export default function Insights({
             )}
             {booksStats.recent.length > 0 && (
               <>
-                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Recent (tracked)</div>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">{t("ins_recent_tracked", "Recent (tracked)")}</div>
                 <div className="space-y-2 mb-3">
                   {booksStats.recent.map((b) => (
                     <EnrichedBookRow key={b.id} b={b} updateBook={updateBook} familyId={familyId} />
@@ -763,9 +771,7 @@ export default function Insights({
                 </div>
                 {booksStats.recent.some((b) => b.matchStatus === "auto") && (
                   <div className="text-[10px] text-slate-400 mb-3 leading-snug">
-                    Auto-matched titles need a parent thumbs-up. Tap ✓ to lock the
-                    match, "Pick another" to fix it, or "Skip" to leave the entry
-                    as free text.
+                    {t("ins_books_auto_hint", "Auto-matched titles need a parent thumbs-up. Tap ✓ to lock the match, \"Pick another\" to fix it, or \"Skip\" to leave the entry as free text.")}
                   </div>
                 )}
               </>
@@ -775,7 +781,7 @@ export default function Insights({
             {booksStats.backlogCount > 0 && (
               <>
                 <div className="text-[11px] font-bold uppercase tracking-wider text-amber-700 mb-1.5">
-                  Archive · pre-tracking ({booksStats.backlogCount})
+                  {t("ins_archive_pretracking", "Archive · pre-tracking ({n})").replace("{n}", booksStats.backlogCount)}
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-1">
                   {booksStats.eras.map(([era, n]) => (
@@ -785,7 +791,7 @@ export default function Insights({
                   ))}
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1">
-                  No real dates — counted in totals + per-author stats, excluded from date-based views.
+                  {t("ins_archive_note", "No real dates — counted in totals + per-author stats, excluded from date-based views.")}
                 </div>
               </>
             )}
@@ -794,14 +800,14 @@ export default function Insights({
       </Card>
 
       {/* -------- COUNTS BY CATEGORY -------- */}
-      <SectionHead icon={TrendingUp} title="Approved by category" since={completionsByCat.earliest} color="#15803d" />
+      <SectionHead icon={TrendingUp} title={t("ins_approved_title", "Approved by category")} since={completionsByCat.earliest} color="#15803d" />
       <Card>
         <div className="flex items-baseline gap-2 mb-3">
           <span className="text-3xl font-extrabold text-slate-800 leading-none">{completionsByCat.total}</span>
-          <span className="text-sm font-bold text-slate-400 leading-none">approved completions</span>
+          <span className="text-sm font-bold text-slate-400 leading-none">{t("ins_approved_summary", "approved completions")}</span>
         </div>
         {completionsByCat.categories.length === 0 ? (
-          <EmptyLine>Nothing approved yet.</EmptyLine>
+          <EmptyLine>{t("ins_no_approved", "Nothing approved yet.")}</EmptyLine>
         ) : (
           <ul className="space-y-1.5">
             {completionsByCat.categories.map(([cat, n]) => (
@@ -835,22 +841,22 @@ export default function Insights({
       </Card>
 
       {/* -------- PHOTOS -------- */}
-      <SectionHead icon={ImageIcon} title="Photos in the gallery" color="#0ea5e9" />
+      <SectionHead icon={ImageIcon} title={t("ins_photos_title", "Photos in the gallery")} color="#0ea5e9" />
       <Card>
         <div className="grid grid-cols-2 gap-2 mb-3">
           <div className="rounded-xl bg-sky-50 p-3 text-center">
             <div className="text-2xl font-extrabold text-sky-700 leading-none">{photoStats.proofCount}</div>
-            <div className="text-[10px] text-sky-700/80 font-bold uppercase tracking-wider mt-1">Schoolwork</div>
+            <div className="text-[10px] text-sky-700/80 font-bold uppercase tracking-wider mt-1">{t("ins_photos_schoolwork", "Schoolwork")}</div>
           </div>
           <div className="rounded-xl bg-pink-50 p-3 text-center">
             <div className="text-2xl font-extrabold text-pink-700 leading-none flex items-center justify-center gap-1">
               <Heart size={16} fill="currentColor" /> {photoStats.memCount}
             </div>
-            <div className="text-[10px] text-pink-700/80 font-bold uppercase tracking-wider mt-1">Memories</div>
+            <div className="text-[10px] text-pink-700/80 font-bold uppercase tracking-wider mt-1">{t("ins_photos_memories", "Memories")}</div>
           </div>
         </div>
         {photoStats.byActivity.length === 0 ? (
-          <EmptyLine>No photos in the gallery yet.</EmptyLine>
+          <EmptyLine>{t("ins_no_photos", "No photos in the gallery yet.")}</EmptyLine>
         ) : (
           <ul className="space-y-1.5">
             {photoStats.byActivity.map(([name, n]) => (
@@ -870,7 +876,7 @@ export default function Insights({
       </Card>
 
       <div className="text-[11px] text-slate-400 mt-6 text-center px-2 leading-snug">
-        Every number above comes from the data the family is already logging — nothing new is stored to draw these views.
+        {t("ins_footer", "Every number above comes from the data the family is already logging — nothing new is stored to draw these views.")}
       </div>
     </div>
   );
