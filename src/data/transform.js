@@ -175,6 +175,12 @@ export const toApp = {
     // taskId / activityId / bookId / songId / photoPath / photoName.
     // Coerced to {} so downstream display code can always destructure.
     extra: r.extra ?? {},
+    // Soft-delete columns (audit trail for destructive removes).
+    // The DataProvider filters out rows with deletedAt set before
+    // they reach the app — these fields are surfaced here for an
+    // eventual "Recently removed" admin view.
+    deletedAt: r.deleted_at ?? null,
+    deletedBy: r.deleted_by ?? null,
   }),
 
   song: (r) => ({
@@ -422,6 +428,11 @@ export const toDb = {
     // Always emit extra (even as {}) so the PostgREST batch column
     // normalization never NULL-pads an existing row's metadata.
     extra: o.extra ?? {},
+    // Soft-delete columns. Always send so a batch upsert doesn't
+    // accidentally clear the deleted_at on an existing row that
+    // happens to be in the same batch as an active one.
+    deleted_at: o.deletedAt ?? null,
+    deleted_by: o.deletedBy ?? null,
   }),
 
   song: (familyId) => (o) => ({
