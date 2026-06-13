@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { useSignedUrl } from "./lib/storage.js";
 import { juice } from "./lib/juice.js";
 import { prefersReducedMotion } from "./lib/motion.js";
+import { tOf } from "./lib/i18n.js";
+const t = (k, fb) => tOf(k, fb);
 
 // OnboardingOverlay — single welcome moment per profile. Shows when
 // currentPrefs.onboarded is falsy; the dismiss tap sets it true via
@@ -9,13 +11,13 @@ import { prefersReducedMotion } from "./lib/motion.js";
 // user_prefs sync). Cinematic but calm — this is "welcome", not
 // "celebration".
 
-const ROLE_MESSAGES = {
-  kid:         { sub: "This is your command center. Earn stars. Crush quests.", cue: "Tap to begin your adventure" },
-  parent:      { sub: "Approvals, rewards, and everyone's day in one place.", cue: "Tap to continue" },
-  grandparent: { sub: "Today's checklist + family notes, ready when you are.", cue: "Tap to continue" },
-  helper:      { sub: "Today's checklist + handoff notes for the family.", cue: "Tap to continue" },
-  guest:       { sub: "Quick checklist for today.", cue: "Tap to continue" },
-};
+const roleMessages = () => ({
+  kid:         { sub: t("ob_kid_sub", "This is your command center. Earn stars. Crush quests."), cue: t("ob_kid_cue", "Tap to begin your adventure") },
+  parent:      { sub: t("ob_parent_sub", "Approvals, rewards, and everyone's day in one place."), cue: t("ob_parent_cue", "Tap to continue") },
+  grandparent: { sub: t("ob_grandparent_sub", "Today's checklist + family notes, ready when you are."), cue: t("ob_parent_cue", "Tap to continue") },
+  helper:      { sub: t("ob_helper_sub", "Today's checklist + handoff notes for the family."), cue: t("ob_parent_cue", "Tap to continue") },
+  guest:       { sub: t("ob_guest_sub", "Quick checklist for today."), cue: t("ob_parent_cue", "Tap to continue") },
+});
 
 export default function OnboardingOverlay({ user, onDismiss }) {
   const reduced = useRef(prefersReducedMotion()).current;
@@ -39,7 +41,8 @@ export default function OnboardingOverlay({ user, onDismiss }) {
 
   const photoUrl = useSignedUrl(user?.photo);
   const hasPhoto = !!photoUrl;
-  const msg = ROLE_MESSAGES[user?.role] || ROLE_MESSAGES.helper;
+  const messages = roleMessages();
+  const msg = messages[user?.role] || messages.helper;
   const pieces = useRef(reduced ? [] : makeParticles(28));
 
   const showing = visible && !closing;
@@ -47,7 +50,7 @@ export default function OnboardingOverlay({ user, onDismiss }) {
   return (
     <div
       role="dialog"
-      aria-label="Welcome"
+      aria-label={t("ob_aria", "Welcome")}
       onClick={dismiss}
       style={{
         position: "fixed",
@@ -172,7 +175,7 @@ export default function OnboardingOverlay({ user, onDismiss }) {
             animation: reduced ? "ob-fade 250ms 80ms forwards" : "ob-rise-text 500ms ease-out 200ms both",
           }}
         >
-          Hi, {user?.name || "friend"}!
+          {t("ob_greeting", "Hi, {name}!").replace("{name}", user?.name || t("ob_friend", "friend"))}
         </div>
 
         <div

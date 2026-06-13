@@ -4,6 +4,7 @@ import { useSignedUrl } from "./lib/storage.js";
 import { starBurst } from "./lib/starBurst.js";
 import { prefersReducedMotion } from "./lib/motion.js";
 import { tOf as i18nTOf, getCurrentLangs } from "./lib/i18n.js";
+const t = (k, fb) => i18nTOf(k, fb);
 
 /* =====================================================================
    KidGameHome — Reznor's "game mode" home.
@@ -336,7 +337,7 @@ function MapStop({ stop }) {
             stop.done ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
           }`}
         >
-          {stop.done ? "Unlocked" : `${pct}%`}
+          {stop.done ? t("kgh_map_unlocked", "Unlocked") : `${pct}%`}
         </div>
       </div>
       <div className="mt-3 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -640,12 +641,12 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
             <span className="text-3xl">🚀</span>
           </div>
           <div className="flex-1 text-left relative z-10 min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold">Today's Quest</div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold">{t("kgh_today_quest_kicker", "Today's Quest")}</div>
             <div className="text-lg font-extrabold text-white tracking-tight leading-tight mt-0.5">
-              Daily Adventure Board
+              {t("kgh_board_title", "Daily Adventure Board")}
             </div>
             <div className="text-[11px] text-white/80 mt-0.5 truncate">
-              Tap to play through today's missions →
+              {t("kgh_board_tap_hint", "Tap to play through today's missions →")}
             </div>
           </div>
           <Map size={22} className="text-white/80 relative z-10 shrink-0" />
@@ -665,7 +666,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
         <div className="flex items-center gap-3">
           <Avatar avatar={avatar} size={64} />
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] uppercase tracking-widest text-white/70 font-bold">Hero</div>
+            <div className="text-[11px] uppercase tracking-widest text-white/70 font-bold">{t("kgh_hero_kicker", "Hero")}</div>
             <div className="text-2xl font-extrabold tracking-tight leading-tight truncate">
               {name}
             </div>
@@ -679,16 +680,16 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               <>
                 <div className="text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center justify-between gap-1">
                   <span className="flex items-center gap-1">
-                    <Star size={11} className="fill-current text-amber-300" /> Stars
+                    <Star size={11} className="fill-current text-amber-300" /> {t("kgh_stars_label", "Stars")}
                   </span>
                   {tappable && <span className="text-white/40 text-[10px]">›</span>}
                 </div>
                 <div ref={bankRef} data-star-bank className="text-2xl font-extrabold leading-none mt-1" style={{ display: "inline-block", transformOrigin: "left center" }}><AnimatedNumber value={stars} /></div>
                 {(earnedToday > 0 || giftedToday > 0) && (
                   <div className="text-[10px] font-bold text-amber-200 mt-0.5">
-                    {earnedToday > 0 && <span>+{earnedToday} earned today</span>}
+                    {earnedToday > 0 && <span>{t("kgh_earned_today", "+{n} earned today").replace("{n}", earnedToday)}</span>}
                     {earnedToday > 0 && giftedToday > 0 && <span className="opacity-70"> · </span>}
-                    {giftedToday > 0 && <span>+{giftedToday}⭐ gift today</span>}
+                    {giftedToday > 0 && <span>{t("kgh_gift_today", "+{n}⭐ gift today").replace("{n}", giftedToday)}</span>}
                   </div>
                 )}
               </>
@@ -698,7 +699,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                 type="button"
                 onClick={onTapStars}
                 className="bg-white/15 backdrop-blur rounded-2xl px-3 py-2 border border-white/10 text-left active:scale-[0.97] transition hover:bg-white/25"
-                title="See where these stars came from"
+                title={t("kgh_stars_title", "See where these stars came from")}
               >
                 {inner}
               </button>
@@ -722,7 +723,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               }}
             />
             <div className="relative text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center gap-1">
-              <Flame size={11} className="text-orange-300" /> Drum streak
+              <Flame size={11} className="text-orange-300" /> {t("kgh_drum_streak", "Drum streak")}
             </div>
             <div className="relative text-2xl font-extrabold leading-none mt-1 flex items-baseline gap-1">
               <span
@@ -777,38 +778,38 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               type="button"
               onClick={onTapHeroLevel}
               className="w-full text-left mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10 active:scale-[0.99] transition"
-              aria-label={`Replay level ${level.value} celebration`}
+              aria-label={t("kgh_replay_aria", "Replay level {n} celebration").replace("{n}", level.value)}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
-                  <Crown size={12} className="text-amber-300" /> Hero level
+                  <Crown size={12} className="text-amber-300" /> {t("kgh_hero_level", "Hero level")}
                 </div>
                 <div className="text-[11px] font-bold text-white/90">
                   {level.xpIntoLevel} / {level.xpToNext} XP
                 </div>
               </div>
               <div className="text-sm font-extrabold mt-0.5">
-                Lv {level.value} · {level.title}
+                {t("kgh_lv_title", "Lv {n} · {title}").replace("{n}", level.value).replace("{title}", level.title)}
               </div>
               <div className="mt-1.5">
                 <ProgressBar have={level.xpIntoLevel} need={level.xpToNext} color="#fcd34d" />
               </div>
               <div className="mt-1 text-[10px] text-white/60 font-bold uppercase tracking-wider">
-                Tap to replay 🎉
+                {t("kgh_tap_replay", "Tap to replay 🎉")}
               </div>
             </button>
           ) : (
             <div className="mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
-                  <Crown size={12} className="text-amber-300" /> Hero level
+                  <Crown size={12} className="text-amber-300" /> {t("kgh_hero_level", "Hero level")}
                 </div>
                 <div className="text-[11px] font-bold text-white/90">
                   {level.xpIntoLevel} / {level.xpToNext} XP
                 </div>
               </div>
               <div className="text-sm font-extrabold mt-0.5">
-                Lv {level.value} · {level.title}
+                {t("kgh_lv_title", "Lv {n} · {title}").replace("{n}", level.value).replace("{title}", level.title)}
               </div>
               <div className="mt-1.5">
                 <ProgressBar have={level.xpIntoLevel} need={level.xpToNext} color="#fcd34d" />
@@ -826,23 +827,23 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           <div className="mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
-                <Trophy size={12} className="text-amber-300" /> Treasure streak
+                <Trophy size={12} className="text-amber-300" /> {t("kgh_treasure_streak", "Treasure streak")}
               </div>
               <div className="text-[11px] font-bold text-white/90 tabular-nums">
-                {treasureStreak} day{treasureStreak === 1 ? "" : "s"}
+                {treasureStreak === 1 ? t("kgh_treasure_days_one", "1 day") : t("kgh_treasure_days_many", "{n} days").replace("{n}", treasureStreak)}
               </div>
             </div>
             <div className="text-sm font-extrabold mt-0.5">
-              🗝️ {treasureStreak === 1
-                ? "1 day in a row"
-                : `${treasureStreak} days in a row opening the chest`}
+              {treasureStreak === 1
+                ? t("kgh_treasure_one_day", "🗝️ 1 day in a row")
+                : t("kgh_treasure_many_days", "🗝️ {n} days in a row opening the chest").replace("{n}", treasureStreak)}
             </div>
             {treasureStreak >= 3 && (
               <div className="mt-0.5 text-[11px] text-amber-200 font-bold">
-                {treasureStreak >= 30 ? "👑 Treasure King!" :
-                 treasureStreak >= 14 ? "💎 Treasure Fortnight unlocked!" :
-                 treasureStreak >= 7 ? "🏆 Week of Treasures!" :
-                 "🗝️ Treasure Trio unlocked!"}
+                {treasureStreak >= 30 ? t("kgh_treasure_king", "👑 Treasure King!") :
+                 treasureStreak >= 14 ? t("kgh_treasure_fortnight", "💎 Treasure Fortnight unlocked!") :
+                 treasureStreak >= 7 ? t("kgh_treasure_week", "🏆 Week of Treasures!") :
+                 t("kgh_treasure_trio", "🗝️ Treasure Trio unlocked!")}
               </div>
             )}
           </div>
@@ -852,7 +853,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           <div className="mt-3 bg-white/15 backdrop-blur rounded-2xl px-3 py-2.5 border border-white/10">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/70 font-bold">
-                <Trophy size={12} className="text-amber-300" /> Next reward
+                <Trophy size={12} className="text-amber-300" /> {t("kgh_next_reward", "Next reward")}
               </div>
               <div className="text-[11px] font-bold text-white/90">
                 {nextReward.have} / {nextReward.cost} ⭐
@@ -897,7 +898,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
           </div>
           <div className="flex-1 min-w-0 text-left">
             <div className="text-[10px] uppercase tracking-widest text-emerald-700 font-bold">
-              Up next {upNextIsRequired ? "" : "· extra"}
+              {t("kgh_up_next", "Up next")} {upNextIsRequired ? "" : t("kgh_up_next_extra", "· extra")}
             </div>
             <div className="text-base font-extrabold text-slate-800 truncate leading-tight">
               {upNext.title}
@@ -909,7 +910,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
                 <>
                   <span className="text-slate-300">·</span>
                   <span>
-                    {upNext.subtasks.filter((s) => s.done).length} / {upNext.subtasks.length} parts
+                    {t("kgh_parts_label", "{done} / {total} parts").replace("{done}", upNext.subtasks.filter((s) => s.done).length).replace("{total}", upNext.subtasks.length)}
                   </span>
                 </>
               )}
@@ -966,7 +967,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
             <div className="flex-1 min-w-0">
               <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold flex items-center gap-1.5">
                 <Flame size={11} className="text-amber-200" />
-                A Year of Drums
+                {t("kgh_year_of_drums", "A Year of Drums")}
               </div>
               <div className="flex items-baseline gap-1 mt-1">
                 <span
@@ -991,8 +992,8 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               </div>
               <div className="text-[11px] text-white/85 font-semibold mt-1.5">
                 {(streak?.current ?? 0) >= (streak?.milestone ?? 365)
-                  ? "🏆 You did it!"
-                  : `Don't break the chain · ${Math.max(0, (streak?.milestone ?? 365) - (streak?.current ?? 0))} days to go`}
+                  ? t("kgh_you_did_it", "🏆 You did it!")
+                  : t("kgh_dont_break", "Don't break the chain · {n} days to go").replace("{n}", Math.max(0, (streak?.milestone ?? 365) - (streak?.current ?? 0)))}
               </div>
             </div>
           </div>
@@ -1003,7 +1004,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
       <div>
         <div className="flex items-center justify-between px-1 mb-2">
           <div className="flex items-center gap-2 font-extrabold text-slate-800 text-base">
-            <Target size={16} className="text-indigo-500" /> Today's Quests
+            <Target size={16} className="text-indigo-500" /> {t("kgh_todays_quests", "Today's Quests")}
           </div>
           <div className="text-[11px] font-bold text-slate-400">
             {mainQuests.filter((q) => q.done).length} / {mainQuests.length}
@@ -1012,7 +1013,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
         <div className="space-y-2">
           {mainQuests.length === 0 ? (
             <div className="text-center text-sm text-slate-400 py-6 bg-white rounded-2xl border border-slate-100">
-              No quests today. Free day! 🎉
+              {t("kgh_no_quests", "No quests today. Free day! 🎉")}
             </div>
           ) : (
             mainQuests.map((q) => <MainQuestTile key={q.id} q={q} onTap={onTapQuest} />)
@@ -1024,8 +1025,8 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
       {sideQuests.length > 0 && (
         <div>
           <div className="flex items-center gap-2 font-extrabold text-slate-800 text-base px-1 mb-2">
-            <Sparkles size={16} className="text-amber-500" /> Side Quests
-            <span className="text-[11px] font-bold text-slate-400">(extra XP)</span>
+            <Sparkles size={16} className="text-amber-500" /> {t("kgh_side_quests", "Side Quests")}
+            <span className="text-[11px] font-bold text-slate-400">{t("kgh_extra_xp", "(extra XP)")}</span>
           </div>
           <div className="space-y-1.5">
             {sideQuests.map((q) => (
@@ -1039,7 +1040,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
       {mapStops.length > 0 && (
         <div>
           <div className="flex items-center gap-2 font-extrabold text-slate-800 text-base px-1 mb-2">
-            <MapPin size={16} className="text-rose-500" /> World Map
+            <MapPin size={16} className="text-rose-500" /> {t("kgh_world_map", "World Map")}
           </div>
           <div className="space-y-2">
             {mapStops.map((s) => (
@@ -1053,7 +1054,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
       {stats.length > 0 && (
         <div>
           <div className="flex items-center gap-2 font-extrabold text-slate-800 text-base px-1 mb-2">
-            <Crown size={16} className="text-violet-500" /> Stats
+            <Crown size={16} className="text-violet-500" /> {t("kgh_stats", "Stats")}
           </div>
           <div className="grid grid-cols-2 gap-2">
             {stats.map((s, i) => (
@@ -1074,12 +1075,12 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               : "bg-slate-300 text-slate-500"
           }`}
         >
-          {firstUndone ? `▶ Start Quest: ${firstUndone.title}` : "All quests done! 🎉"}
+          {firstUndone ? t("kgh_start_quest", "▶ Start Quest: {title}").replace("{title}", firstUndone.title) : t("kgh_all_done", "All quests done! 🎉")}
         </button>
         <button
           onClick={onOpenMenu}
           className="rounded-3xl px-4 bg-white border border-slate-200 grid place-items-center active:scale-95"
-          title="Menu"
+          title={t("kgh_menu_title", "Menu")}
         >
           <Menu size={20} className="text-slate-600" />
         </button>
