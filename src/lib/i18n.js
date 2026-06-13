@@ -116,13 +116,31 @@ const STRINGS = {
   pillar_soul:  { en: "Soul",  es: "Alma" },
 
   // Common action labels
-  act_submit:   { en: "Submit",   es: "Enviar" },
-  act_save:     { en: "Save",     es: "Guardar" },
-  act_cancel:   { en: "Cancel",   es: "Cancelar" },
-  act_done:     { en: "Done",     es: "Hecho" },
-  act_edit:     { en: "Edit",     es: "Editar" },
-  act_delete:   { en: "Delete",   es: "Borrar" },
-  act_remove:   { en: "Remove",   es: "Quitar" },
+  act_submit:           { en: "Submit",                 es: "Enviar" },
+  act_save:             { en: "Save",                   es: "Guardar" },
+  act_save_changes:     { en: "Save changes 💾",         es: "Guardar cambios 💾" },
+  act_save_progress:    { en: "💾 Save progress — come back later", es: "💾 Guardar progreso — volveré después" },
+  act_submit_for_stars: { en: "Submit for Stars ⭐",     es: "Enviar por estrellas ⭐" },
+  act_mark_done:        { en: "Mark Done ✓",            es: "Marcar hecho ✓" },
+  act_cancel:           { en: "Cancel",                 es: "Cancelar" },
+  act_close:            { en: "Close",                  es: "Cerrar" },
+  act_done:             { en: "Done",                   es: "Hecho" },
+  act_edit:             { en: "Edit",                   es: "Editar" },
+  act_delete:           { en: "Delete",                 es: "Borrar" },
+  act_remove:           { en: "Remove",                 es: "Quitar" },
+  act_approve:          { en: "Approve",                es: "Aprobar" },
+  act_deny:             { en: "Deny",                   es: "Rechazar" },
+
+  // TaskSheet field labels + hints
+  field_note_optional:        { en: "Note (optional)",                    es: "Nota (opcional)" },
+  field_note_placeholder:     { en: "Anything to tell a grown-up?",       es: "¿Algo que decirle a un adulto?" },
+  field_photo_optional:       { en: "Photo (optional)",                   es: "Foto (opcional)" },
+  field_photos_optional:      { en: "Photos (optional)",                  es: "Fotos (opcional)" },
+  field_photo_of_your_work:   { en: "Photo of your work *",                es: "Foto de tu trabajo *" },
+  field_photos_of_your_work:  { en: "Photos of your work *",               es: "Fotos de tu trabajo *" },
+  field_screenshots:          { en: "Screenshots / photos",                es: "Capturas / fotos" },
+  field_tap_to_add_photo:     { en: "Tap to add a photo",                  es: "Tócalo para añadir una foto" },
+  field_uploading:            { en: "Uploading…",                          es: "Subiendo…" },
 };
 
 // Seeded task titles. Keyed by task.id from SEED_TASKS so the lookup

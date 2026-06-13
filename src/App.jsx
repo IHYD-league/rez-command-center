@@ -5028,7 +5028,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                 <Field label="Title (optional)"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Name your work" className="input" /></Field>
                 <div>
                   <div className="text-xs font-semibold text-slate-500 mb-1">
-                    Photos of your work * <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
+                    {i18nTOf("field_photos_of_your_work", "Photos of your work *")} <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {photos.map((p, i) => (<PhotoThumbnail key={i} photo={p} onRemove={() => removePhotoAt(i)} />))}
@@ -5070,7 +5070,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                 <div className="bg-amber-50 rounded-2xl p-3 text-xs text-amber-700">🎯 Goal: 1 hour · Stretch: 2 hours. Parent can adjust stars for effort.</div>
                 <div>
                   <div className="text-xs font-semibold text-slate-500 mb-1">
-                    Screenshots / photos <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
+                    {i18nTOf("field_screenshots", "Screenshots / photos")} <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {photos.map((p, i) => (<PhotoThumbnail key={i} photo={p} onRemove={() => removePhotoAt(i)} />))}
@@ -5098,7 +5098,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
             {!isPhoto && !isDrums && (
               <div>
                 <div className="text-xs font-semibold text-slate-500 mb-1">
-                  Photos (optional) <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
+                  {i18nTOf("field_photos_optional", "Photos (optional)")} <span className="font-normal text-slate-400">({photos.length}/{MAX_PHOTOS})</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {photos.map((p, i) => (<PhotoThumbnail key={i} photo={p} onRemove={() => removePhotoAt(i)} />))}
@@ -5150,7 +5150,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
               );
             })()}
 
-            <Field label="Note (optional)"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="input resize-none" placeholder="Anything to tell a grown-up?" /></Field>
+            <Field label={i18nTOf("field_note_optional", "Note (optional)")}><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="input resize-none" placeholder={i18nTOf("field_note_placeholder", "Anything to tell a grown-up?")} /></Field>
 
             {!ready && <div className="text-xs text-rose-500 flex items-center gap-1"><AlertCircle size={13} /> {gateMsg}</div>}
 
@@ -5161,8 +5161,8 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                   : "bg-slate-200 text-slate-400"
               }`}>
               {canEdit
-                ? "Save changes 💾"
-                : (task.approvalRequired ? "Submit for Stars ⭐" : "Mark Done ✓")}
+                ? i18nTOf("act_save_changes", "Save changes 💾")
+                : (task.approvalRequired ? i18nTOf("act_submit_for_stars", "Submit for Stars ⭐") : i18nTOf("act_mark_done", "Mark Done ✓"))}
             </button>
             {/* Save progress — keeps everything entered so far as a
                 draft. No streak bump, no stars, no Approvals queue
@@ -5182,13 +5182,13 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     : "bg-amber-50 text-amber-700 border border-amber-200 active:scale-95"
                 }`}
               >
-                💾 Save progress — come back later
+                {i18nTOf("act_save_progress", "💾 Save progress — come back later")}
               </button>
             )}
-            <button onClick={handleClose} className="w-full py-2 text-slate-400 text-sm font-semibold">Cancel</button>
+            <button onClick={handleClose} className="w-full py-2 text-slate-400 text-sm font-semibold">{i18nTOf("act_cancel", "Cancel")}</button>
           </div>
         )}
-        {alreadyApproved && !canEdit && <button onClick={handleClose} className="w-full py-3 mt-4 text-slate-400 text-sm font-semibold">Close</button>}
+        {alreadyApproved && !canEdit && <button onClick={handleClose} className="w-full py-3 mt-4 text-slate-400 text-sm font-semibold">{i18nTOf("act_close", "Close")}</button>}
       </div>
       <style>{`.input{width:100%;border:1px solid #e2e8f0;border-radius:1rem;padding:0.6rem 0.8rem;font-size:0.9rem;outline:none}.input:focus{border-color:#6366f1}`}</style>
     </div>
@@ -5928,7 +5928,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
                 bump fire identically. */}
             {c?.id && decide && (
               <div className="flex gap-2 mt-1.5 px-1">
-                <button onClick={() => decide(c.id, "approve")} className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={15} />Approve</button>
+                <button onClick={() => decide(c.id, "approve")} className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={15} />{i18nTOf("act_approve", "Approve")}</button>
                 <button onClick={() => decide(c.id, "approve", 5)} className="px-3 py-2 rounded-2xl bg-violet-500 text-white font-bold text-sm active:scale-95">+5⭐</button>
                 <button onClick={() => decide(c.id, "needs_fix")} className="px-3 py-2 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm active:scale-95" aria-label="Needs fix"><RotateCcw size={15} /></button>
                 <button onClick={() => decide(c.id, "reject")} className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95" aria-label="Reject"><X size={15} /></button>
@@ -6774,7 +6774,7 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
             {c.proof?.length > 0 && !c.proof.some((p) => p.path || p.url) && <Detail label="Proof">{c.proof.map((p) => p.name).join(", ")}</Detail>}
 
             <div className="flex gap-2 mt-3">
-              <button onClick={() => decide(c.id, "approve")} className="flex-1 py-2.5 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={16} />Approve</button>
+              <button onClick={() => decide(c.id, "approve")} className="flex-1 py-2.5 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"><Check size={16} />{i18nTOf("act_approve", "Approve")}</button>
               <button onClick={() => decide(c.id, "approve", 5)} className="px-3 py-2.5 rounded-2xl bg-violet-500 text-white font-bold text-sm active:scale-95">+5⭐</button>
               <button onClick={() => decide(c.id, "needs_fix")} className="px-3 py-2.5 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm active:scale-95"><RotateCcw size={16} /></button>
               <button onClick={() => decide(c.id, "reject")} className="px-3 py-2.5 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95"><X size={16} /></button>
@@ -6857,8 +6857,8 @@ function WishApproveRow({ w, decideRewardRequest }) {
         <span className="text-xs text-slate-500">Costs</span>
         <input type="number" value={cost} onChange={(e) => setCost(Number(e.target.value))} className="w-20 border border-slate-200 rounded-xl px-2 py-1 text-sm" />
         <span className="text-xs text-slate-500">⭐</span>
-        <button onClick={() => decideRewardRequest(w.id, "approved", cost)} className="ml-auto px-3 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs">Approve</button>
-        <button onClick={() => decideRewardRequest(w.id, "declined")} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 font-bold text-xs">Deny</button>
+        <button onClick={() => decideRewardRequest(w.id, "approved", cost)} className="ml-auto px-3 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs">{i18nTOf("act_approve", "Approve")}</button>
+        <button onClick={() => decideRewardRequest(w.id, "declined")} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 font-bold text-xs">{i18nTOf("act_deny", "Deny")}</button>
       </div>
     </Card>
   );
@@ -6897,8 +6897,8 @@ function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward
       {requested.map((r) => (
         <Card key={r.id} className="p-3 mb-2 flex items-center gap-3">
           <div className="flex-1"><div className="font-bold text-sm">{r.title}</div><div className="text-[11px] text-slate-400">{r.cost} ⭐</div></div>
-          <button onClick={() => decideReward(r.id, "approved")} className="px-3 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs">Approve</button>
-          <button onClick={() => decideReward(r.id, "denied")} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 font-bold text-xs">Deny</button>
+          <button onClick={() => decideReward(r.id, "approved")} className="px-3 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs">{i18nTOf("act_approve", "Approve")}</button>
+          <button onClick={() => decideReward(r.id, "denied")} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 font-bold text-xs">{i18nTOf("act_deny", "Deny")}</button>
         </Card>
       ))}
 
@@ -9626,8 +9626,8 @@ function PendingRequestRow({ req, onApprove, onDeny }) {
           <div className="text-sm font-semibold truncate">{req.displayName || req.email}</div>
           <div className="text-[11px] text-amber-700 truncate">{req.email}{requestedAt ? ` · ${requestedAt}` : ""}</div>
         </div>
-        <button onClick={onDeny} className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-600">Deny</button>
-        <button onClick={() => setExpanded(true)} className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-emerald-600 text-white">Approve…</button>
+        <button onClick={onDeny} className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-600">{i18nTOf("act_deny", "Deny")}</button>
+        <button onClick={() => setExpanded(true)} className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-emerald-600 text-white">{i18nTOf("act_approve", "Approve")}…</button>
       </div>
     );
   }
