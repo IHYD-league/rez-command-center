@@ -8996,49 +8996,49 @@ function PrivacySafety(props) {
 
 function MoreParent(props) {
   const [sub, setSub] = useState("menu");
-  if (sub === "privacy") return <BackWrap title="Privacy & Safety" onBack={() => setSub("menu")}><PrivacySafety {...props} /></BackWrap>;
-  if (sub === "audit") return <BackWrap title="Data audit" onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
-  if (sub === "languages") return <BackWrap title="Languages" onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
-  if (sub === "portfolio") return <BackWrap title="Progress Portfolio" onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
-  if (sub === "weekly") return <BackWrap title="Weekly Summary" onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
-  if (sub === "handoff") return <BackWrap title="Handoff Notes" onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
-  if (sub === "skills") return <BackWrap title="Learning Goals" onBack={() => setSub("menu")}><Skills /></BackWrap>;
-  if (sub === "people") return <BackWrap title="Family & Helpers" onBack={() => setSub("menu")}><People {...props} /></BackWrap>;
-  if (sub === "activities") return <BackWrap title="Activities" onBack={() => setSub("menu")}><ManageActivities {...props} /></BackWrap>;
-  if (sub === "tasks") return <BackWrap title="Tasks & Chores" onBack={() => setSub("menu")}><ManageTasks {...props} /></BackWrap>;
-  if (sub === "library") return <BackWrap title="Reading Library" onBack={() => setSub("menu")}><ReadingLibrary {...props} /></BackWrap>;
-  if (sub === "grades") return <BackWrap title="Grade Goals" onBack={() => setSub("menu")}><GradeGoals /></BackWrap>;
-  if (sub === "recap") return <BackWrap title="Recap & Memories" onBack={() => setSub("menu")}><ParentRecap {...props} /></BackWrap>;
-  if (sub === "awards") return <BackWrap title="Accomplishments" onBack={() => setSub("menu")}><Accomplishments {...props} /></BackWrap>;
-  if (sub === "board_theme") return <BackWrap title="Adventure Board" onBack={() => setSub("menu")}><AdventureBoardSettings {...props} /></BackWrap>;
-  if (sub === "board_plan") return <BackWrap title="Daily Adventure Board · Plan" onBack={() => setSub("menu")}><DailyAdventureBoardPlan {...props} /></BackWrap>;
-  if (sub === "gallery") return <BackWrap title="Photo Gallery" onBack={() => setSub("menu")}><PhotoGallery {...props} /></BackWrap>;
-  if (sub === "insights") return <BackWrap title="Insights" onBack={() => setSub("menu")}><Insights {...props} /></BackWrap>;
-  if (sub === "music_library") return <BackWrap title="Music Library" onBack={() => setSub("menu")}><MusicLibrary {...props} /></BackWrap>;
-  if (sub === "export") return <BackWrap title="Export Data" onBack={() => setSub("menu")}><DataExport {...props} /></BackWrap>;
-  if (sub === "slideshow") return <BackWrap title="Milestone Slideshows" onBack={() => setSub("menu")}><MilestoneSlideshow {...props} /></BackWrap>;
+  if (sub === "privacy") return <BackWrap title={i18nTOf("more_privacy", "Privacy & Safety")} onBack={() => setSub("menu")}><PrivacySafety {...props} /></BackWrap>;
+  if (sub === "audit") return <BackWrap title={i18nTOf("more_audit", "Data audit")} onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
+  if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
+  if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
+  if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
+  if (sub === "handoff") return <BackWrap title={i18nTOf("more_handoff", "Handoff Notes")} onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
+  if (sub === "skills") return <BackWrap title={i18nTOf("more_skills", "Learning Goals")} onBack={() => setSub("menu")}><Skills /></BackWrap>;
+  if (sub === "people") return <BackWrap title={i18nTOf("more_people", "Family & Helpers")} onBack={() => setSub("menu")}><People {...props} /></BackWrap>;
+  if (sub === "activities") return <BackWrap title={i18nTOf("more_activities", "Activities & Status")} onBack={() => setSub("menu")}><ManageActivities {...props} /></BackWrap>;
+  if (sub === "tasks") return <BackWrap title={i18nTOf("more_tasks", "Tasks & Chores")} onBack={() => setSub("menu")}><ManageTasks {...props} /></BackWrap>;
+  if (sub === "library") return <BackWrap title={i18nTOf("more_library", "Reading Library")} onBack={() => setSub("menu")}><ReadingLibrary {...props} /></BackWrap>;
+  if (sub === "grades") return <BackWrap title={i18nTOf("more_grades", "Grade Goals")} onBack={() => setSub("menu")}><GradeGoals /></BackWrap>;
+  if (sub === "recap") return <BackWrap title={i18nTOf("more_recap", "Recap & Memories")} onBack={() => setSub("menu")}><ParentRecap {...props} /></BackWrap>;
+  if (sub === "awards") return <BackWrap title={i18nTOf("more_awards", "Accomplishments")} onBack={() => setSub("menu")}><Accomplishments {...props} /></BackWrap>;
+  if (sub === "board_theme") return <BackWrap title={i18nTOf("more_board_theme", "Adventure Board")} onBack={() => setSub("menu")}><AdventureBoardSettings {...props} /></BackWrap>;
+  if (sub === "board_plan") return <BackWrap title={i18nTOf("more_board_plan", "Daily Adventure Board · Plan")} onBack={() => setSub("menu")}><DailyAdventureBoardPlan {...props} /></BackWrap>;
+  if (sub === "gallery") return <BackWrap title={i18nTOf("more_gallery", "Photo Gallery")} onBack={() => setSub("menu")}><PhotoGallery {...props} /></BackWrap>;
+  if (sub === "insights") return <BackWrap title={i18nTOf("more_insights", "Insights")} onBack={() => setSub("menu")}><Insights {...props} /></BackWrap>;
+  if (sub === "music_library") return <BackWrap title={i18nTOf("more_music_library", "Music Library")} onBack={() => setSub("menu")}><MusicLibrary {...props} /></BackWrap>;
+  if (sub === "export") return <BackWrap title={i18nTOf("more_export", "Export Data")} onBack={() => setSub("menu")}><DataExport {...props} /></BackWrap>;
+  if (sub === "slideshow") return <BackWrap title={i18nTOf("more_slideshow", "Milestone Slideshows")} onBack={() => setSub("menu")}><MilestoneSlideshow {...props} /></BackWrap>;
   const items = [
-    { k: "portfolio", icon: <ImageIcon size={18} />, label: "Progress Portfolio", sub: "Photos, art & writing over time" },
-    { k: "weekly", icon: <ClipboardList size={18} />, label: "Weekly Summary", sub: "Minutes, wins, needs attention" },
-    { k: "handoff", icon: <Users size={18} />, label: "Handoff Notes", sub: "What the next adult needs to know" },
-    { k: "skills", icon: <GraduationCap size={18} />, label: "Learning Goals", sub: "Grade-level skill tracker (early)" },
-    { k: "people", icon: <Users size={18} />, label: "Family & Helpers", sub: "Add people · set access & limits" },
-    { k: "activities", icon: <Palette size={18} />, label: "Activities & Status", sub: "Add activities · breaks/seasons · colors" },
-    { k: "tasks", icon: <ClipboardList size={18} />, label: "Tasks & Chores", sub: "Add · edit · pause · remove" },
-    { k: "library", icon: <BookOpen size={18} />, label: "Reading Library", sub: "Books · level · reading pace" },
-    { k: "grades", icon: <Trophy size={18} />, label: "Grade Goals", sub: "Grades 1–6 · world's best standards" },
-    { k: "recap", icon: <Share2 size={18} />, label: "Recap & Memories", sub: "Weekly/monthly export · anniversaries" },
-    { k: "awards", icon: <Medal size={18} />, label: "Accomplishments", sub: "Report cards · belts · certificates" },
-    { k: "board_plan", icon: <ClipboardList size={18} />, label: "Daily Adventure Board · Plan", sub: "Today's Top 8 · weekly default · à la carte" },
-    { k: "board_theme", icon: <MapIcon size={18} />, label: "Adventure Board", sub: "Daily target · theme · controls" },
-    { k: "gallery", icon: <Camera size={18} />, label: "Photo Gallery", sub: "Every photo · sort by date · filter by activity" },
-    { k: "insights", icon: <TrendingUp size={18} />, label: "Insights", sub: "Practice time · songs · books · counts" },
-    { k: "music_library", icon: <Music size={18} />, label: "Music Library", sub: "Every song · sort · edit titles / artists / albums / covers" },
-    { k: "export", icon: <Download size={18} />, label: "Export Data", sub: "CSV downloads — own your data" },
-    { k: "slideshow", icon: <Play size={18} />, label: "Milestone Slideshows", sub: "Monthly · 6-month · 1-year recaps" },
-    { k: "audit", icon: <AlertCircle size={18} />, label: "Data audit", sub: "Check the math · find drift · spot orphans" },
-    { k: "privacy", icon: <Lock size={18} />, label: "Privacy & Safety", sub: "Family isolation · what's stored · own your data" },
-    { k: "languages", icon: <GraduationCap size={18} />, label: "Languages", sub: "English / Spanish / Both — for the whole family" },
+    { k: "portfolio",    icon: <ImageIcon size={18} />,      label: i18nTOf("more_portfolio", "Progress Portfolio"),         sub: i18nTOf("more_portfolio_sub", "Photos, art & writing over time") },
+    { k: "weekly",       icon: <ClipboardList size={18} />,  label: i18nTOf("more_weekly", "Weekly Summary"),                sub: i18nTOf("more_weekly_sub", "Minutes, wins, needs attention") },
+    { k: "handoff",      icon: <Users size={18} />,          label: i18nTOf("more_handoff", "Handoff Notes"),                sub: i18nTOf("more_handoff_sub", "What the next adult needs to know") },
+    { k: "skills",       icon: <GraduationCap size={18} />,  label: i18nTOf("more_skills", "Learning Goals"),                sub: i18nTOf("more_skills_sub", "Grade-level skill tracker (early)") },
+    { k: "people",       icon: <Users size={18} />,          label: i18nTOf("more_people", "Family & Helpers"),              sub: i18nTOf("more_people_sub", "Add people · set access & limits") },
+    { k: "activities",   icon: <Palette size={18} />,        label: i18nTOf("more_activities", "Activities & Status"),       sub: i18nTOf("more_activities_sub", "Add activities · breaks/seasons · colors") },
+    { k: "tasks",        icon: <ClipboardList size={18} />,  label: i18nTOf("more_tasks", "Tasks & Chores"),                 sub: i18nTOf("more_tasks_sub", "Add · edit · pause · remove") },
+    { k: "library",      icon: <BookOpen size={18} />,       label: i18nTOf("more_library", "Reading Library"),              sub: i18nTOf("more_library_sub", "Books · level · reading pace") },
+    { k: "grades",       icon: <Trophy size={18} />,         label: i18nTOf("more_grades", "Grade Goals"),                   sub: i18nTOf("more_grades_sub", "Grades 1–6 · world's best standards") },
+    { k: "recap",        icon: <Share2 size={18} />,         label: i18nTOf("more_recap", "Recap & Memories"),               sub: i18nTOf("more_recap_sub", "Weekly/monthly export · anniversaries") },
+    { k: "awards",       icon: <Medal size={18} />,          label: i18nTOf("more_awards", "Accomplishments"),               sub: i18nTOf("more_awards_sub", "Report cards · belts · certificates") },
+    { k: "board_plan",   icon: <ClipboardList size={18} />,  label: i18nTOf("more_board_plan", "Daily Adventure Board · Plan"), sub: i18nTOf("more_board_plan_sub", "Today's Top 8 · weekly default · à la carte") },
+    { k: "board_theme",  icon: <MapIcon size={18} />,        label: i18nTOf("more_board_theme", "Adventure Board"),          sub: i18nTOf("more_board_theme_sub", "Daily target · theme · controls") },
+    { k: "gallery",      icon: <Camera size={18} />,         label: i18nTOf("more_gallery", "Photo Gallery"),                sub: i18nTOf("more_gallery_sub", "Every photo · sort by date · filter by activity") },
+    { k: "insights",     icon: <TrendingUp size={18} />,     label: i18nTOf("more_insights", "Insights"),                    sub: i18nTOf("more_insights_sub", "Practice time · songs · books · counts") },
+    { k: "music_library",icon: <Music size={18} />,          label: i18nTOf("more_music_library", "Music Library"),          sub: i18nTOf("more_music_library_sub", "Every song · sort · edit titles / artists / albums / covers") },
+    { k: "export",       icon: <Download size={18} />,       label: i18nTOf("more_export", "Export Data"),                   sub: i18nTOf("more_export_sub", "CSV downloads — own your data") },
+    { k: "slideshow",    icon: <Play size={18} />,           label: i18nTOf("more_slideshow", "Milestone Slideshows"),       sub: i18nTOf("more_slideshow_sub", "Monthly · 6-month · 1-year recaps") },
+    { k: "audit",        icon: <AlertCircle size={18} />,    label: i18nTOf("more_audit", "Data audit"),                     sub: i18nTOf("more_audit_sub", "Check the math · find drift · spot orphans") },
+    { k: "privacy",      icon: <Lock size={18} />,           label: i18nTOf("more_privacy", "Privacy & Safety"),             sub: i18nTOf("more_privacy_sub", "Family isolation · what's stored · own your data") },
+    { k: "languages",    icon: <GraduationCap size={18} />,  label: i18nTOf("more_languages", "Languages"),                  sub: i18nTOf("more_languages_sub", "English / Spanish / Both — for the whole family") },
   ];
   // Apply per-parent saved order. Items not in the saved list slot in
   // at the end so a new menu entry shows up automatically. The setting
@@ -9084,19 +9084,19 @@ function MoreMenu({ items, onPick, onReorder, onResetOrder }) {
   return (
     <>
       <div className="flex items-center justify-between mb-2 px-1">
-        <h2 className="font-extrabold text-lg">More</h2>
+        <h2 className="font-extrabold text-lg">{i18nTOf("more_header", "More")}</h2>
         <div className="flex items-center gap-2">
           {editMode && (
             <button
               type="button"
               onClick={() => {
-                if (window.confirm("Reset the More menu to the default order?")) {
+                if (window.confirm(i18nTOf("more_reset_confirm", "Reset the More menu to the default order?"))) {
                   onResetOrder?.();
                 }
               }}
               className="text-[11px] font-bold text-slate-500"
             >
-              Reset
+              {i18nTOf("more_reset", "Reset")}
             </button>
           )}
           <button
@@ -9104,13 +9104,13 @@ function MoreMenu({ items, onPick, onReorder, onResetOrder }) {
             onClick={() => setEditMode((v) => !v)}
             className={`text-[12px] font-bold px-3 py-1.5 rounded-full ${editMode ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-700"}`}
           >
-            {editMode ? "Done" : "Edit order"}
+            {editMode ? i18nTOf("act_done", "Done") : i18nTOf("more_edit_order", "Edit order")}
           </button>
         </div>
       </div>
       {editMode && (
         <div className="text-[11px] text-slate-500 px-1 mb-2">
-          Drag the ☰ handle to reorder, or tap ↑ / ↓. Changes save instantly.
+          {i18nTOf("more_reorder_hint", "Drag the ☰ handle to reorder, or tap ↑ / ↓. Changes save instantly.")}
         </div>
       )}
       {items.map((i, idx) => (
