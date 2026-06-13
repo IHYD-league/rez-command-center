@@ -6976,7 +6976,7 @@ function RewardEditRow({ r, updateReward, removeReward }) {
 }
 
 // ===================== PARENT: CALENDAR =====================
-function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, activities }) {
+function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, activities, users = [] }) {
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("2026-06-12");
   const sorted = [...events].sort((a, b) => a.date.localeCompare(b.date));
@@ -6990,15 +6990,15 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
     return { day, items };
   });
   const need = Math.max(0, TKD_TARGET - tkdDays.length);
-  const statusTag = { break: "on break", seasonal: "seasonal" };
+  const statusTag = { break: i18nTOf("cal_status_break", "on break"), seasonal: i18nTOf("cal_status_seasonal", "seasonal") };
   return (
     <div className="px-4 pt-4">
-      <h2 className="font-extrabold text-lg px-1">Calendar</h2>
-      <Card className="p-3 mt-2 bg-amber-50 border-amber-100 flex items-center gap-2 text-sm text-amber-800"><Sun size={16} /> Summer Mode: June 11 – Sept 1, 2026. School starts back ~Sept 1.</Card>
+      <h2 className="font-extrabold text-lg px-1">{i18nTOf("cal_heading", "Calendar")}</h2>
+      <Card className="p-3 mt-2 bg-amber-50 border-amber-100 flex items-center gap-2 text-sm text-amber-800"><Sun size={16} /> {i18nTOf("cal_summer_banner", "Summer Mode: June 11 – Sept 1, 2026. School starts back ~Sept 1.")}</Card>
 
-      <SectionTitle icon={<Heart size={16} className="text-violet-500" />} right={<span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${tkdDays.length >= TKD_TARGET ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{tkdDays.length} of {TKD_TARGET} picked</span>}>Taekwondo this week</SectionTitle>
+      <SectionTitle icon={<Heart size={16} className="text-violet-500" />} right={<span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${tkdDays.length >= TKD_TARGET ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{i18nTOf("cal_tkd_picked", "{n} of {target} picked").replace("{n}", tkdDays.length).replace("{target}", TKD_TARGET)}</span>}>{i18nTOf("cal_tkd_section", "Taekwondo this week")}</SectionTitle>
       <Card className="p-3 mb-1">
-        <div className="text-[11px] text-slate-400 mb-2">Available any day except Sunday. Tap the days he'll go this week and set the time.</div>
+        <div className="text-[11px] text-slate-400 mb-2">{i18nTOf("cal_tkd_hint", "Available any day except Sunday. Tap the days he'll go this week and set the time.")}</div>
         {TKD_SLOTS.map((s) => {
           const on = tkdDays.includes(s.day);
           return (
@@ -7006,24 +7006,24 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
               <button onClick={() => toggleTkdDay(s.day)} className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${on ? "bg-violet-600 text-white" : "border-2 border-slate-200 text-transparent"}`}><Check size={15} /></button>
               <div className="w-24 text-sm font-semibold text-slate-600 shrink-0">{s.day}</div>
               {on
-                ? <input value={tkdTimes[s.day] || ""} onChange={(e) => setTkdTime(s.day, e.target.value)} placeholder="set time" className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-xs" />
-                : <div className="flex-1 text-xs text-slate-400">{s.time || "time flexible"}</div>}
+                ? <input value={tkdTimes[s.day] || ""} onChange={(e) => setTkdTime(s.day, e.target.value)} placeholder={i18nTOf("cal_tkd_set_time", "set time")} className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-xs" />
+                : <div className="flex-1 text-xs text-slate-400">{s.time || i18nTOf("cal_tkd_time_flexible", "time flexible")}</div>}
             </div>
           );
         })}
         {need > 0
-          ? <div className="text-[11px] font-semibold text-amber-600 mt-1">Pick {need} more to hit his 2×/week goal. (e.g. if Monday's skipped, add Friday + Saturday.)</div>
-          : <div className="text-[11px] font-semibold text-emerald-600 mt-1">Nice — he's on track for the week. 🥋</div>}
+          ? <div className="text-[11px] font-semibold text-amber-600 mt-1">{i18nTOf("cal_tkd_pick_more", "Pick {n} more to hit the 2×/week goal.").replace("{n}", need)}</div>
+          : <div className="text-[11px] font-semibold text-emerald-600 mt-1">{i18nTOf("cal_tkd_on_track", "Nice — on track for the week. 🥋")}</div>}
       </Card>
 
-      <SectionTitle icon={<Clock size={16} className="text-teal-500" />}>Reznor's week</SectionTitle>
+      <SectionTitle icon={<Clock size={16} className="text-teal-500" />}>{i18nTOf("cal_kids_week", "{kid}'s week").replace("{kid}", kidName(users))}</SectionTitle>
       <Card className="p-1 mb-1">
         {weekly.map((d) => (
           <div key={d.day} className="flex items-start gap-2 px-2 py-2 border-b border-slate-50 last:border-0">
             <div className="text-xs font-bold text-slate-500 w-24 shrink-0">{d.day}</div>
             <div className="flex-1 text-xs space-y-1">
               {d.items.length === 0
-                ? <span className="text-slate-300">— free / rest</span>
+                ? <span className="text-slate-300">{i18nTOf("cal_free_rest", "— free / rest")}</span>
                 : d.items.map((it, i) => {
                   const paused = it.status === "break" || it.status === "seasonal";
                   return (
@@ -7031,7 +7031,7 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: it.color }} />
                       <span className="text-slate-600">{it.name}</span>
                       <span className="text-slate-400">· {it.time}</span>
-                      {it.tkd && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600">this week</span>}
+                      {it.tkd && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600">{i18nTOf("cal_this_week_tag", "this week")}</span>}
                       {paused && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-500">{statusTag[it.status]}</span>}
                     </div>
                   );
@@ -7040,9 +7040,12 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
           </div>
         ))}
       </Card>
-      <div className="text-[11px] text-slate-400 px-1 mb-1">{mode === "school" ? "School: 8:00 AM–2:10 PM, Mon–Fri." : "Summer homeschool block: 8 AM–2 PM, Mon–Fri."} Manage breaks & seasons under More → Activities.</div>
+      <div className="text-[11px] text-slate-400 px-1 mb-1">{mode === "school" ? i18nTOf("cal_school_hours", "School: 8:00 AM–2:10 PM, Mon–Fri.") : i18nTOf("cal_summer_hours", "Summer homeschool block: 8 AM–2 PM, Mon–Fri.")} {i18nTOf("cal_manage_hint", "Manage breaks & seasons under More → Activities.")}</div>
 
       <SectionTitle icon={<CalIcon size={16} className="text-indigo-500" />}>{i18nTOf("sec_upcoming", "Upcoming")}</SectionTitle>
+      {sorted.length === 0 && (
+        <div className="text-[11px] text-slate-400 px-1 mb-2">{i18nTOf("cal_upcoming_empty", "Nothing on the calendar yet.")}</div>
+      )}
       {sorted.map((e) => (
         <Card key={e.id} className="p-3 mb-2">
           <div className="flex items-center justify-between">
@@ -7053,13 +7056,13 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
         </Card>
       ))}
       <Card className="p-3 mt-3">
-        <div className="text-xs font-bold text-slate-500 mb-2">Add event</div>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Event title" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
+        <div className="text-xs font-bold text-slate-500 mb-2">{i18nTOf("cal_add_event", "Add event")}</div>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={i18nTOf("cal_event_title_ph", "Event title")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
         <div className="flex gap-2">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm" />
           <button onClick={() => { if (title.trim()) { addEvent({ title, date, category: "Activity", notes: "" }); setTitle(""); } }} className="px-4 rounded-xl bg-indigo-600 text-white font-bold text-sm"><Plus size={16} /></button>
         </div>
-        <div className="text-[11px] text-slate-400 mt-2">Add upcoming events — practices, classes, field trips, anything that affects today's plan.</div>
+        <div className="text-[11px] text-slate-400 mt-2">{i18nTOf("cal_add_event_hint", "Add upcoming events — practices, classes, field trips, anything that affects today's plan.")}</div>
       </Card>
     </div>
   );
@@ -8756,23 +8759,29 @@ function DataAudit(props) {
     : summary.warn > 0 ? "from-amber-500 to-amber-600"
     : "from-emerald-500 to-emerald-600";
   const headerEmoji = summary.error > 0 ? "⚠️" : summary.warn > 0 ? "⚠️" : "✅";
-  const headerLabel = summary.error > 0 ? "Drift detected" : summary.warn > 0 ? "Minor warnings" : "All clean";
+  const headerLabel =
+    summary.error > 0 ? i18nTOf("audit_drift", "Drift detected")
+    : summary.warn > 0 ? i18nTOf("audit_minor", "Minor warnings")
+    : i18nTOf("audit_clean", "All clean");
+  const summaryTpl = summary.error === 1
+    ? i18nTOf("audit_summary", "{ok} passing · {warn} warning · {err} error")
+    : i18nTOf("audit_summary_plural_err", "{ok} passing · {warn} warning · {err} errors");
   return (
     <div className="px-4 pt-4">
       <div className={`rounded-3xl p-4 mb-3 text-white bg-gradient-to-br ${headerTone}`}>
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur grid place-items-center text-2xl">{headerEmoji}</div>
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">Audit result</div>
+            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">{i18nTOf("audit_label", "Audit result")}</div>
             <div className="text-xl font-extrabold leading-tight">{headerLabel}</div>
             <div className="text-[11px] text-white/80 mt-0.5">
-              {summary.ok} passing · {summary.warn} warning · {summary.error} error{summary.error === 1 ? "" : "s"}
+              {summaryTpl.replace("{ok}", summary.ok).replace("{warn}", summary.warn).replace("{err}", summary.error)}
             </div>
           </div>
         </div>
       </div>
       <p className="text-[11px] text-slate-400 px-1 mb-2 leading-snug">
-        Read-only check across the whole family dataset. Architecture §3 derives totals at display time, so any drift here points at a deeper problem — a botched import, a delete that left dangling references, or a date written in the wrong format.
+        {i18nTOf("audit_intro", "Read-only check across the whole family dataset. Any drift here points at a deeper problem — a botched import, a delete that left dangling references, or a date written in the wrong format.")}
       </p>
       <div className="space-y-2">
         {findings.map((f) => {
@@ -8845,10 +8854,10 @@ function LanguagesPage({ displayLangs = ["en"], setDisplayLangs }) {
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur grid place-items-center text-2xl">🌐</div>
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">Languages</div>
-            <div className="text-xl font-extrabold leading-tight">For Reznor + you</div>
+            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">{i18nTOf("lang_header", "Languages")}</div>
+            <div className="text-xl font-extrabold leading-tight">{i18nTOf("lang_subtitle", "For the whole family")}</div>
             <div className="text-[11px] text-white/80 mt-0.5">
-              Bilingual task names and labels everywhere they fit.
+              {i18nTOf("lang_subhint", "Bilingual task names and labels everywhere they fit.")}
             </div>
           </div>
         </div>
@@ -8856,26 +8865,26 @@ function LanguagesPage({ displayLangs = ["en"], setDisplayLangs }) {
       <OptionCard
         active={isEnglishOnly}
         onClick={() => apply(["en"])}
-        primary="🇺🇸 English only"
-        secondary="The original."
-        hint="Every label and task name in English. Pick this if Spanish makes the screens feel busy."
+        primary={i18nTOf("lang_en_only", "🇺🇸 English only")}
+        secondary={i18nTOf("lang_en_only_sub", "The original.")}
+        hint={i18nTOf("lang_en_only_hint", "Every label and task name in English. Pick this if Spanish makes the screens feel busy.")}
       />
       <OptionCard
         active={isBoth}
         onClick={() => apply(["en", "es"])}
-        primary="🇺🇸 / 🇪🇸 Both — recommended"
-        secondary="English first, Spanish alongside."
-        hint='Task names and labels render together — "Make Bed / Hacer la cama". Lets Reznor read in Spanish without getting lost.'
+        primary={i18nTOf("lang_both", "🇺🇸 / 🇪🇸 Both — recommended")}
+        secondary={i18nTOf("lang_both_sub", "English first, Spanish alongside.")}
+        hint={i18nTOf("lang_both_hint", "Task names and labels render together — \"Make Bed / Hacer la cama\". Lets a learner read in Spanish without getting lost.")}
       />
       <OptionCard
         active={isSpanishOnly}
         onClick={() => apply(["es"])}
-        primary="🇪🇸 Spanish only"
-        secondary="Sólo en español."
-        hint="Full immersion. A few brand names (Duolingo, Drumeo) stay as they are."
+        primary={i18nTOf("lang_es_only", "🇪🇸 Spanish only")}
+        secondary={i18nTOf("lang_es_only_sub", "Sólo en español.")}
+        hint={i18nTOf("lang_es_only_hint", "Full immersion. A few brand names (Duolingo, Drumeo) stay as they are.")}
       />
       <div className="text-[11px] text-slate-400 px-1 mt-3 leading-snug">
-        Custom tasks you've added show up in whatever language you typed them in — a future update will let you add a Spanish name on the task editor.
+        {i18nTOf("lang_custom_hint", "Custom tasks you've added show up in whatever language you typed them in — open the task editor to add a Spanish name.")}
       </div>
     </div>
   );
@@ -8909,43 +8918,43 @@ function PrivacySafety(props) {
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur grid place-items-center text-2xl">🔒</div>
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">Privacy & Safety</div>
-            <div className="text-xl font-extrabold leading-tight">Your family, your data</div>
+            <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">{i18nTOf("priv_header", "Privacy & Safety")}</div>
+            <div className="text-xl font-extrabold leading-tight">{i18nTOf("priv_subtitle", "Your family, your data")}</div>
             <div className="text-[11px] text-white/80 mt-0.5">
-              Isolated from every other family using Command Center.
+              {i18nTOf("priv_subhint", "Isolated from every other family using Command Center.")}
             </div>
           </div>
         </div>
       </div>
 
-      <SectionTitle icon={<Lock size={16} className="text-violet-500" />}>Your family</SectionTitle>
+      <SectionTitle icon={<Lock size={16} className="text-violet-500" />}>{i18nTOf("priv_sec_family", "Your family")}</SectionTitle>
       <Card className="p-3 mb-3">
-        <Row label="Family ID" value={familyShort} hint="Unique to your family — used to isolate every row." />
-        <Row label="Signed in as" value={sessionEmail || "—"} />
-        <Row label="Parents" value={`${parents.length}`} hint={parents.map((u) => u.name).join(", ") || "—"} />
-        <Row label="Helpers" value={`${helpers.length}`} hint={helpers.map((u) => u.name).join(", ") || "(none)"} />
-        <Row label="Kids" value={`${kids.length}`} hint={kids.map((u) => u.name).join(", ") || "—"} />
+        <Row label={i18nTOf("priv_row_family_id", "Family ID")} value={familyShort} hint={i18nTOf("priv_row_family_id_hint", "Unique to your family — used to isolate every row.")} />
+        <Row label={i18nTOf("priv_row_signed_in", "Signed in as")} value={sessionEmail || "—"} />
+        <Row label={i18nTOf("priv_row_parents", "Parents")} value={`${parents.length}`} hint={parents.map((u) => u.name).join(", ") || "—"} />
+        <Row label={i18nTOf("priv_row_helpers", "Helpers")} value={`${helpers.length}`} hint={helpers.map((u) => u.name).join(", ") || i18nTOf("priv_row_none", "(none)")} />
+        <Row label={i18nTOf("priv_row_kids", "Kids")} value={`${kids.length}`} hint={kids.map((u) => u.name).join(", ") || "—"} />
       </Card>
 
-      <SectionTitle icon={<Camera size={16} className="text-cyan-500" />}>What's stored</SectionTitle>
+      <SectionTitle icon={<Camera size={16} className="text-cyan-500" />}>{i18nTOf("priv_sec_stored", "What's stored")}</SectionTitle>
       <Card className="p-3 mb-3">
-        <Row label="Completions" value={counts.completions} />
-        <Row label="Photos" value={counts.photos} hint="Stored in your family's bucket — never shared." />
-        <Row label="Gifts" value={counts.gifts} />
-        <Row label="Song plays" value={counts.songPlays} />
+        <Row label={i18nTOf("priv_row_completions", "Completions")} value={counts.completions} />
+        <Row label={i18nTOf("priv_row_photos", "Photos")} value={counts.photos} hint={i18nTOf("priv_row_photos_hint", "Stored in your family's bucket — never shared.")} />
+        <Row label={i18nTOf("priv_row_gifts", "Gifts")} value={counts.gifts} />
+        <Row label={i18nTOf("priv_row_song_plays", "Song plays")} value={counts.songPlays} />
       </Card>
 
-      <SectionTitle icon={<AlertCircle size={16} className="text-amber-500" />}>Photo location data</SectionTitle>
+      <SectionTitle icon={<AlertCircle size={16} className="text-amber-500" />}>{i18nTOf("priv_sec_photo_loc", "Photo location data")}</SectionTitle>
       <Card className="p-3 mb-3">
         <div className="text-[12px] text-slate-700 leading-snug">
-          When a photo is taken as proof and your device offers location, Command Center records a coarse GPS tag with the photo so a parent reviewing later knows where the chore happened. Tags stay inside your family.
+          {i18nTOf("priv_photo_loc_body", "When a photo is taken as proof and your device offers location, Command Center records a coarse GPS tag with the photo so a parent reviewing later knows where the chore happened. Tags stay inside your family.")}
         </div>
         <div className="text-[11px] text-slate-500 mt-2 leading-snug">
-          You can revoke location for the app at the OS level (iOS: Settings → Safari → Location; Android: Site settings) and the tag won't be saved.
+          {i18nTOf("priv_photo_loc_revoke", "You can revoke location for the app at the OS level (iOS: Settings → Safari → Location; Android: Site settings) and the tag won't be saved.")}
         </div>
       </Card>
 
-      <SectionTitle icon={<Download size={16} className="text-emerald-500" />}>Own your data</SectionTitle>
+      <SectionTitle icon={<Download size={16} className="text-emerald-500" />}>{i18nTOf("priv_sec_own_data", "Own your data")}</SectionTitle>
       <button
         type="button"
         onClick={() => setTab?.("more")}
@@ -8956,8 +8965,8 @@ function PrivacySafety(props) {
             <Download size={16} />
           </div>
           <div className="flex-1">
-            <div className="text-[12px] font-bold text-slate-800">Export every row as CSV</div>
-            <div className="text-[10px] text-slate-400">More → Export Data — completions, photos, books, songs, the whole set.</div>
+            <div className="text-[12px] font-bold text-slate-800">{i18nTOf("priv_export_title", "Export every row as CSV")}</div>
+            <div className="text-[10px] text-slate-400">{i18nTOf("priv_export_hint", "More → Export Data — completions, photos, books, songs, the whole set.")}</div>
           </div>
         </Card>
       </button>
@@ -8971,24 +8980,24 @@ function PrivacySafety(props) {
             <AlertCircle size={16} />
           </div>
           <div className="flex-1">
-            <div className="text-[12px] font-bold text-slate-800">Run a data audit</div>
-            <div className="text-[10px] text-slate-400">More → Data audit — checks bank math, orphan refs, date integrity.</div>
+            <div className="text-[12px] font-bold text-slate-800">{i18nTOf("priv_audit_title", "Run a data audit")}</div>
+            <div className="text-[10px] text-slate-400">{i18nTOf("priv_audit_hint", "More → Data audit — checks bank math, orphan refs, date integrity.")}</div>
           </div>
         </Card>
       </button>
 
-      <SectionTitle icon={<LogOut size={16} className="text-rose-500" />}>Session</SectionTitle>
+      <SectionTitle icon={<LogOut size={16} className="text-rose-500" />}>{i18nTOf("priv_sec_session", "Session")}</SectionTitle>
       {signOut && (
         <button
           type="button"
           onClick={signOut}
           className="w-full py-3 rounded-2xl bg-rose-50 text-rose-700 font-extrabold text-sm active:scale-95 mb-2"
         >
-          Sign out{sessionEmail ? ` (${sessionEmail})` : ""}
+          {i18nTOf("priv_sign_out", "Sign out")}{sessionEmail ? ` (${sessionEmail})` : ""}
         </button>
       )}
       <div className="text-[10px] text-slate-400 leading-snug px-1 mb-6">
-        Signing out clears the session on this device. Your family's data stays in the cloud and reappears the next time anyone signs in.
+        {i18nTOf("priv_sign_out_hint", "Signing out clears the session on this device. Your family's data stays in the cloud and reappears the next time anyone signs in.")}
       </div>
     </div>
   );
