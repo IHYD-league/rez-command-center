@@ -163,6 +163,10 @@ export const toApp = {
     cost: r.cost,
     status: r.status,
     requestedBy: r.requested_by,
+    // Approver actor + timestamp (set by decideReward). NULL on
+    // legacy rows that never went through the new audit path.
+    approvedBy: r.approved_by ?? null,
+    approvedAt: r.approved_at ?? null,
   }),
 
   gifted: (r) => ({
@@ -416,6 +420,10 @@ export const toDb = {
     cost: o.cost,
     status: o.status ?? "requested",
     requested_by: o.requestedBy ?? null,
+    // Always emit so batch upserts don't NULL-pad an approved row
+    // that's in the same batch as a new requested one.
+    approved_by: o.approvedBy ?? null,
+    approved_at: o.approvedAt ?? null,
   }),
 
   gifted: (familyId) => (o) => ({
