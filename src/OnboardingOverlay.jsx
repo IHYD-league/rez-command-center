@@ -175,7 +175,7 @@ export default function OnboardingOverlay({ user, onDismiss }) {
             animation: reduced ? "ob-fade 250ms 80ms forwards" : "ob-rise-text 500ms ease-out 200ms both",
           }}
         >
-          {t("ob_greeting", "Hi, {name}!").replace("{name}", user?.name || t("ob_friend", "friend"))}
+          {t("ob_hi", "Hi")}, {user?.name || t("ob_friend", "friend")}!
         </div>
 
         <div

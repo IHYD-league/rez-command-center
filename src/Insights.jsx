@@ -213,7 +213,7 @@ function EnrichedBookRow({ b, updateBook, familyId }) {
       const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
       updateBook(b.id, { customCoverPath: path });
     } catch (err) {
-      toast.error(t("ins_cover_upload_fail", "Cover upload failed: {msg}").replace("{msg}", err.message || err));
+      toast.error(t("ins_cover_upload_fail", "Cover upload failed: {msg}").replaceAll("{msg}", err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -428,7 +428,7 @@ function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
           {busy ? t("ins_searching", "Searching…") : t("ins_search_ol", "Search Open Library")}
         </button>
       </form>
-      {error && <div className="text-[12px] text-rose-500 mb-1">{t("ins_search_failed", "Search failed: {msg}").replace("{msg}", error)}</div>}
+      {error && <div className="text-[12px] text-rose-500 mb-1">{t("ins_search_failed", "Search failed: {msg}").replaceAll("{msg}", error)}</div>}
       {candidates && candidates.length === 0 && !busy && (
         <div className="text-[12px] text-slate-400 mb-1">{t("ins_no_matches", "No matches — try the author above, or save the values as-is below.")}</div>
       )}
@@ -450,7 +450,7 @@ function BookMatchPicker({ b, updateBook, busy, setBusy, onClose }) {
           }}
           className="w-full text-[11px] font-bold px-2 py-1.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 active:scale-95 flex items-center justify-center gap-1 mb-2"
         >
-          <Save size={12} /> {t("ins_save_as", 'Save "{title}"').replace("{title}", titleQuery.trim())}{authorQuery.trim() ? t("ins_save_by", " by {author}").replace("{author}", authorQuery.trim()) : ""}
+          <Save size={12} /> {t("ins_save_as", 'Save "{title}"').replaceAll("{title}", titleQuery.trim())}{authorQuery.trim() ? t("ins_save_by", " by {author}").replaceAll("{author}", authorQuery.trim()) : ""}
         </button>
       )}
       {candidates && candidates.length > 0 && (
@@ -677,7 +677,7 @@ export default function Insights({
         <div className="text-xs uppercase tracking-wider font-bold opacity-85">{t("ins_header_kicker", "Family Insights")}</div>
         <div className="text-xl font-extrabold mt-0.5">{t("ins_header_title", "Numbers behind the work")}</div>
         <div className="text-[11px] opacity-85 mt-2 leading-snug">
-          {t("ins_header_intro", "Tracking granular logs since {date}. The streaks go further back than the minutes do — that's honest, not a bug.").replace("{date}", fmtDate("2026-06-06"))}
+          {t("ins_header_intro", "Tracking granular logs since {date}. The streaks go further back than the minutes do — that's honest, not a bug.").replaceAll("{date}", fmtDate("2026-06-06"))}
         </div>
       </div>
 
@@ -693,7 +693,7 @@ export default function Insights({
         </div>
         <DayBars data={practiceStats.last14} color="#7c3aed" suffix=" min" />
         <div className="text-[11px] text-slate-400 mt-1.5 flex items-center justify-between">
-          <span>{t("ins_last14_label", "Last 14 days · {n} min").replace("{n}", practiceStats.last14Sum)}</span>
+          <span>{t("ins_last14_label", "Last 14 days · {n} min").replaceAll("{n}", practiceStats.last14Sum)}</span>
           {practiceStats.totalMin === 0 && <EmptyLine>{t("ins_no_minutes", "No minutes logged yet.")}</EmptyLine>}
         </div>
       </Card>
@@ -703,7 +703,7 @@ export default function Insights({
       <Card>
         <div className="flex items-baseline gap-2 mb-3">
           <span className="text-3xl font-extrabold text-slate-800 leading-none">{topSongs.total}</span>
-          <span className="text-sm font-bold text-slate-400 leading-none">{t("ins_songs_summary", "plays · {n} songs").replace("{n}", topSongs.songsTouched)}</span>
+          <span className="text-sm font-bold text-slate-400 leading-none">{t("ins_songs_summary", "plays · {n} songs").replaceAll("{n}", topSongs.songsTouched)}</span>
         </div>
         {topSongs.list.length === 0 ? (
           <EmptyLine>{t("ins_no_songplays", "No song plays logged yet.")}</EmptyLine>
@@ -781,7 +781,7 @@ export default function Insights({
             {booksStats.backlogCount > 0 && (
               <>
                 <div className="text-[11px] font-bold uppercase tracking-wider text-amber-700 mb-1.5">
-                  {t("ins_archive_pretracking", "Archive · pre-tracking ({n})").replace("{n}", booksStats.backlogCount)}
+                  {t("ins_archive_pretracking", "Archive · pre-tracking ({n})").replaceAll("{n}", booksStats.backlogCount)}
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-1">
                   {booksStats.eras.map(([era, n]) => (

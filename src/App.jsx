@@ -3188,7 +3188,7 @@ function StatDetail({
   // shipped in i18n.js can decide where the name slots in (e.g. for
   // Spanish word order). Falls back to the raw English template
   // if no translation has been added yet.
-  const fmtSubt = (key, fallback) => i18nTOf(key, fallback).replace("{kid}", KID);
+  const fmtSubt = (key, fallback) => i18nTOf(key, fallback).replaceAll("{kid}", KID);
   const TITLES = {
     earned: { title: i18nTOf("stat_meta_earned_title", "Earned today"), subtitle: fmtSubt("stat_meta_earned_sub", "Every star {kid} banked since midnight.") },
     pending: { title: i18nTOf("stat_meta_pending_title", "Pending approval (today)"), subtitle: i18nTOf("stat_meta_pending_sub", "Today's submissions waiting on a grown-up.") },
@@ -4682,7 +4682,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     const f = e.target.files?.[0];
     if (!f) return;
     if (photos.length >= MAX_PHOTOS) {
-      toast.error(i18nTOf("ts_max_photos", "Max {n} photos per task.").replace("{n}", MAX_PHOTOS));
+      toast.error(i18nTOf("ts_max_photos", "Max {n} photos per task.").replaceAll("{n}", MAX_PHOTOS));
       e.target.value = "";
       return;
     }
@@ -4691,7 +4691,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
       setPhotos((prev) => (prev.length >= MAX_PHOTOS ? prev : [...prev, { type: "photo", name, path }]));
     } catch (err) {
-      toast.error(i18nTOf("ts_photo_upload_fail", "Photo upload failed: {msg}").replace("{msg}", err.message || err));
+      toast.error(i18nTOf("ts_photo_upload_fail", "Photo upload failed: {msg}").replaceAll("{msg}", err.message || err));
     } finally {
       setUploading(false);
       e.target.value = ""; // allow picking the same file again after remove
@@ -4911,14 +4911,14 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
           <div className="w-11 h-11 rounded-2xl bg-amber-100 grid place-items-center"><TaskIcon type={task.activityType} /></div>
           <div>
             <div className="font-extrabold text-lg">{i18nTitleOf(task)}</div>
-            <div className="text-xs text-slate-400">{i18nTOf("ts_minutes_worth", "{m} min · worth {n} ⭐").replace("{m}", task.minutes).replace("{n}", task.starValue)}{task.bonusStarValue ? i18nTOf("ts_bonus_possible", " (+{n} bonus possible)").replace("{n}", task.bonusStarValue) : ""}</div>
+            <div className="text-xs text-slate-400">{i18nTOf("ts_minutes_worth", "{m} min · worth {n} ⭐").replaceAll("{m}", task.minutes).replaceAll("{n}", task.starValue)}{task.bonusStarValue ? i18nTOf("ts_bonus_possible", " (+{n} bonus possible)").replaceAll("{n}", task.bonusStarValue) : ""}</div>
           </div>
         </div>
 
         {alreadyApproved && (
           <div className="mt-4 bg-emerald-50 text-emerald-700 rounded-2xl p-3 text-sm font-semibold flex items-center gap-2">
             <Check size={16} />
-            <span className="flex-1">{i18nTOf("ts_approved_banked", "Approved — {n} ⭐ banked! 🎉").replace("{n}", existing.awardedStars)}</span>
+            <span className="flex-1">{i18nTOf("ts_approved_banked", "Approved — {n} ⭐ banked! 🎉").replaceAll("{n}", existing.awardedStars)}</span>
             {canEdit && (
               <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-600 bg-emerald-100 rounded-full px-2 py-0.5">{i18nTOf("ts_edit_mode", "edit mode")}</span>
             )}
@@ -4945,7 +4945,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
                       {pickerBooks.map((b) => {
                         const statusLabel =
-                          b.preTracking ? i18nTOf("ts_book_archive", "Archive · {era}").replace("{era}", b.eraLabel || i18nTOf("ts_book_era_unset", "era unset"))
+                          b.preTracking ? i18nTOf("ts_book_archive", "Archive · {era}").replaceAll("{era}", b.eraLabel || i18nTOf("ts_book_era_unset", "era unset"))
                           : b.status === "finished" ? i18nTOf("ts_book_status_finished", "Finished")
                           : b.status === "wishlist" ? i18nTOf("ts_book_status_wishlist", "Wishlist")
                           : b.status === "dropped" ? i18nTOf("ts_book_status_dropped", "Dropped")
@@ -4971,11 +4971,11 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                                 {b.lang && <span className="text-[10px] text-slate-500">{b.lang}</span>}
                                 {(b.readCount || 1) > 1 && (
                                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                                    {i18nTOf("ts_read_count", "Read {n}×").replace("{n}", b.readCount)}
+                                    {i18nTOf("ts_read_count", "Read {n}×").replaceAll("{n}", b.readCount)}
                                   </span>
                                 )}
                                 {isRereadCandidate && (
-                                  <span className="text-[10px] text-amber-600 font-bold">{i18nTOf("ts_round_hint", "round {n}?").replace("{n}", (b.readCount || 1) + 1)}</span>
+                                  <span className="text-[10px] text-amber-600 font-bold">{i18nTOf("ts_round_hint", "round {n}?").replaceAll("{n}", (b.readCount || 1) + 1)}</span>
                                 )}
                               </div>
                             </div>
@@ -4990,7 +4990,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                       <div className="flex-1 text-[12px] text-emerald-800 font-bold truncate">
                         {i18nTOf("field_picked", "Picked")}: {pickedBook.canonicalTitle || pickedBook.title || i18nTOf("ts_book_untitled", "(untitled)")}
                         {(pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped") && (
-                          <span className="text-[10px] text-amber-700 ml-1">{i18nTOf("ts_round_inline", "(this will be Round {n})").replace("{n}", (pickedBook.readCount || 1) + 1)}</span>
+                          <span className="text-[10px] text-amber-700 ml-1">{i18nTOf("ts_round_inline", "(this will be Round {n})").replaceAll("{n}", (pickedBook.readCount || 1) + 1)}</span>
                         )}
                       </div>
                       <button onClick={clearPick} className="text-emerald-600 p-1" aria-label={i18nTOf("ts_picked_clear", "Clear picked book")}>
@@ -5022,7 +5022,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                   <span className="text-sm text-slate-700">
                     {i18nTOf("ts_finished_today", "✅ He finished this book today")}
                     {pickedBook && (pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped")
-                      ? i18nTOf("ts_round_suffix", " (Round {n})").replace("{n}", (pickedBook.readCount || 1) + 1)
+                      ? i18nTOf("ts_round_suffix", " (Round {n})").replaceAll("{n}", (pickedBook.readCount || 1) + 1)
                       : ""}
                   </span>
                 </label>
@@ -5498,7 +5498,7 @@ function RewardsKid({ rewards, starBank, requestReward, redemptions }) {
             <div className="w-11 h-11 rounded-2xl bg-violet-100 grid place-items-center text-xl">🎁</div>
             <div className="flex-1">
               <div className="font-bold text-sm">{r.title}</div>
-              <div className="text-[11px] text-slate-400">{afford ? i18nTOf("rk_can_get", "You can get this! 🎉") : i18nTOf("rk_more_to_go", "{n} more ⭐ to go").replace("{n}", remaining)}</div>
+              <div className="text-[11px] text-slate-400">{afford ? i18nTOf("rk_can_get", "You can get this! 🎉") : i18nTOf("rk_more_to_go", "{n} more ⭐ to go").replaceAll("{n}", remaining)}</div>
               {!afford && <div className="mt-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-violet-400" style={{ width: `${Math.min(100, (starBank / r.starCost) * 100)}%` }} /></div>}
             </div>
             <div className="text-right">
@@ -5728,7 +5728,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
         <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
           <Music size={16} className="text-violet-500" />
           {i18nTOf("mps_section", "Most played songs")}
-          <span className="text-[11px] font-normal text-slate-400">· {i18nTOf("mps_top_n", "top {n}").replace("{n}", ranked.length)}</span>
+          <span className="text-[11px] font-normal text-slate-400">· {i18nTOf("mps_top_n", "top {n}").replaceAll("{n}", ranked.length)}</span>
         </div>
         <div className="flex items-center gap-1.5 text-slate-400">
           <span className="text-[11px] font-bold text-violet-600 bg-violet-50 rounded-full px-2 py-0.5">
@@ -5752,7 +5752,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
                   <div className="font-bold text-sm text-slate-800 truncate">{song.title}</div>
                   {(song.artist || last) && (
                     <div className="text-[11px] text-slate-400 truncate">
-                      {song.artist || ""}{song.artist && last ? " · " : ""}{last ? i18nTOf("mps_last", "last: {date}").replace("{date}", fmtShort(last)) : ""}
+                      {song.artist || ""}{song.artist && last ? " · " : ""}{last ? i18nTOf("mps_last", "last: {date}").replaceAll("{date}", fmtShort(last)) : ""}
                     </div>
                   )}
                 </div>
@@ -5847,9 +5847,9 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
                                         const when = p.playedOn ? fmtShort(p.playedOn) : i18nTOf("mps_unknown_date", "an unknown date");
                                         const notesPart = p.notes ? `\n${p.notes}` : "";
                                         const askMsg = i18nTOf("mps_confirm_ask", "Ask a parent to remove this play?\n\n\"{song}\" — {when}{notes}\n\nIt'll show up in the parent's Approval queue. The play count won't change until they approve.")
-                                          .replace("{song}", songTitle).replace("{when}", when).replace("{notes}", notesPart);
+                                          .replaceAll("{song}", songTitle).replaceAll("{when}", when).replaceAll("{notes}", notesPart);
                                         const removeMsg = i18nTOf("mps_confirm_remove", "Remove this play?\n\n\"{song}\" — {when}{notes}\n\nThe play count drops by 1 and this can't be undone.")
-                                          .replace("{song}", songTitle).replace("{when}", when).replace("{notes}", notesPart);
+                                          .replaceAll("{song}", songTitle).replaceAll("{when}", when).replaceAll("{notes}", notesPart);
                                         if (isKid) {
                                           if (window.confirm(askMsg)) {
                                             requestSongPlayChange(p.id, "remove", null);
@@ -5907,12 +5907,12 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
 
       <Card className="p-4 mt-3">
         <div className="flex items-center justify-between text-sm">
-          <span className="font-bold">{i18nTOf("pt_next_reward", "Next reward")}</span><span className="text-slate-500">{i18nTOf("pt_at_cost", "{name} @ {n} ⭐").replace("{name}", CHILD.nextReward).replace("{n}", CHILD.nextRewardCost)}</span>
+          <span className="font-bold">{i18nTOf("pt_next_reward", "Next reward")}</span><span className="text-slate-500">{i18nTOf("pt_at_cost", "{name} @ {n} ⭐").replaceAll("{name}", CHILD.nextReward).replaceAll("{n}", CHILD.nextRewardCost)}</span>
         </div>
         <div className="h-2 bg-slate-100 rounded-full mt-2 overflow-hidden"><div className="h-full bg-amber-400" style={{ width: `${Math.min(100, (starBank / CHILD.nextRewardCost) * 100)}%` }} /></div>
         <div className="flex items-center justify-between text-xs mt-3 text-slate-400">
-          <span>{i18nTOf("pt_big_goal", "Big goal: {name} @ {n} ⭐").replace("{name}", CHILD.bigReward).replace("{n}", CHILD.bigRewardCost)}</span>
-          <button onClick={() => setMode(mode === "summer" ? "school" : "summer")} className="font-semibold text-indigo-600">{i18nTOf("pt_switch_mode", "Switch to {mode} mode").replace("{mode}", mode === "summer" ? i18nTOf("pt_mode_school", "School") : i18nTOf("pt_mode_summer", "Summer"))}</button>
+          <span>{i18nTOf("pt_big_goal", "Big goal: {name} @ {n} ⭐").replaceAll("{name}", CHILD.bigReward).replaceAll("{n}", CHILD.bigRewardCost)}</span>
+          <button onClick={() => setMode(mode === "summer" ? "school" : "summer")} className="font-semibold text-indigo-600">{i18nTOf("pt_switch_mode", "Switch to {mode} mode").replaceAll("{mode}", mode === "summer" ? i18nTOf("pt_mode_school", "School") : i18nTOf("pt_mode_summer", "Summer"))}</button>
         </div>
       </Card>
 
@@ -6040,7 +6040,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
                     : null);
               const giver = users.find((u) => u.id === g.by)?.name || "—";
               const taskSuffix = gTask
-                ? i18nTOf("pt_bonus_row_task_suffix", " · {title}").replace("{title}", i18nTitleOf(gTask))
+                ? i18nTOf("pt_bonus_row_task_suffix", " · {title}").replaceAll("{title}", i18nTitleOf(gTask))
                 : "";
               return (
                 <button
@@ -6058,7 +6058,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
                         {g.label || i18nTOf("pt_bonus_fallback", "Bonus")}
                       </div>
                       <div className="text-[11px] text-slate-400 truncate">
-                        {i18nTOf("pt_bonus_row_meta", "bonus stars · from {giver}{task} · tap to edit").replace("{giver}", giver).replace("{task}", taskSuffix)}
+                        {i18nTOf("pt_bonus_row_meta", "bonus stars · from {giver}{task} · tap to edit").replaceAll("{giver}", giver).replaceAll("{task}", taskSuffix)}
                       </div>
                     </div>
                     <StarPill n={Number(g.stars) || 0} tone="emerald" />
@@ -6089,7 +6089,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
                   type="button"
                   onClick={() => restoreTaskFromNA && restoreTaskFromNA(TODAY_ISO, t.id)}
                   className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200 active:scale-95 flex items-center gap-1.5"
-                  title={i18nTOf("pt_restore_title", "Restore \"{title}\" to today's list").replace("{title}", i18nTitleOf(t))}
+                  title={i18nTOf("pt_restore_title", "Restore \"{title}\" to today's list").replaceAll("{title}", i18nTitleOf(t))}
                 >
                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: d.color }} />
                   {i18nTitleOf(t)}
@@ -6359,7 +6359,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       const { path, name } = await uploadFamilyPhoto({ file: f, familyId, kind: "proof" });
       setPhoto({ path, name });
     } catch (err) {
-      toast.error("Photo upload failed: " + (err.message || err));
+      toast.error(i18nTOf("gs_photo_upload_fail", "Photo upload failed: {msg}").replaceAll("{msg}", err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -6412,10 +6412,10 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
     return (
       <div className="mt-3">
         <button onClick={() => setOpen(true)} className="w-full py-3 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#f59e0b,#ec4899)" }}>
-          <Sparkles size={16} /> Gift bonus stars
+          <Sparkles size={16} /> {i18nTOf("gs_cta", "Gift bonus stars")}
           {todayTotal > 0 && (
             <span className="ml-1 text-[11px] font-extrabold bg-white/25 rounded-full px-2 py-0.5">
-              {todayTotal}⭐ today
+              {i18nTOf("gs_today_pill", "{n}⭐ today").replaceAll("{n}", todayTotal)}
             </span>
           )}
         </button>
@@ -6423,7 +6423,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
             never accidentally double-gifts the same activity. */}
         {giftedToday.length > 0 && (
           <div className="mt-2 bg-amber-50 border border-amber-200 rounded-2xl p-2.5">
-            <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">Already gifted today</div>
+            <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">{i18nTOf("gs_already_gifted_short", "Already gifted today")}</div>
             <div className="space-y-1">
               {giftedToday.map((g) => {
                 const giver = users.find((u) => u.id === g.by)?.name || "—";
@@ -6461,35 +6461,35 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
 
   return (
     <Card className="p-4 mt-3">
-      <div className="font-bold text-sm mb-1 flex items-center gap-2"><Sparkles size={15} className="text-amber-500" /> Gift bonus stars</div>
-      <div className="text-[11px] text-slate-400 mb-2">For great stuff that isn't on the list — extra reading, helping others, kindness.</div>
+      <div className="font-bold text-sm mb-1 flex items-center gap-2"><Sparkles size={15} className="text-amber-500" /> {i18nTOf("gs_cta", "Gift bonus stars")}</div>
+      <div className="text-[11px] text-slate-400 mb-2">{i18nTOf("gs_intro", "For great stuff that isn't on the list — extra reading, helping others, kindness.")}</div>
       {giftedToday.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-2 mb-2">
-          <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">Already gifted today ({todayTotal}⭐)</div>
+          <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">{i18nTOf("gs_already_gifted", "Already gifted today ({n}⭐)").replaceAll("{n}", todayTotal)}</div>
           {giftedToday.map((g) => (
             <div key={g.id} className="flex items-center gap-2 text-[11px]">
               <span className="font-bold text-amber-700 tabular-nums shrink-0">+{g.stars}⭐</span>
               <span className="flex-1 text-slate-700 truncate">{g.label}</span>
             </div>
           ))}
-          <div className="text-[10px] text-amber-700 mt-1 font-bold">Don't double-gift — pick a different reason or amount.</div>
+          <div className="text-[10px] text-amber-700 mt-1 font-bold">{i18nTOf("gs_no_double", "Don't double-gift — pick a different reason or amount.")}</div>
         </div>
       )}
 
-      <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="What did he do? e.g. Extra 30 min reading" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
+      <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={i18nTOf("gs_label_ph", "What did they do? e.g. Extra 30 min reading")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
 
       {/* Optional task picker — credits the gift to a specific task so
           Insights, per-day breakdown, and the Star Ledger can attribute
           it. Leave blank for "general bonus." */}
       <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-        For which task? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+        {i18nTOf("gs_for_task", "For which task?")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
       </label>
       <select
         value={taskId}
         onChange={(e) => { setTaskId(e.target.value); setBookId(""); setSongId(""); }}
         className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 bg-white"
       >
-        <option value="">— general bonus —</option>
+        <option value="">{i18nTOf("gs_general_bonus", "— general bonus —")}</option>
         {taskOptions.map((t) => (
           <option key={t.id} value={t.id}>{i18nTitleOf(t)}</option>
         ))}
@@ -6503,7 +6503,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       {isReading && (
         <>
           <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-            Which book? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+            {i18nTOf("gs_which_book", "Which book?")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
           </label>
           {!addingBook ? (
             <>
@@ -6512,7 +6512,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                 onChange={(e) => { setBookId(e.target.value); setMarkBookFinished(false); }}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-1.5 bg-white"
               >
-                <option value="">— pick a book —</option>
+                <option value="">{i18nTOf("gs_pick_book", "— pick a book —")}</option>
                 {bookOptions.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.title}{b.status && b.status !== "reading" ? ` (${b.status})` : ""}
@@ -6525,7 +6525,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={() => setAddingBook(true)}
                   className="text-[11px] font-bold text-indigo-600 mb-2 flex items-center gap-1"
                 >
-                  <Plus size={12} /> Add a new book
+                  <Plus size={12} /> {i18nTOf("gs_add_new_book", "Add a new book")}
                 </button>
               )}
               {bookId && updateBook && (() => {
@@ -6541,8 +6541,8 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                       className="w-4 h-4"
                     />
                     {alreadyFinished
-                      ? "✓ Already finished"
-                      : `${kidName(users)} finished this book today 📚`}
+                      ? i18nTOf("gs_already_finished", "✓ Already finished")
+                      : i18nTOf("gs_kid_finished", "{kid} finished this book today 📚").replaceAll("{kid}", kidName(users))}
                   </label>
                 );
               })()}
@@ -6552,13 +6552,13 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
               <input
                 value={newBookTitle}
                 onChange={(e) => setNewBookTitle(e.target.value)}
-                placeholder="Book title"
+                placeholder={i18nTOf("gs_book_title_ph", "Book title")}
                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
               />
               <input
                 value={newBookAuthor}
                 onChange={(e) => setNewBookAuthor(e.target.value)}
-                placeholder="Author (optional)"
+                placeholder={i18nTOf("gs_book_author_ph", "Author (optional)")}
                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
               />
               <div className="flex gap-1.5">
@@ -6567,7 +6567,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={() => { setAddingBook(false); setNewBookTitle(""); setNewBookAuthor(""); }}
                   className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5 active:scale-95"
                 >
-                  Cancel
+                  {i18nTOf("gs_cancel", "Cancel")}
                 </button>
                 <button
                   type="button"
@@ -6575,7 +6575,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={saveNewBook}
                   className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 active:scale-95 ${newBookTitle.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}
                 >
-                  Add book
+                  {i18nTOf("gs_add_book", "Add book")}
                 </button>
               </div>
             </div>
@@ -6589,7 +6589,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       {isDrums && (
         <>
           <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-            Which song? <span className="font-normal text-slate-400 normal-case">(optional)</span>
+            {i18nTOf("gs_which_song", "Which song?")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
           </label>
           {!addingSong ? (
             <>
@@ -6598,7 +6598,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                 onChange={(e) => setSongId(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-1.5 bg-white"
               >
-                <option value="">— pick a song —</option>
+                <option value="">{i18nTOf("gs_pick_song", "— pick a song —")}</option>
                 {songOptions.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.canonicalTitle || s.title}{(s.canonicalArtist || s.artist) ? ` — ${s.canonicalArtist || s.artist}` : ""}
@@ -6611,7 +6611,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={() => setAddingSong(true)}
                   className="text-[11px] font-bold text-indigo-600 mb-2 flex items-center gap-1"
                 >
-                  <Plus size={12} /> Add a new song
+                  <Plus size={12} /> {i18nTOf("gs_add_new_song", "Add a new song")}
                 </button>
               )}
             </>
@@ -6620,13 +6620,13 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
               <input
                 value={newSongTitle}
                 onChange={(e) => setNewSongTitle(e.target.value)}
-                placeholder="Song title"
+                placeholder={i18nTOf("gs_song_title_ph", "Song title")}
                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
               />
               <input
                 value={newSongArtist}
                 onChange={(e) => setNewSongArtist(e.target.value)}
-                placeholder="Artist (optional)"
+                placeholder={i18nTOf("gs_song_artist_ph", "Artist (optional)")}
                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm mb-1.5 bg-white"
               />
               <div className="flex gap-1.5">
@@ -6635,7 +6635,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={() => { setAddingSong(false); setNewSongTitle(""); setNewSongArtist(""); }}
                   className="flex-1 text-[11px] font-bold bg-slate-200 text-slate-700 rounded-lg py-1.5 active:scale-95"
                 >
-                  Cancel
+                  {i18nTOf("gs_cancel", "Cancel")}
                 </button>
                 <button
                   type="button"
@@ -6643,7 +6643,7 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
                   onClick={saveNewSong}
                   className={`flex-1 text-[11px] font-bold rounded-lg py-1.5 active:scale-95 ${newSongTitle.trim() ? "bg-purple-600 text-white" : "bg-slate-200 text-slate-400"}`}
                 >
-                  Add song
+                  {i18nTOf("gs_add_song", "Add song")}
                 </button>
               </div>
             </div>
@@ -6652,21 +6652,21 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
       )}
 
       {/* Stars amount */}
-      <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">Stars</label>
+      <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">{i18nTOf("gs_stars_label", "Stars")}</label>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         {[3, 5, 10, 15, 20, 30].map((n) => <button key={n} onClick={() => setAmt(n)} className={`px-3 py-1.5 rounded-xl text-sm font-bold ${amt === n ? "bg-amber-400 text-white" : "bg-slate-100 text-slate-500"}`}>{n}⭐</button>)}
       </div>
 
       {/* Photo proof — same upload pattern as TaskSheet. Optional. */}
       <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-        Photo proof <span className="font-normal text-slate-400 normal-case">(optional)</span>
+        {i18nTOf("gs_photo_proof", "Photo proof")} <span className="font-normal text-slate-400 normal-case">{i18nTOf("gs_optional_aside", "(optional)")}</span>
       </label>
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePickPhoto} />
       {photo ? (
         <div className="flex items-center gap-2 mb-3 bg-emerald-50 border border-emerald-200 rounded-xl p-2">
           <Camera size={14} className="text-emerald-600 shrink-0" />
-          <div className="text-[11px] font-bold text-emerald-700 flex-1 truncate">{photo.name || "Photo attached"}</div>
-          <button onClick={() => setPhoto(null)} className="text-emerald-700 text-[11px] font-bold">Remove</button>
+          <div className="text-[11px] font-bold text-emerald-700 flex-1 truncate">{photo.name || i18nTOf("gs_photo_attached", "Photo attached")}</div>
+          <button onClick={() => setPhoto(null)} className="text-emerald-700 text-[11px] font-bold">{i18nTOf("gs_photo_remove", "Remove")}</button>
         </div>
       ) : (
         <button
@@ -6675,13 +6675,13 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
           disabled={uploading}
           className={`w-full mb-3 py-2 rounded-xl border border-dashed text-[12px] font-bold flex items-center justify-center gap-1.5 ${uploading ? "bg-slate-50 text-slate-400 border-slate-200" : "bg-white text-indigo-600 border-indigo-300 active:scale-[0.99]"}`}
         >
-          {uploading ? "Uploading…" : <><Camera size={13} /> Add a photo</>}
+          {uploading ? i18nTOf("gs_photo_uploading", "Uploading…") : <><Camera size={13} /> {i18nTOf("gs_photo_add", "Add a photo")}</>}
         </button>
       )}
 
       <div className="flex gap-2">
-        <button onClick={close} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">Cancel</button>
-        <button disabled={!label.trim() || uploading} onClick={submit} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${label.trim() && !uploading ? "bg-amber-500" : "bg-slate-200 text-slate-400"}`}>Give {amt}⭐</button>
+        <button onClick={close} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">{i18nTOf("gs_cancel", "Cancel")}</button>
+        <button disabled={!label.trim() || uploading} onClick={submit} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${label.trim() && !uploading ? "bg-amber-500" : "bg-slate-200 text-slate-400"}`}>{i18nTOf("gs_give_n", "Give {n}⭐").replaceAll("{n}", amt)}</button>
       </div>
     </Card>
   );
@@ -6771,7 +6771,7 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
               <div className="w-10 h-10 rounded-2xl bg-amber-100 grid place-items-center"><TaskIcon type={t.activityType} /></div>
               <div className="flex-1">
                 <div className="font-bold text-sm">{i18nTitleOf(t)}</div>
-                <div className="text-[11px] text-slate-400">{i18nTOf("app_submitted_by", "Submitted by {name}").replace("{name}", who?.name || "")}</div>
+                <div className="text-[11px] text-slate-400">{i18nTOf("app_submitted_by", "Submitted by {name}").replaceAll("{name}", who?.name || "")}</div>
               </div>
               <StarPill n={c.pendingStars} tone="amber" />
             </div>
@@ -6841,7 +6841,7 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
                     <div className="text-[11px] text-slate-400 truncate">
                       {play ? fmtShort(play.playedOn) : "—"}
                       {play?.notes ? ` · "${play.notes}"` : ""}
-                      {` · ${i18nTOf("app_song_asked_by", "asked by {name}").replace("{name}", who)}`}
+                      {` · ${i18nTOf("app_song_asked_by", "asked by {name}").replaceAll("{name}", who)}`}
                     </div>
                   </div>
                 </div>
@@ -6919,9 +6919,9 @@ function RewardsParent({ rewards, redemptions, decideReward, starBank, addReward
   return (
     <div className="px-4 pt-4">
       <h2 className="font-extrabold text-lg px-1">{i18nTOf("rew_heading", "Rewards Store")}</h2>
-      <p className="text-xs text-slate-400 px-1">{i18nTOf("rew_bank_hint", "Bank: {n} ⭐ · add, edit, or remove anything {kid}'s into.").replace("{n}", starBank).replace("{kid}", kidName(users))}</p>
+      <p className="text-xs text-slate-400 px-1">{i18nTOf("rew_bank_hint", "Bank: {n} ⭐ · add, edit, or remove anything {kid}'s into.").replaceAll("{n}", starBank).replaceAll("{kid}", kidName(users))}</p>
 
-      <SectionTitle icon={<Sparkles size={16} className="text-violet-500" />}>{i18nTOf("sec_wishes_from", "Wishes from")} {kidName(users)} {wishes.length > 0 && <span className="text-[11px] font-normal text-violet-500">· {i18nTOf("rew_wishes_new", "{n} new").replace("{n}", wishes.length)}</span>}</SectionTitle>
+      <SectionTitle icon={<Sparkles size={16} className="text-violet-500" />}>{i18nTOf("sec_wishes_from", "Wishes from")} {kidName(users)} {wishes.length > 0 && <span className="text-[11px] font-normal text-violet-500">· {i18nTOf("rew_wishes_new", "{n} new").replaceAll("{n}", wishes.length)}</span>}</SectionTitle>
       {wishes.length === 0 && <p className="text-xs text-slate-400 px-1">{i18nTOf("rew_no_wishes", "No new wishes. When one comes up, set the stars and approve it here.")}</p>}
       {wishes.map((w) => <WishApproveRow key={w.id} w={w} decideRewardRequest={decideRewardRequest} />)}
 
@@ -7023,7 +7023,7 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
       <h2 className="font-extrabold text-lg px-1">{i18nTOf("cal_heading", "Calendar")}</h2>
       <Card className="p-3 mt-2 bg-amber-50 border-amber-100 flex items-center gap-2 text-sm text-amber-800"><Sun size={16} /> {i18nTOf("cal_summer_banner", "Summer Mode: June 11 – Sept 1, 2026. School starts back ~Sept 1.")}</Card>
 
-      <SectionTitle icon={<Heart size={16} className="text-violet-500" />} right={<span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${tkdDays.length >= TKD_TARGET ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{i18nTOf("cal_tkd_picked", "{n} of {target} picked").replace("{n}", tkdDays.length).replace("{target}", TKD_TARGET)}</span>}>{i18nTOf("cal_tkd_section", "Taekwondo this week")}</SectionTitle>
+      <SectionTitle icon={<Heart size={16} className="text-violet-500" />} right={<span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${tkdDays.length >= TKD_TARGET ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{i18nTOf("cal_tkd_picked", "{n} of {target} picked").replaceAll("{n}", tkdDays.length).replaceAll("{target}", TKD_TARGET)}</span>}>{i18nTOf("cal_tkd_section", "Taekwondo this week")}</SectionTitle>
       <Card className="p-3 mb-1">
         <div className="text-[11px] text-slate-400 mb-2">{i18nTOf("cal_tkd_hint", "Available any day except Sunday. Tap the days he'll go this week and set the time.")}</div>
         {TKD_SLOTS.map((s) => {
@@ -7039,11 +7039,11 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
           );
         })}
         {need > 0
-          ? <div className="text-[11px] font-semibold text-amber-600 mt-1">{i18nTOf("cal_tkd_pick_more", "Pick {n} more to hit the 2×/week goal.").replace("{n}", need)}</div>
+          ? <div className="text-[11px] font-semibold text-amber-600 mt-1">{i18nTOf("cal_tkd_pick_more", "Pick {n} more to hit the 2×/week goal.").replaceAll("{n}", need)}</div>
           : <div className="text-[11px] font-semibold text-emerald-600 mt-1">{i18nTOf("cal_tkd_on_track", "Nice — on track for the week. 🥋")}</div>}
       </Card>
 
-      <SectionTitle icon={<Clock size={16} className="text-teal-500" />}>{i18nTOf("cal_kids_week", "{kid}'s week").replace("{kid}", kidName(users))}</SectionTitle>
+      <SectionTitle icon={<Clock size={16} className="text-teal-500" />}>{i18nTOf("cal_kids_week", "{kid}'s week").replaceAll("{kid}", kidName(users))}</SectionTitle>
       <Card className="p-1 mb-1">
         {weekly.map((d) => (
           <div key={d.day} className="flex items-start gap-2 px-2 py-2 border-b border-slate-50 last:border-0">
@@ -7473,7 +7473,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
       {adding && <AddBookForm onAdd={(b) => { addBook(b); setAdding(false); }} onCancel={() => setAdding(false)} />}
       {addingBacklog && <AddBacklogBookForm onAdd={(b) => { addBook(b); setAddingBacklog(false); }} onCancel={() => setAddingBacklog(false)} />}
 
-      {q && reading.length === 0 && finished.length === 0 && archiveFiltered.length === 0 && <p className="text-sm text-slate-400 px-1">{i18nTOf("rl_no_match", "No books match \"{q}\".").replace("{q}", q)}</p>}
+      {q && reading.length === 0 && finished.length === 0 && archiveFiltered.length === 0 && <p className="text-sm text-slate-400 px-1">{i18nTOf("rl_no_match", "No books match \"{q}\".").replaceAll("{q}", q)}</p>}
 
       {viewMode === "shelf" ? (
         // Shelf view — flattens all three sections into one curated
@@ -7500,7 +7500,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
               </button>
             )}
             <div className="text-[10px] text-slate-400 ml-auto">
-              {savedOrder.length > 0 ? i18nTOf("rl_custom_order", "custom order") : i18nTOf("rl_sorted_by", "sorted by {label}").replace("{label}", bookSortLabel(sort))}
+              {savedOrder.length > 0 ? i18nTOf("rl_custom_order", "custom order") : i18nTOf("rl_sorted_by", "sorted by {label}").replaceAll("{label}", bookSortLabel(sort))}
             </div>
           </div>
           <div className="-mx-4 overflow-x-auto scrollbar-thin pb-32">
@@ -7549,7 +7549,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
       {archive.length > 0 && (
         <>
           <SectionTitle icon={<Archive size={16} className="text-amber-600" />}>
-            {i18nTOf("rl_archive_section", "Archive · pre-tracking ({n})").replace("{n}", archive.length)}
+            {i18nTOf("rl_archive_section", "Archive · pre-tracking ({n})").replaceAll("{n}", archive.length)}
           </SectionTitle>
           {eraCounts.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2 px-1">
@@ -7616,7 +7616,7 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
       const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
       updateBook(b.id, { customCoverPath: path });
     } catch (err) {
-      toast.error(i18nTOf("br_cover_upload_fail", "Cover upload failed: {msg}").replace("{msg}", err.message || err));
+      toast.error(i18nTOf("br_cover_upload_fail", "Cover upload failed: {msg}").replaceAll("{msg}", err.message || err));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -7643,7 +7643,7 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
           <div className="flex items-center gap-1.5 flex-wrap mt-1">
             {b.level && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600">{b.level}</span>}
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">{b.lang}</span>
-            {b.status === "finished" && pace && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600">{i18nTOf("br_read_in_days", "read in {n}d").replace("{n}", pace)}</span>}
+            {b.status === "finished" && pace && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600">{i18nTOf("br_read_in_days", "read in {n}d").replaceAll("{n}", pace)}</span>}
             {b.status === "finished" && b.rating > 0 && <span className="text-[10px]">{"⭐".repeat(b.rating)}</span>}
             {/* Honest pre-tracking badge — no date, just the era. */}
             {b.preTracking && (
@@ -7654,7 +7654,7 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
             {/* Re-read counter — only shows when > 1 to avoid clutter. */}
             {(b.readCount || 1) > 1 && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                {i18nTOf("br_read_count", "Read {n}×").replace("{n}", b.readCount)}
+                {i18nTOf("br_read_count", "Read {n}×").replaceAll("{n}", b.readCount)}
               </span>
             )}
           </div>
@@ -7729,7 +7729,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
       const { path } = await uploadFamilyPhoto({ file: f, familyId, kind: "cover" });
       updateBook(b.id, { customCoverPath: path });
     } catch (err) {
-      toast.error(i18nTOf("br_cover_upload_fail", "Cover upload failed: {msg}").replace("{msg}", err.message || err));
+      toast.error(i18nTOf("br_cover_upload_fail", "Cover upload failed: {msg}").replaceAll("{msg}", err.message || err));
     } finally {
       setUploading(false);
       if (coverFileRef.current) coverFileRef.current.value = "";
@@ -7997,7 +7997,7 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
             type="button"
             onClick={() => setRating(rating === n ? 0 : n)}
             className="text-sm"
-            aria-label={i18nTOf("br_rate_n_stars", "Rate {n} stars").replace("{n}", n)}
+            aria-label={i18nTOf("br_rate_n_stars", "Rate {n} stars").replaceAll("{n}", n)}
           >
             {n <= rating ? "⭐" : "☆"}
           </button>
@@ -8824,7 +8824,7 @@ function DataAudit(props) {
             <div className="text-[10px] uppercase tracking-widest text-white/70 font-bold">{i18nTOf("audit_label", "Audit result")}</div>
             <div className="text-xl font-extrabold leading-tight">{headerLabel}</div>
             <div className="text-[11px] text-white/80 mt-0.5">
-              {summaryTpl.replace("{ok}", summary.ok).replace("{warn}", summary.warn).replace("{err}", summary.error)}
+              {summaryTpl.replaceAll("{ok}", summary.ok).replaceAll("{warn}", summary.warn).replaceAll("{err}", summary.error)}
             </div>
           </div>
         </div>

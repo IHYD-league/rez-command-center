@@ -584,7 +584,10 @@ const STRINGS = {
   ob_grandparent_sub:         { en: "Today's checklist + family notes, ready when you are.", es: "La lista de hoy + notas de la familia, listas cuando quieras." },
   ob_helper_sub:              { en: "Today's checklist + handoff notes for the family.", es: "La lista de hoy + notas para el siguiente adulto." },
   ob_guest_sub:               { en: "Quick checklist for today.",                es: "Lista rápida para hoy." },
-  ob_greeting:                { en: "Hi, {name}!",                               es: "¡Hola, {name}!" },
+  // Greeting renders the bilingual word ONCE, then the name once.
+  // Avoids the duplicate-name display in "Both" mode (was: "Hi, Mike! /
+  // ¡Hola, Mike!" — Mike's feedback: "Hi / hola works, name once").
+  ob_hi:                      { en: "Hi",                                        es: "Hola" },
   ob_friend:                  { en: "friend",                                    es: "amig@" },
 
   // KidGameHome — kid landing
@@ -741,6 +744,41 @@ const STRINGS = {
   mr_scope_week:              { en: "This week",                                 es: "Esta semana" },
   mr_scope_month:             { en: "This month",                                es: "Este mes" },
   mr_scope_always:            { en: "Always",                                    es: "Siempre" },
+
+  // GiftStarsCard (bonus-star giving)
+  gs_cta:                     { en: "Gift bonus stars",                          es: "Regalar estrellas bonus" },
+  gs_today_pill:              { en: "{n}⭐ today",                                es: "{n}⭐ hoy" },
+  gs_already_gifted_short:    { en: "Already gifted today",                      es: "Ya regalado hoy" },
+  gs_already_gifted:          { en: "Already gifted today ({n}⭐)",               es: "Ya regalado hoy ({n}⭐)" },
+  gs_intro:                   { en: "For great stuff that isn't on the list — extra reading, helping others, kindness.", es: "Por cosas geniales que no están en la lista — lectura extra, ayudar a los demás, amabilidad." },
+  gs_no_double:               { en: "Don't double-gift — pick a different reason or amount.", es: "No regales doble — elige otra razón u otra cantidad." },
+  gs_label_ph:                { en: "What did they do? e.g. Extra 30 min reading", es: "¿Qué hizo? ej. 30 min extra de lectura" },
+  gs_for_task:                { en: "For which task?",                           es: "¿Para qué tarea?" },
+  gs_optional_aside:          { en: "(optional)",                                es: "(opcional)" },
+  gs_general_bonus:           { en: "— general bonus —",                          es: "— bono general —" },
+  gs_which_book:              { en: "Which book?",                               es: "¿Qué libro?" },
+  gs_pick_book:               { en: "— pick a book —",                            es: "— elige un libro —" },
+  gs_add_new_book:            { en: "Add a new book",                            es: "Añadir un libro nuevo" },
+  gs_already_finished:        { en: "✓ Already finished",                        es: "✓ Ya terminado" },
+  gs_kid_finished:            { en: "{kid} finished this book today 📚",         es: "{kid} terminó el libro hoy 📚" },
+  gs_book_title_ph:           { en: "Book title",                                es: "Título del libro" },
+  gs_book_author_ph:          { en: "Author (optional)",                         es: "Autor (opcional)" },
+  gs_cancel:                  { en: "Cancel",                                    es: "Cancelar" },
+  gs_add_book:                { en: "Add book",                                  es: "Añadir libro" },
+  gs_which_song:              { en: "Which song?",                               es: "¿Qué canción?" },
+  gs_pick_song:               { en: "— pick a song —",                            es: "— elige una canción —" },
+  gs_add_new_song:            { en: "Add a new song",                            es: "Añadir una canción nueva" },
+  gs_song_title_ph:           { en: "Song title",                                es: "Título de la canción" },
+  gs_song_artist_ph:          { en: "Artist (optional)",                         es: "Artista (opcional)" },
+  gs_add_song:                { en: "Add song",                                  es: "Añadir canción" },
+  gs_stars_label:             { en: "Stars",                                     es: "Estrellas" },
+  gs_photo_proof:             { en: "Photo proof",                               es: "Foto de prueba" },
+  gs_photo_attached:          { en: "Photo attached",                            es: "Foto adjuntada" },
+  gs_photo_remove:            { en: "Remove",                                    es: "Quitar" },
+  gs_photo_uploading:         { en: "Uploading…",                                es: "Subiendo…" },
+  gs_photo_add:               { en: "Add a photo",                               es: "Añadir una foto" },
+  gs_photo_upload_fail:       { en: "Photo upload failed: {msg}",                es: "Error al subir la foto: {msg}" },
+  gs_give_n:                  { en: "Give {n}⭐",                                 es: "Dar {n}⭐" },
 
   // Summary stat tile labels (parent Today + kid Stars)
   stat_stars_available:       { en: "Stars available today",                 es: "Estrellas disponibles hoy" },
