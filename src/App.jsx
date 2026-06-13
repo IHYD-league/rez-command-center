@@ -661,6 +661,18 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // computeTreasureStreak (streak math). Keeps the streak honest when
   // life gets in the way. Shape: { "2026-06-11": ["drums", "books"] }
   const [taskNaDays, setTaskNaDays] = familySetting("taskNaDays", {});
+  // pinnedBonus: per-date set of task IDs the parent explicitly
+  // pinned to today's BONUS section. Mike's flow: Mr. Voyce piano is
+  // usually only Tuesday, but sometimes there's a gig conflict and
+  // it moves to Wednesday — the parent needs a one-tap "add to
+  // today" affordance that doesn't require editing the task's
+  // standing schedule. Format mirrors taskNaDays:
+  //   { "2026-06-13": ["t_piano", "t_tkd"] }
+  // Pinned tasks bypass the mode/days schedule filter and appear in
+  // todaysTasks (so they enter the Bonus section since they're not
+  // in topPriorities.daily / Top 8). Removing the pin restores the
+  // standing schedule's behavior for that day.
+  const [pinnedBonus, setPinnedBonus] = familySetting("pinnedBonus", {});
   // songPlayRequests: kid-initiated change requests against existing
   // song_plays. Reznor (6yo) can SEE every play row in the Most Played
   // card but should NOT be able to silently delete or re-attribute one
@@ -785,8 +797,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     // Calendar TKD pick: today's weekday is in tkdDays → pin the
     // Taekwondo task even if its mode/days say otherwise.
     if (Array.isArray(tkdDays) && tkdDays.includes(WEEKDAY)) set.add("t_tkd");
+    // Generic per-date bonus pins (Phase 2). Mike's add-to-today
+    // picker writes here.
+    const bonus = pinnedBonus?.[TODAY_ISO];
+    if (Array.isArray(bonus)) bonus.forEach((id) => set.add(id));
     return set;
-  }, [topPriorities, tkdDays]);
+  }, [topPriorities, tkdDays, pinnedBonus]);
 
   const todaysTasks = useMemo(() => {
     const naSet = new Set(taskNaDays?.[TODAY_ISO] || []);
@@ -868,6 +884,27 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     });
   const restoreTaskFromNA = (dateIso, taskId) =>
     setTaskNaDays((prev) => {
+      const list = ((prev || {})[dateIso] || []).filter((id) => id !== taskId);
+      const next = { ...(prev || {}) };
+      if (list.length === 0) delete next[dateIso];
+      else next[dateIso] = list;
+      return next;
+    });
+  // pinTaskToToday / unpinTaskFromToday — generic per-date bonus
+  // pinning. Mike's Phase 2: "Add to today" picker writes here so
+  // any task can land in today's bonus regardless of its standing
+  // schedule. Same dedupe/compact pattern as taskNaDays. Removing
+  // the pin ALSO clears the N/A for that day so the standing
+  // schedule resumes cleanly (the parent's intent when they unpin
+  // is "I'm done with this for today" not "block it forever").
+  const pinTaskToToday = (dateIso, taskId) =>
+    setPinnedBonus((prev) => {
+      const existing = new Set((prev || {})[dateIso] || []);
+      existing.add(taskId);
+      return { ...(prev || {}), [dateIso]: Array.from(existing) };
+    });
+  const unpinTaskFromToday = (dateIso, taskId) =>
+    setPinnedBonus((prev) => {
       const list = ((prev || {})[dateIso] || []).filter((id) => id !== taskId);
       const next = { ...(prev || {}) };
       if (list.length === 0) delete next[dateIso];
@@ -1622,7 +1659,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
 
   const shared = {
-    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, langs, displayLangs, setDisplayLangs, rewards, completions, compByTask, events, handoff, redemptions,
+    user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, pinnedBonus, pinTaskToToday, unpinTaskFromToday, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, langs, displayLangs, setDisplayLangs, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
@@ -6418,7 +6455,8 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"] }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"] }) {
+  const [showAddPicker, setShowAddPicker] = useState(false);
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix", "draft"].includes(compByTask[t.id]?.status));
@@ -6532,18 +6570,123 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
               mustDo.map(renderRow)
             )}
 
-            {bonus.length > 0 && (
-              <>
-                <SectionTitle
-                  icon={<Sparkles size={16} className="text-slate-300" />}
-                  right={<span className="text-[11px] text-slate-400">{i18nTOf("hint_extra_credit_not_required", "extra credit, not required")}</span>}
+            <SectionTitle
+              icon={<Sparkles size={16} className="text-slate-300" />}
+              right={
+                <button
+                  type="button"
+                  onClick={() => setShowAddPicker(true)}
+                  className="text-[11px] font-bold text-indigo-600 bg-indigo-50 rounded-full px-2.5 py-1 flex items-center gap-1 active:scale-95"
+                  title="Add a task to today's bonus"
                 >
-                  {i18nTOf("sec_bonus", "Bonus")} ({bonus.length})
-                </SectionTitle>
-                {bonus.map(renderRow)}
-              </>
+                  <Plus size={11} /> Add to today
+                </button>
+              }
+            >
+              {i18nTOf("sec_bonus", "Bonus")} ({bonus.length})
+            </SectionTitle>
+            {bonus.length === 0 && (
+              <p className="text-xs text-slate-400 px-1 mb-2">{i18nTOf("hint_extra_credit_not_required", "extra credit, not required")}</p>
             )}
+            {bonus.map((t) => {
+              const isPinnedBonus = (pinnedBonus?.[TODAY_ISO] || []).includes(t.id);
+              return (
+                <div key={t.id} className="mb-2.5">
+                  <MiniRow langs={langs}
+                    task={t}
+                    comp={compByTask[t.id]}
+                    tone="slate"
+                    mode={mode}
+                    priorities={priorities}
+                    users={users}
+                    setPriority={setPriority}
+                    clearPriority={clearPriority}
+                    activities={activities}
+                    books={books}
+                    songs={songs}
+                    songPlays={songPlays}
+                    onOpenDetail={setDetailId}
+                    onMarkDone={setOpenTask}
+                    markTaskNA={markTaskNA}
+                  />
+                  {isPinnedBonus && unpinTaskFromToday && (
+                    <button
+                      type="button"
+                      onClick={() => unpinTaskFromToday(TODAY_ISO, t.id)}
+                      className="text-[10px] font-bold text-slate-400 hover:text-rose-500 mt-0.5 px-1 flex items-center gap-1"
+                      title="Remove this task from today's bonus"
+                    >
+                      <X size={10} /> remove from today
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </>
+        );
+      })()}
+
+      {/* Add-to-today picker. Mike's flow: Mr. Voyce piano is
+          usually Tuesday; sometimes a gig moves it to Wednesday.
+          Tap "+ Add to today" → list of tasks NOT in today → pick
+          → lands in Bonus via pinnedBonus. Excludes already-pinned
+          AND already-in-today AND already-N/A items so the picker
+          stays clean. */}
+      {showAddPicker && (() => {
+        const todayIds = new Set(todaysTasks.map((t) => t.id));
+        const naIds = new Set((restoreTaskFromNA ? Object.keys({}) : []));
+        const pickable = (tasks || [])
+          .filter((t) => t.active !== false && !todayIds.has(t.id) && !naIds.has(t.id))
+          .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+            <div onClick={() => setShowAddPicker(false)} className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" />
+            <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 max-h-[80vh] overflow-y-auto shadow-2xl">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest font-bold text-indigo-600">Add to today's bonus</div>
+                  <div className="text-base font-extrabold text-slate-800">Pick a task</div>
+                </div>
+                <button onClick={() => setShowAddPicker(false)} className="text-slate-400 p-1.5 -mr-1.5" aria-label="Close">
+                  <X size={20} />
+                </button>
+              </div>
+              {pickable.length === 0 ? (
+                <div className="text-center text-sm text-slate-400 py-6">
+                  Every active task is already on today's list. 🎉
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {pickable.map((t) => {
+                    const d = actFor(t, activities);
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          pinTaskToToday(TODAY_ISO, t.id);
+                          setShowAddPicker(false);
+                        }}
+                        className="w-full flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 hover:border-indigo-300 active:scale-[0.99] text-left"
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold text-slate-800 truncate">{i18nTitleOf(t)}</div>
+                          <div className="text-[10px] text-slate-400 truncate">
+                            {d.label} · {t.starValue}⭐{t.mode !== "both" ? ` · ${t.mode} only` : ""}{t.days?.length ? ` · ${t.days.join(", ")}` : ""}
+                          </div>
+                        </div>
+                        <Plus size={14} className="text-indigo-600 shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="text-[11px] text-slate-400 mt-3 px-1 leading-snug">
+                Lands in Bonus for today only. Tomorrow it's back to the standing schedule.
+              </div>
+            </div>
+          </div>
         );
       })()}
 
