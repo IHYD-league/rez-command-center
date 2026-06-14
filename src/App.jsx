@@ -2387,9 +2387,24 @@ function Router(props) {
     if (tab === "missions") return <KidMissions {...props} />;
     if (tab === "board") return <BoardGame {...props} />;
     if (tab === "school") return <SummerQuestRoute {...props} />;
+    // Kid tap routing — Mike's rule: "Reznor's page, if he clicks
+    // a task or activity or chore, he should see the pictures or
+    // stats. Let him be proud of what he's done."
+    // For approved (or pending) tasks today, open the
+    // CompletionDetailSheet (Photos / Notes / Stats hero / Edit).
+    // Otherwise drop into the submit sheet so he can still log work.
+    // Mirrors KidMissions' behavior so home + missions feel
+    // consistent on the kid side.
     const openQuestSheet = (questId) => {
       const t = props.tasks.find((x) => x.id === questId);
-      if (t) props.setOpenTask(t);
+      if (!t) return;
+      const c = props.compByTask?.[questId];
+      const showStats = c?.id && (c.status === "approved" || c.status === "pending");
+      if (showStats) {
+        props.setOpenCompletionId?.(c.id);
+      } else {
+        props.setOpenTask(t);
+      }
     };
     return (
       <KidGameHome
