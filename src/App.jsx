@@ -9361,7 +9361,13 @@ function ParentRecap(props) {
   let mem = null;
   if (ds?.since) {
     const start = new Date(ds.since + "T12:00");
-    const daysSince = Math.round((today - start) / 86400000);
+    // Days-since reads from the canonical streak count, not a
+    // Math.round of (today - since). The Math.round version was a
+    // day behind every other surface (Today / Insights / Stars all
+    // read streaks.current = 317; Recap was computing 316 because
+    // Math.round on the exact-noon delta lost a day to floating-
+    // point rounding). The canonical streak is the source of truth.
+    const daysSince = ds.current ?? Math.round((today - start) / 86400000);
     const anniv = new Date(start); anniv.setFullYear(start.getFullYear() + 1);
     const toAnniv = Math.ceil((anniv - today) / 86400000);
     mem = { daysSince, anniv, toAnniv, start };
@@ -10516,20 +10522,108 @@ function Portfolio({ completions, tasks, users, gifted, activities, books = [], 
   );
 }
 
-function Weekly({ completions }) {
-  const rows = [
-    ["Drums", "5 days"], ["English reading", "5 days"], ["Spanish", "6 days"],
-    ["Writing", "4 submissions"], ["Math", "4 days"], ["Field trip", "Yes ✓"],
-  ];
-  const totalStars = completions.filter((c) => c.status === "approved").reduce((s, c) => s + c.awardedStars, 0);
+function Weekly({ completions = [], gifted = [], tasks = [], activities = [], books = [] }) {
+  // Mike's review: "For Weekly Summary get rid of the Demo. We have
+  // enough info you can use what we actually have." Every figure
+  // below is now derived from canonical state — completions, gifts,
+  // tasks, activities, books — instead of a hardcoded placeholder
+  // bag. Week window = last 7 days (inclusive).
+  const start = new Date(today); start.setDate(today.getDate() - 6);
+  const startIso = isoLocal(start);
+  const inWeek = (iso) => iso && iso >= startIso && iso <= TODAY_ISO;
+
+  const approvedThisWeek = completions.filter((c) => c.status === "approved" && inWeek(c.completionDate));
+  const giftsThisWeek = (gifted || []).filter((g) => inWeek(g.date));
+  const totalStars =
+    approvedThisWeek.reduce((s, c) => s + (c.awardedStars || 0), 0) +
+    giftsThisWeek.reduce((s, g) => s + (Number(g.stars) || 0), 0);
+
+  // Per-activity day counts — group approved completions by activity,
+  // then count distinct dates so two drum logs on the same day = 1.
+  const taskById = Object.fromEntries(tasks.map((t) => [t.id, t]));
+  const actLookup = (act) => activities.find((a) => a.id === act);
+  const byActivity = new Map(); // activityId → Set<dateISO>
+  for (const c of approvedThisWeek) {
+    const t = taskById[c.taskId];
+    if (!t) continue;
+    const aid = t.activityId || TYPE_TO_ACT[t.activityType];
+    if (!aid) continue;
+    if (!byActivity.has(aid)) byActivity.set(aid, new Set());
+    byActivity.get(aid).add(c.completionDate);
+  }
+  const rows = [...byActivity.entries()]
+    .map(([aid, dates]) => {
+      const a = actLookup(aid);
+      return { name: a?.short || a?.name || aid, days: dates.size, aid };
+    })
+    .sort((a, b) => b.days - a.days);
+
+  // Books finished this week — real, not a "Yes ✓" placeholder.
+  const booksFinishedThisWeek = (books || []).filter((b) => b.status === "finished" && inWeek(b.finished));
+
+  // 🏆 Wins — anything done all 7 days this week + books finished.
+  // Honest data instead of a "she read solo" hardcoded sentence.
+  const dailyWins = rows.filter((r) => r.days >= 7);
+  const winLines = [];
+  for (const w of dailyWins) winLines.push(`Daily streak on ${w.name} (7/7).`);
+  if (booksFinishedThisWeek.length > 0) {
+    winLines.push(`Finished ${booksFinishedThisWeek.length} book${booksFinishedThisWeek.length === 1 ? "" : "s"}: ${booksFinishedThisWeek.map((b) => b.canonicalTitle || b.title).join(", ")}.`);
+  }
+  if (giftsThisWeek.length > 0) {
+    const bonusStars = giftsThisWeek.reduce((s, g) => s + (Number(g.stars) || 0), 0);
+    winLines.push(`${giftsThisWeek.length} bonus gift${giftsThisWeek.length === 1 ? "" : "s"} for going above and beyond (+${bonusStars}⭐).`);
+  }
+
+  // ⚠️ Needs attention — required/active activities done < 3 days.
+  // Skips one-offs (field trips, anything seasonal/paused).
+  const activeRequired = new Set();
+  for (const t of tasks) {
+    if (!t.required || t.active === false) continue;
+    const aid = t.activityId || TYPE_TO_ACT[t.activityType];
+    if (!aid) continue;
+    const a = actLookup(aid);
+    if (!a || a.status !== "active") continue;
+    activeRequired.add(aid);
+  }
+  const slipping = [...activeRequired]
+    .map((aid) => ({ aid, days: byActivity.get(aid)?.size || 0, name: actLookup(aid)?.short || actLookup(aid)?.name || aid }))
+    .filter((r) => r.days < 3)
+    .sort((a, b) => a.days - b.days);
+
   return (
     <>
-      <Card className="p-4 mb-3 text-center"><div className="text-3xl font-extrabold text-amber-500">{totalStars + 130} ⭐</div><div className="text-xs text-slate-400">stars this week (demo)</div></Card>
-      {rows.map(([k, v]) => (
-        <Card key={k} className="p-3 mb-2 flex items-center justify-between"><span className="text-sm font-semibold">{k}</span><span className="text-sm text-slate-500">{v}</span></Card>
-      ))}
-      <Card className="p-3 mt-2 bg-emerald-50 border-emerald-100"><div className="text-xs font-bold text-emerald-700 mb-1">🏆 Wins of the week</div><div className="text-sm text-emerald-800">Read a full Spanish book solo. Hit 2-hour drum stretch goal twice.</div></Card>
-      <Card className="p-3 mt-2 bg-amber-50 border-amber-100"><div className="text-xs font-bold text-amber-700 mb-1">⚠️ Needs attention</div><div className="text-sm text-amber-800">Math slipped to 4 days — aim for daily next week.</div></Card>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-amber-500">{totalStars}</div><div className="text-[11px] text-slate-400">stars this week</div></Card>
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-emerald-500">{approvedThisWeek.length}</div><div className="text-[11px] text-slate-400">activities completed</div></Card>
+      </div>
+      {rows.length === 0 ? (
+        <Card className="p-4 text-center text-sm text-slate-400">Nothing approved yet this week.</Card>
+      ) : (
+        rows.map((r) => (
+          <Card key={r.aid} className="p-3 mb-2 flex items-center justify-between">
+            <span className="text-sm font-semibold">{r.name}</span>
+            <span className="text-sm text-slate-500 tabular-nums">{r.days} day{r.days === 1 ? "" : "s"}</span>
+          </Card>
+        ))
+      )}
+      {winLines.length > 0 && (
+        <Card className="p-3 mt-2 bg-emerald-50 border-emerald-100">
+          <div className="text-xs font-bold text-emerald-700 mb-1">🏆 Wins of the week</div>
+          <ul className="text-sm text-emerald-800 list-disc pl-4 space-y-0.5">
+            {winLines.map((l, i) => <li key={i}>{l}</li>)}
+          </ul>
+        </Card>
+      )}
+      {slipping.length > 0 && (
+        <Card className="p-3 mt-2 bg-amber-50 border-amber-100">
+          <div className="text-xs font-bold text-amber-700 mb-1">⚠️ Needs attention</div>
+          <ul className="text-sm text-amber-800 list-disc pl-4 space-y-0.5">
+            {slipping.map((r) => (
+              <li key={r.aid}>{r.name} only {r.days} day{r.days === 1 ? "" : "s"} this week.</li>
+            ))}
+          </ul>
+        </Card>
+      )}
     </>
   );
 }
