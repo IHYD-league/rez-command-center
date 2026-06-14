@@ -29,5 +29,5 @@ comment on column public.gifted_stars.deleted_by is
 -- still match family_id queries via the existing PK / family_id
 -- index.
 create index if not exists idx_gifted_stars_active
-  on public.gifted_stars (family_id, date)
+  on public.gifted_stars (family_id, given_on)
   where deleted_at is null;

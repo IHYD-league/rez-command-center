@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft,
-  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Crown, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map as MapIcon, Settings, TrendingUp, Download, Play
+  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map as MapIcon, Settings, TrendingUp, Download, Play
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import SummerQuest from "./SummerQuest.jsx";
@@ -36,11 +36,10 @@ import { toast } from "./lib/toast.js";
 import { activeLangs, tt as i18nTt, taskTitle as i18nTaskTitle, activityName as i18nActivityName, LANG_LABELS, setCurrentLangs, titleOf as i18nTitleOf, nameOf as i18nNameOf, tOf as i18nTOf } from "./lib/i18n.js";
 
 /* =====================================================================
-   REZNOR COMMAND CENTER — MVP PROTOTYPE
-   Standalone family app prototype. In-memory state only.
-   TODO(real-build): replace useState store with backend + real auth
-   TODO(real-build): wire uploads to cloud storage (currently in-session object URLs)
-   TODO(real-build): calendar ICS / Google import, book-cover scanner, school standards
+   REZNOR COMMAND CENTER — family activity tracker
+   Vite + React 18 + Supabase + Netlify. State persists per-family via
+   the makeSyncedSetter pattern in this file; photos live in Supabase
+   storage bucket `family-photos` (see src/lib/storage.js).
    ===================================================================== */
 
 // ---------- SEED: USERS ----------
@@ -369,7 +368,7 @@ const SEED_ACTIVITIES = [
   { id: "a_swim",  name: "Swim (Rose Bowl Aquatics)", short: "Swim",    color: "#0891b2", pillar: "body",  status: "active",   note: "Off in August — use Jim Herrick lessons instead", address: "Rose Bowl Aquatics, 360 N Arroyo Blvd, Pasadena, CA 91103", schedule: [{ day: "Tuesday", time: "5:00–6:00 PM" }, { day: "Thursday", time: "5:00–6:00 PM" }] },
   { id: "a_tkd",   name: "Taekwondo",                 short: "TKD",     color: "#dc2626", pillar: "body",  status: "active",   note: "Pick ~2 days/week (any day but Sunday)", address: "", schedule: [], weeklySchedule: true, weeklyTarget: 2 },
   { id: "a_dance", name: "Hip Hop Dance",             short: "Dance",   color: "#db2777", pillar: "body",  status: "active",   note: "", address: "", schedule: [{ day: "Monday", time: "5:30–6:30 PM" }] },
-  { id: "a_bball", name: "Basketball",                short: "Ball",    color: "#65a30d", pillar: "body",  status: "break",    note: "Taking a break for now", schedule: [{ day: "Saturday", time: "TBD" }] },
+  { id: "a_bball", name: "Basketball",                short: "Ball",    color: "#65a30d", pillar: "body",  status: "break",    note: "On hiatus", schedule: [] },
   { id: "a_move",  name: "Movement",                  short: "Move",    color: "#16a34a", pillar: "body",  status: "active",   note: "", schedule: [] },
   { id: "a_church",name: "Church",                    short: "Church",  color: "#9333ea", pillar: "soul",  status: "active",   note: "Sundays · bonus stars for drumming at church", schedule: [{ day: "Sunday", time: "morning" }] },
   { id: "a_soccer",name: "Soccer",                    short: "Soccer",  color: "#22c55e", pillar: "body",  status: "archived", note: "Played age 15 months–5 yrs · stopped to focus on drums & dance", schedule: [] },
@@ -9523,7 +9522,7 @@ function Accomplishments({ awards, addAward, removeAward, activities, familyId }
           );
         })}
       </div>
-      <div className="text-[11px] text-slate-400 px-1 mt-3">Tie each to an activity to build his profile. (TODO real-build: cloud storage so files & photos live beyond this session and sync across devices.)</div>
+      <div className="text-[11px] text-slate-400 px-1 mt-3">Tie each to an activity to build his profile.</div>
     </>
   );
 }
@@ -10956,9 +10955,8 @@ function Skills() {
   ];
   return (
     <>
-      <p className="text-sm text-slate-400 px-1 mb-2">Lightweight for now — expand into real standards later.</p>
+      <p className="text-sm text-slate-400 px-1 mb-2">Where he is across each subject — a quick read for parents and helpers.</p>
       {areas.map((a) => <Card key={a.area} className="p-3 mb-2"><div className="font-bold text-sm">{a.area}</div><div className="text-[11px] text-slate-400">{a.note}</div></Card>)}
-      <div className="text-[11px] text-slate-400 px-1 mt-2">TODO: grade-band standards, evidence uploads per goal.</div>
     </>
   );
 }
@@ -11644,7 +11642,7 @@ function StatTemplatePicker({ t, updateTask }) {
       )}
       {currentId && !open && (
         <div className="text-[10px] text-slate-400 mt-1.5 leading-snug">
-          Iteration 2 wires the submit sheet + stats hero to this schema. For now it's set as metadata.
+          Adds the template's practice (and game-day) fields to the submit sheet, and renders them on the stats hero card.
         </div>
       )}
     </div>
