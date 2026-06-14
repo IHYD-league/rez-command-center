@@ -10144,15 +10144,33 @@ function PrivacySafety(props) {
     gifts: (gifted || []).length,
     songPlays: (songPlays || []).length,
   };
-  const Row = ({ label, value, hint }) => (
-    <div className="flex items-baseline justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
-      <div className="text-[12px] font-bold text-slate-600">{label}</div>
-      <div className="text-right">
-        <div className="text-[12px] font-extrabold text-slate-800 tabular-nums break-all">{value}</div>
-        {hint && <div className="text-[10px] text-slate-400">{hint}</div>}
+  // Privacy & Safety rows can be clickable when the data has a
+  // natural drill-down (People / Photo Gallery / etc.). Mike's ask:
+  // "You should be able to click anything in here and get the
+  // deeper info. For example you need to be able to click a helper
+  // in our case Sara and see what she is able to do."
+  const Row = ({ label, value, hint, onClick }) => {
+    const body = (
+      <div className="flex items-baseline justify-between gap-3 py-2 border-b border-slate-100 last:border-0 w-full text-left">
+        <div className="text-[12px] font-bold text-slate-600">{label}</div>
+        <div className="text-right flex items-baseline gap-1">
+          <div>
+            <div className="text-[12px] font-extrabold text-slate-800 tabular-nums break-all">{value}</div>
+            {hint && <div className="text-[10px] text-slate-400">{hint}</div>}
+          </div>
+          {onClick && <span className="text-slate-300 text-[12px] ml-1">›</span>}
+        </div>
       </div>
-    </div>
-  );
+    );
+    if (!onClick) return body;
+    return (
+      <button type="button" onClick={onClick} className="w-full active:scale-[0.99] transition hover:bg-slate-50 -mx-3 px-3 rounded">
+        {body}
+      </button>
+    );
+  };
+  const openPeople = setSub ? () => setSub("people") : null;
+  const openGallery = setSub ? () => setSub("gallery") : null;
   return (
     <div className="px-4 pt-4">
       <div className="rounded-3xl p-4 mb-3 text-white bg-gradient-to-br from-indigo-500 to-violet-600">
@@ -10172,15 +10190,15 @@ function PrivacySafety(props) {
       <Card className="p-3 mb-3">
         <Row label={i18nTOf("priv_row_family_id", "Family ID")} value={familyShort} hint={i18nTOf("priv_row_family_id_hint", "Unique to your family — used to isolate every row.")} />
         <Row label={i18nTOf("priv_row_signed_in", "Signed in as")} value={sessionEmail || "—"} />
-        <Row label={i18nTOf("priv_row_parents", "Parents")} value={`${parents.length}`} hint={parents.map((u) => u.name).join(", ") || "—"} />
-        <Row label={i18nTOf("priv_row_helpers", "Helpers")} value={`${helpers.length}`} hint={helpers.map((u) => u.name).join(", ") || i18nTOf("priv_row_none", "(none)")} />
-        <Row label={i18nTOf("priv_row_kids", "Kids")} value={`${kids.length}`} hint={kids.map((u) => u.name).join(", ") || "—"} />
+        <Row label={i18nTOf("priv_row_parents", "Parents")} value={`${parents.length}`} hint={parents.map((u) => u.name).join(", ") || "—"} onClick={openPeople} />
+        <Row label={i18nTOf("priv_row_helpers", "Helpers")} value={`${helpers.length}`} hint={helpers.map((u) => u.name).join(", ") || i18nTOf("priv_row_none", "(none)")} onClick={openPeople} />
+        <Row label={i18nTOf("priv_row_kids", "Kids")} value={`${kids.length}`} hint={kids.map((u) => u.name).join(", ") || "—"} onClick={openPeople} />
       </Card>
 
       <SectionTitle icon={<Camera size={16} className="text-cyan-500" />}>{i18nTOf("priv_sec_stored", "What's stored")}</SectionTitle>
       <Card className="p-3 mb-3">
         <Row label={i18nTOf("priv_row_completions", "Completions")} value={counts.completions} />
-        <Row label={i18nTOf("priv_row_photos", "Photos")} value={counts.photos} hint={i18nTOf("priv_row_photos_hint", "Stored in your family's bucket — never shared.")} />
+        <Row label={i18nTOf("priv_row_photos", "Photos")} value={counts.photos} hint={i18nTOf("priv_row_photos_hint", "Stored in your family's bucket — never shared.")} onClick={openGallery} />
         <Row label={i18nTOf("priv_row_gifts", "Gifts")} value={counts.gifts} />
         <Row label={i18nTOf("priv_row_song_plays", "Song plays")} value={counts.songPlays} />
       </Card>
