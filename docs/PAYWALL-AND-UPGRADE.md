@@ -6,7 +6,7 @@ Builds on the tier numbers in `AUDIT-2026-06-13-TRUST-AND-COST.md`. Those number
 - **Paid $4.99/mo** — unlimited photos (soft 500/mo), 2 GB cap, unlimited history, unlimited helpers
 - **Sibling +$2/mo** — each additional kid profile
 
-This doc answers: how do free users hit the wall, how do they upgrade, and what does that take to build.
+This doc answers: how do free users hit the wall, how do they upgrade, **how Mike (the administrator) can gift memberships to chosen families**, and what does that take to build.
 
 ---
 
@@ -19,6 +19,35 @@ What's behind the cap matters. The lesson from every parenting app that lost tru
 - **Paid-only:** insights deep dives, custom stat templates, board-game premium themes, family-network features (when those land).
 
 A free family always sees everything they've already saved. The paywall meters *new* growth, not *existing* memories.
+
+---
+
+## Granted memberships (admin gifting)
+
+Mike (admin) can gift a paid membership to any family — close friends, beta testers, grandparents, anyone he wants on the app without billing them. A granted membership is functionally identical to a Stripe-paid one (same caps lift, same surfaces unlock) but:
+
+- **No Stripe customer / no Stripe subscription** — pure DB state.
+- **`granted_by` records which admin gave it** so the audit trail answers "who comped this family?" forever.
+- **Expires when Mike says it does** — `current_period_end` can be set to a real date (1-year gift) or `infinity` (permanent comp).
+- **Revocable** — admin can revoke; family drops to free at next session load. Family keeps their data; only the caps reapply going forward (per the "never paywall existing memories" rule).
+- **Self-comp for testing** — Mike's own family is comped from launch; he never sees the paywall on his own account by accident.
+
+UI lives in the existing **Admin panel** (gated by `profiles.is_admin`). New section *Grant memberships*:
+
+```
+[ Grant a membership ]
+  Family:    [ search by email or family name ]
+  Tier:      ( ) Paid    ( ) Paid + 1 sibling    ( ) Paid + 2 siblings
+  Until:     [ 2027-06-14 ▼ ]   or  [ ✓ Permanent ]
+  Note:      [ "beta tester — Krissie's sister" ]
+  [ Grant ]
+
+Current grants
+  • The Schmidt family   · paid · until 2027-06-14 · by Mike  [ Revoke ]
+  • The Hayes family     · paid + 1 sibling · permanent · by Mike  [ Revoke ]
+```
+
+Revoke flips `status='canceled'` and clears `current_period_end`. Both grant and revoke append to a `subscription_events` audit row (same `extra.history`-style append-only pattern used for completions).
 
 ---
 
@@ -91,21 +120,46 @@ Client refreshes family → tier="paid" → caps lift
 ```sql
 create table public.subscriptions (
   family_id uuid primary key references public.families(id) on delete cascade,
+  -- Source: 'stripe' (paid via checkout) or 'granted' (comped by admin).
+  -- Drives the downgrade flow + which UI surfaces appear in the family's
+  -- own settings (granted families see "Gifted by Mike" instead of
+  -- "Manage billing").
+  source text not null default 'stripe',
   stripe_customer_id text,
   stripe_subscription_id text,
   tier text not null default 'free',     -- 'free' | 'paid'
   sibling_count integer not null default 0,
   status text not null default 'active', -- 'active' | 'past_due' | 'canceled'
-  current_period_end timestamptz,
+  current_period_end timestamptz,        -- nullable = permanent grant
+  -- Admin gifting fields. NULL for normal Stripe subs.
+  granted_by uuid references public.profiles(id),
+  granted_at timestamptz,
+  granted_note text,
   updated_at timestamptz not null default now()
 );
 alter table public.subscriptions enable row level security;
 create policy subs_read on public.subscriptions for select
   using (family_id = my_family_id());
 -- writes are server-only via service role in the Netlify functions
+
+-- Append-only audit log for every grant / revoke / Stripe webhook event.
+-- Mirrors the extra.history pattern from completions.
+create table public.subscription_events (
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references public.families(id) on delete cascade,
+  actor_id uuid references public.profiles(id),    -- NULL for Stripe-system events
+  kind text not null,  -- 'granted' | 'revoked' | 'stripe.activated' | 'stripe.past_due' | 'stripe.canceled' | ...
+  payload jsonb,
+  at timestamptz not null default now()
+);
+alter table public.subscription_events enable row level security;
+create policy sub_events_read on public.subscription_events for select
+  using (family_id = my_family_id());
 ```
 
-`families.tier` derived view (or just join on read). Most surfaces only need `tier === "paid"` and the photo count for the month.
+`families.tier` derived via join on read. Most surfaces only need `tier === "paid"` and the photo count for the month.
+
+**Admin write path** (granting a membership): a Netlify function `grant-membership.js` runs under the service role, checks the caller's session profile has `is_admin = true`, then upserts the `subscriptions` row with `source='granted'`, fills `granted_by/granted_at/granted_note`, and writes a `subscription_events` row with `kind='granted'`. Same shape for `revoke-membership.js`.
 
 ---
 
@@ -120,7 +174,16 @@ export const QUOTAS = {
   paid: { photosPerMonth: 500, storageMB: 2048, historyDays: Infinity, kids: 1 },
 };
 export function quotaFor(family, subscription) {
-  const base = QUOTAS[subscription?.tier === "paid" ? "paid" : "free"];
+  // Paid via Stripe OR granted by admin both map to the paid bucket.
+  // Status must be 'active' (granted-then-revoked drops to free).
+  // current_period_end null = permanent grant (no expiry check needed).
+  const now = Date.now();
+  const isPaidActive =
+    subscription
+    && subscription.tier === "paid"
+    && subscription.status === "active"
+    && (!subscription.currentPeriodEnd || new Date(subscription.currentPeriodEnd).getTime() > now);
+  const base = QUOTAS[isPaidActive ? "paid" : "free"];
   return { ...base, kids: base.kids + (subscription?.siblingCount || 0) };
 }
 export function photosUsedThisMonth(albumPhotos, completions, gifted) { /* count paths created since month-start */ }
@@ -133,14 +196,29 @@ Surfaces call `quotaFor(family, sub)` and `photosUsedThisMonth(...)`, compare, r
 
 ## Build order (smallest viable launch)
 
-1. **Migration** — `subscriptions` table + `albumPhotos.size_bytes` (so the storage cap is real not theoretical)
-2. **Netlify functions** — `create-checkout-session.js`, `checkout-session.js`, `stripe-webhook.js`
+1. **Migration** — `subscriptions` + `subscription_events` tables + `albumPhotos.size_bytes` (so the storage cap is real not theoretical). Self-grant Mike's family at creation time so he never paywalls himself.
+2. **Admin grant flow first** — `grant-membership.js` / `revoke-membership.js` Netlify functions + admin UI. This unblocks Mike comping the first few friend families *before* Stripe is wired, so they can use the full app while Mike collects feedback.
 3. **Client quota helper** — `src/lib/quota.js`
-4. **One surface first** — photo cap. Ship it, watch what happens with one new family.
-5. **History fade** — second surface, after the photo cap proves the soft-cap UX feels OK
-6. **Add-kid pricing** — third surface, after the first two are stable
+4. **Stripe Checkout** — `create-checkout-session.js`, `checkout-session.js`, `stripe-webhook.js`
+5. **Photo cap surface** — soft chip + upgrade sheet. Ship it, watch what happens with one new free family.
+6. **History fade** — second paywall surface, after the photo cap proves the soft-cap UX feels OK
+7. **Add-kid pricing** — third paywall surface, after the first two are stable
 
 Each step is its own branch. Steps 1–3 can land before any paywall actually fires — the column defaults are `tier='free'`, but the 50-photo cap stays unmeasured until the photo-count code lands. Reversible at every step.
+
+The deliberate ordering: **granted memberships before Stripe** means Mike can invite the first wave of families (the ones already asking) with a single click each, no payment friction, and gather real usage data before the public paywall ever fires.
+
+---
+
+## Family-facing membership card
+
+A small card in **More → Privacy & Safety** shows the family their current status. Three states:
+
+- **Free** — "50 photos this month · 12 used. Upgrade for unlimited."  [ Upgrade ]
+- **Paid (Stripe)** — "Paid member since Mar 2026 · renews Jul 14."  [ Manage billing ]
+- **Granted (comped)** — "Gifted by Mike Lynch · 11 months remaining" *(or* "permanent")*  — no billing CTA. Optional friendly note: "If you'd like to support the project, you can switch to a paid membership anytime."*
+
+This is the only place Mike's name appears to the gifted family. It's transparent without making the gift feel transactional.
 
 ---
 
