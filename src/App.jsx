@@ -19,6 +19,7 @@ import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
+import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { supabase } from "./lib/supabase.js";
 import { toApp } from "./data/transform.js";
@@ -1777,6 +1778,48 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }
     _seenLevelRef.current = lvl;
   }, [starBank]);
+
+  // One-shot duration backfill — pre-2026-06-14 songs were enriched
+  // before we captured trackTimeMillis, so their durationMs is null.
+  // Walk once per session, re-hit iTunes for each missing one, patch
+  // duration only (don't touch matchStatus / coverUrl — those were
+  // already curated). Hidden serial loop with 250ms gaps keeps us
+  // under Apple's loose throttle even for ~60-song libraries.
+  const _durationBackfillRef = React.useRef(false);
+  useEffect(() => {
+    if (_durationBackfillRef.current) return;
+    const stale = (songs || []).filter(
+      (s) =>
+        !Number.isFinite(s.durationMs)
+        && s.externalSource === "itunes"
+        && s.matchStatus && s.matchStatus !== "unmatched" && s.matchStatus !== "rejected"
+        && (s.canonicalTitle || s.title)
+    );
+    if (stale.length === 0) return;
+    _durationBackfillRef.current = true;
+    let cancelled = false;
+    (async () => {
+      for (const s of stale) {
+        if (cancelled) return;
+        try {
+          const match = await pickSongMatch(
+            s.canonicalTitle || s.title,
+            s.canonicalArtist || s.artist || ""
+          );
+          if (cancelled) return;
+          if (match?.durationMs) {
+            updateSong(s.id, { durationMs: match.durationMs });
+          }
+        } catch { /* skip + continue */ }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    })();
+    return () => { cancelled = true; };
+    // Effect re-runs if the songs array reference changes, but the
+    // ref-gate prevents re-entry. The first run that finds stale rows
+    // owns the backfill.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [songs.length]);
 
   const [hubOpen, setHubOpen] = useState(false);
 
@@ -4621,13 +4664,19 @@ function CompletionDetailSheet({
               if (isDrumsRow) {
                 const drumeo = Number(x.drumeo) || 0;
                 const melodics = Number(x.melodics) || 0;
-                const total = drumeo + melodics;
                 // Pull songs actually played that day from the canonical
                 // song_plays rows (not extra.songList — that's free
                 // text). Then enrich with covers via the album-dedup map.
                 const daysPlays = (songPlays || []).filter((p) => (p.playedOn || p.played_on) === compDate);
                 const byId = Object.fromEntries((songs || []).map((s) => [s.id, s]));
                 const playedSongs = daysPlays.map((p) => byId[p.songId || p.song_id]).filter(Boolean);
+                // Honest minutes: drumeo + melodics + sum(played-song
+                // durations). Songs without a backfilled duration
+                // contribute 0 rather than guessing, so an unenriched
+                // library can't inflate the number.
+                const songMs = playedSongs.reduce((acc, s) => acc + (Number(s?.durationMs) || 0), 0);
+                const songMin = Math.round(songMs / 60000);
+                const total = drumeo + melodics + songMin;
                 // Fallback to the typed songList if no canonical plays
                 // exist (legacy completions, draft sessions where the
                 // parent typed names but never picked from picker).
@@ -4660,8 +4709,14 @@ function CompletionDetailSheet({
                           <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Melodics</div>
                         </div>
                         <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
-                          <div className="text-xl font-extrabold leading-none">{playedSongs.length || typedTitles.length}</div>
-                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Songs</div>
+                          <div className="text-xl font-extrabold leading-none">
+                            {songMin > 0 ? songMin : (playedSongs.length || typedTitles.length)}
+                          </div>
+                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">
+                            {songMin > 0
+                              ? `${playedSongs.length} ${playedSongs.length === 1 ? "song" : "songs"}`
+                              : "Songs"}
+                          </div>
                         </div>
                       </div>
                       {(playedSongs.length > 0 || typedTitles.length > 0) && (
