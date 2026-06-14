@@ -3214,7 +3214,11 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
         const onOpen = isApproved && c?.id
           ? () => setOpenCompletionId(c.id)
           : () => setOpenTask(t);
-        return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} undoTask={undoTask} />;
+        /* Kids never delete (per memory rule). undoTask is intentionally
+            NOT passed — the "Oops — undo this" affordance hides for kids
+            so a mis-tap can't retract a real submission. Parent undoes
+            via the Approvals tab if it was a mistake. */
+        return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} />;
       })}
 
       {/* Extra-credit / bonus stars at the bottom — anything on today's
@@ -3246,7 +3250,11 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
               const onOpen = isApproved && c?.id
                 ? () => setOpenCompletionId(c.id)
                 : () => setOpenTask(t);
-              return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} undoTask={undoTask} />;
+              /* Kids never delete (per memory rule). undoTask is intentionally
+            NOT passed — the "Oops — undo this" affordance hides for kids
+            so a mis-tap can't retract a real submission. Parent undoes
+            via the Approvals tab if it was a mistake. */
+        return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} />;
             })}
           </>
         );
@@ -4396,7 +4404,11 @@ function CompletionDetailSheet({
                   <CompletionPhotoTile
                     key={p.path}
                     photo={p}
-                    canRemove={true}
+                    /* "Kids never delete" rule — only parents see the X
+                        on a proof photo. Kids can still tap the photo
+                        to view it full-screen via the lightbox; the
+                        destructive action is the only thing gated. */
+                    canRemove={isParent}
                     onRemove={() => onRemovePhoto(p.path)}
                   />
                 ))}
@@ -4711,13 +4723,23 @@ function CompletionDetailSheet({
                 💾 Edit this completion's details
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => { onUndo(); onClose(); }}
-              className="w-full py-3 rounded-2xl bg-rose-50 text-rose-700 font-extrabold text-sm active:scale-95"
-            >
-              ↺ Un-mark this task (today)
-            </button>
+            {/* Un-mark is a destructive action. Per the "kids never
+                delete" rule, only parents see the button. Kids see a
+                gentle "ask a grown-up" line so they understand the
+                shape of the rule without a do-nothing button to tap. */}
+            {isParent ? (
+              <button
+                type="button"
+                onClick={() => { onUndo(); onClose(); }}
+                className="w-full py-3 rounded-2xl bg-rose-50 text-rose-700 font-extrabold text-sm active:scale-95"
+              >
+                ↺ Un-mark this task (today)
+              </button>
+            ) : (
+              <div className="w-full py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-500 font-bold text-xs text-center px-3">
+                🔒 Only a grown-up can undo or change this. Ask Mom or Dad if something's wrong.
+              </div>
+            )}
             {isParent && (
               <button
                 type="button"
@@ -4728,8 +4750,9 @@ function CompletionDetailSheet({
               </button>
             )}
             <div className="text-[11px] text-slate-400 px-1 mt-2 leading-snug">
-              Un-mark removes only today's completion — yesterday's history stays.
-              {isParent && " Edit task changes the activity, stars, or rules for everyone going forward."}
+              {isParent
+                ? <>Un-mark removes only today's completion — yesterday's history stays. Edit task changes the activity, stars, or rules for everyone going forward.</>
+                : <>Your work is safe — only grown-ups can change or remove it.</>}
             </div>
           </div>
         )}
