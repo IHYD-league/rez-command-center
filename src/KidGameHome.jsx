@@ -159,7 +159,12 @@ function useJustDone(done) {
 
 function MainQuestTile({ q, onTap }) {
   const done = q.done;
-  const tappable = !!onTap && !done;
+  // Mike's rule: "Reznor's page, if he clicks a task or activity or
+  // chore, he should see the pictures or stats. Let him be proud of
+  // what he's done." Done tiles stay tappable too — the kid routing
+  // sends approved/pending taps to the Stats hero, not the submit
+  // sheet, so it's safe to keep done tiles active.
+  const tappable = !!onTap;
   const justDone = useJustDone(done);
   return (
     <div
@@ -168,7 +173,7 @@ function MainQuestTile({ q, onTap }) {
       tabIndex={tappable ? 0 : undefined}
       className={`relative overflow-hidden rounded-3xl p-4 border-2 transition-all duration-200 ${
         done
-          ? "bg-emerald-50 border-emerald-300"
+          ? "bg-emerald-50 border-emerald-300 cursor-pointer active:scale-[0.97] hover:border-emerald-400 hover:shadow-md"
           : "bg-white border-slate-200 shadow-sm " +
             (tappable
               ? "cursor-pointer active:scale-[0.97] hover:border-indigo-300 hover:shadow-md hover:-translate-y-0.5"
@@ -279,7 +284,9 @@ function JustDoneSparkles() {
 }
 
 function SideQuestRow({ q, onTap }) {
-  const tappable = !!onTap && !q.done;
+  // Done side quests stay tappable so the kid can see his stats
+  // hero. Same rule as MainQuestTile.
+  const tappable = !!onTap;
   const justDone = useJustDone(q.done);
   return (
     <div
