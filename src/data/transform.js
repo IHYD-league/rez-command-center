@@ -462,13 +462,7 @@ export const toDb = {
     enriched_at:      o.enrichedAt || null,
     match_status:     o.matchStatus || "unmatched",
     custom_cover_path: o.customCoverPath || null,
-    // duration_ms intentionally omitted from writes until the matching
-    // migration (20260614120000_song_duration_ms.sql) is applied to the
-    // production Supabase project. Including it sends a column the
-    // schema cache rejects, which fails the entire songs batch upsert.
-    // Re-enable this line + the backfill effect in App.jsx once the
-    // migration lands. Read side (toApp.song) is safe — it reads
-    // r.duration_ms only if present.
+    duration_ms:      Number.isFinite(o.durationMs) ? o.durationMs : null,
   }),
 
   songPlay: (familyId) => (o) => ({

@@ -19,6 +19,7 @@ import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
+import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { supabase } from "./lib/supabase.js";
 import { toApp } from "./data/transform.js";
@@ -1777,14 +1778,44 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     _seenLevelRef.current = lvl;
   }, [starBank]);
 
-  // Duration backfill is dormant until migration 20260614120000 is
-  // applied to the production Supabase. Re-enabling without the
-  // column present means every patched song hits a schema-cache miss
-  // and tanks the whole songs batch upsert (Mike caught this hot the
-  // morning of 2026-06-14). When the migration lands, restore the
-  // ref-gated one-shot loop that walks itunes-matched songs missing
-  // durationMs, re-hits iTunes with a 250ms gap, and patches via
-  // updateSong({ durationMs }).
+  // One-shot duration backfill — pre-2026-06-14 songs were enriched
+  // before we captured trackTimeMillis, so their durationMs is null.
+  // Walk once per session, re-hit iTunes for each missing one, patch
+  // duration only (don't touch matchStatus / coverUrl — those were
+  // already curated). Serial loop with 250ms gaps keeps us under
+  // Apple's loose throttle even for ~60-song libraries.
+  const _durationBackfillRef = React.useRef(false);
+  useEffect(() => {
+    if (_durationBackfillRef.current) return;
+    const stale = (songs || []).filter(
+      (s) =>
+        !Number.isFinite(s.durationMs)
+        && s.externalSource === "itunes"
+        && s.matchStatus && s.matchStatus !== "unmatched" && s.matchStatus !== "rejected"
+        && (s.canonicalTitle || s.title)
+    );
+    if (stale.length === 0) return;
+    _durationBackfillRef.current = true;
+    let cancelled = false;
+    (async () => {
+      for (const s of stale) {
+        if (cancelled) return;
+        try {
+          const match = await pickSongMatch(
+            s.canonicalTitle || s.title,
+            s.canonicalArtist || s.artist || ""
+          );
+          if (cancelled) return;
+          if (match?.durationMs) {
+            updateSong(s.id, { durationMs: match.durationMs });
+          }
+        } catch { /* skip + continue */ }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [songs.length]);
 
   const [hubOpen, setHubOpen] = useState(false);
 
