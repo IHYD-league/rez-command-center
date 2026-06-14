@@ -367,7 +367,7 @@ const SEED_ACTIVITIES = [
   { id: "a_field", name: "Field Trips",               short: "Trip",    color: "#0ea5e9", pillar: "brain", status: "seasonal", note: "Activate when there's actually a trip on the calendar", schedule: [] },
   { id: "a_chores",name: "Chores",                    short: "Chores",  color: "#64748b", pillar: "body",  status: "active",   note: "", schedule: [] },
   { id: "a_swim",  name: "Swim (Rose Bowl Aquatics)", short: "Swim",    color: "#0891b2", pillar: "body",  status: "active",   note: "Off in August — use Jim Herrick lessons instead", address: "Rose Bowl Aquatics, 360 N Arroyo Blvd, Pasadena, CA 91103", schedule: [{ day: "Tuesday", time: "5:00–6:00 PM" }, { day: "Thursday", time: "5:00–6:00 PM" }] },
-  { id: "a_tkd",   name: "Taekwondo",                 short: "TKD",     color: "#dc2626", pillar: "body",  status: "active",   note: "Pick ~2 days/week (any day but Sunday)", address: "", schedule: [] },
+  { id: "a_tkd",   name: "Taekwondo",                 short: "TKD",     color: "#dc2626", pillar: "body",  status: "active",   note: "Pick ~2 days/week (any day but Sunday)", address: "", schedule: [], weeklySchedule: true, weeklyTarget: 2 },
   { id: "a_dance", name: "Hip Hop Dance",             short: "Dance",   color: "#db2777", pillar: "body",  status: "active",   note: "", address: "", schedule: [{ day: "Monday", time: "5:30–6:30 PM" }] },
   { id: "a_bball", name: "Basketball",                short: "Ball",    color: "#65a30d", pillar: "body",  status: "break",    note: "Taking a break for now", schedule: [{ day: "Saturday", time: "TBD" }] },
   { id: "a_move",  name: "Movement",                  short: "Move",    color: "#16a34a", pillar: "body",  status: "active",   note: "", schedule: [] },
@@ -715,6 +715,19 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     "tkdTimes",
     Object.fromEntries(TKD_SLOTS.map((s) => [s.day, s.time]))
   );
+  // Generic weekly schedules — any activity that opts in (via
+  // a.weeklySchedule === true) gets a per-week day picker on the
+  // Calendar. Mike's framing: "When Basketball does come back in
+  // the rotation. It's only 2 months at a time and each new season
+  // has different practice days. We need the flexibility to add
+  // these when needed and to hide when they aren't active."
+  //   weeklyActivityDays: { a_basketball: ["Tuesday","Thursday"] }
+  //   weeklyActivityTimes: { a_basketball: { Tuesday: "5pm" } }
+  // Backwards-compat: the existing tkdDays / tkdTimes settings stay
+  // the canonical source for a_tkd until a parent uses the generic
+  // picker on Taekwondo; then the migration below merges them.
+  const [weeklyActivityDays, setWeeklyActivityDays] = familySetting("weeklyActivityDays", {});
+  const [weeklyActivityTimes, setWeeklyActivityTimes] = familySetting("weeklyActivityTimes", {});
   const [taskNotes, setTaskNotes] = familySetting("taskNotes", SEED_TASK_NOTES);
   const [subProgress, setSubProgress] = familySetting("subProgress", {});
   // Board theme — parent picks; one theme per family because the board
@@ -812,12 +825,25 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     // Calendar TKD pick: today's weekday is in tkdDays → pin the
     // Taekwondo task even if its mode/days say otherwise.
     if (Array.isArray(tkdDays) && tkdDays.includes(WEEKDAY)) set.add("t_tkd");
+    // Generic weekly-schedule picks. For any activity opted into the
+    // per-week picker, if today's weekday is in its day list, pin
+    // every active task that belongs to that activity. Covers
+    // basketball / swim / drums when seasons rotate.
+    if (weeklyActivityDays && typeof weeklyActivityDays === "object") {
+      for (const [actId, dayList] of Object.entries(weeklyActivityDays)) {
+        if (!Array.isArray(dayList) || !dayList.includes(WEEKDAY)) continue;
+        for (const t of tasks) {
+          if (t.active === false) continue;
+          if (t.activityId === actId) set.add(t.id);
+        }
+      }
+    }
     // Generic per-date bonus pins (Phase 2). Mike's add-to-today
     // picker writes here.
     const bonus = pinnedBonus?.[TODAY_ISO];
     if (Array.isArray(bonus)) bonus.forEach((id) => set.add(id));
     return set;
-  }, [topPriorities, tkdDays, pinnedBonus]);
+  }, [topPriorities, tkdDays, weeklyActivityDays, tasks, pinnedBonus]);
 
   const todaysTasks = useMemo(() => {
     const naSet = new Set(taskNaDays?.[TODAY_ISO] || []);
@@ -1477,6 +1503,33 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }));
   const toggleTkdDay = (day) => setTkdDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   const setTkdTime = (day, time) => setTkdTimes((prev) => ({ ...prev, [day]: time }));
+  // Generic toggles — basketball / swim / any activity with
+  // weeklySchedule=true uses these. Writes a per-activity entry in
+  // the weeklyActivityDays / Times settings. Removing the last day
+  // for an activity drops the key entirely to keep the JSON tidy.
+  const toggleWeeklyDay = (activityId, day) => {
+    setWeeklyActivityDays((prev) => {
+      const list = (prev?.[activityId] || []).slice();
+      const i = list.indexOf(day);
+      if (i >= 0) list.splice(i, 1);
+      else list.push(day);
+      const next = { ...(prev || {}) };
+      if (list.length === 0) delete next[activityId];
+      else next[activityId] = list;
+      return next;
+    });
+  };
+  const setWeeklyDayTime = (activityId, day, time) => {
+    setWeeklyActivityTimes((prev) => {
+      const byDay = { ...((prev?.[activityId]) || {}) };
+      if (time) byDay[day] = time;
+      else delete byDay[day];
+      const next = { ...(prev || {}) };
+      if (Object.keys(byDay).length === 0) delete next[activityId];
+      else next[activityId] = byDay;
+      return next;
+    });
+  };
   const addTask = (t) => setTasks((prev) => [...prev, t]);
   const updateTask = (id, patch) => setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   const removeTask = (id) => setTasks((prev) => prev.filter((t) => t.id !== id));
@@ -1490,6 +1543,21 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       const w = rewardRequests.find((x) => x.id === id);
       if (w) addReward({ id: "r_" + Date.now(), title: w.title, starCost: cost || 100, category: "Dream", active: true });
     }
+  };
+  // removeRewardRequest — clears a wish row from the kid's Dream
+  // Plan view. Mike's framing: "No, that's very farMs" was Reznor
+  // mis-typing Knotts Berry Farms; the typo'd row stayed forever
+  // even after Knotts was approved. Two clean-up paths:
+  //   - APPROVED wishes: anyone can tap "Got it" — the reward
+  //     already exists in the rewards table, so removing the
+  //     request row loses zero meaningful data. Not a "delete"
+  //     under the kids-never-delete rule.
+  //   - REQUESTED / DECLINED wishes: parent-only. The Dream Plan
+  //     UI gates the X button by checking the AUTH identity (not
+  //     the acted-as profile) so Mike acting as Reznor still gets
+  //     the X.
+  const removeRewardRequest = (id) => {
+    setRewardRequests((prev) => prev.filter((w) => w.id !== id));
   };
   const addTaskNote = (taskId, text) => { if (!text.trim()) return; setTaskNotes((prev) => ({ ...prev, [taskId]: [{ text: text.trim(), by: currentUserId, time: "now" }, ...(prev[taskId] || [])] })); };
   const addBook = (b) => setBooks((prev) => [b, ...prev]);
@@ -1810,9 +1878,9 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const shared = {
     user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, pinnedBonus, pinTaskToToday, unpinTaskFromToday, todayOrder, setTodayOrder, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, langs, displayLangs, setDisplayLangs, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
-    priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
+    priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, weeklyActivityDays, weeklyActivityTimes, toggleWeeklyDay, setWeeklyDayTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
-    submitTask, saveDraft, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest,
+    submitTask, saveDraft, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest, removeRewardRequest,
     openCompletionId, setOpenCompletionId, updateCompletion, addCompletionPhoto, removeCompletionPhoto,
     pendingRegistrations, approveRegistration, denyRegistration, currentProfileId, setCurrentUserId,
     kidData,
@@ -2387,9 +2455,24 @@ function Router(props) {
     if (tab === "missions") return <KidMissions {...props} />;
     if (tab === "board") return <BoardGame {...props} />;
     if (tab === "school") return <SummerQuestRoute {...props} />;
+    // Kid tap routing — Mike's rule: "Reznor's page, if he clicks
+    // a task or activity or chore, he should see the pictures or
+    // stats. Let him be proud of what he's done."
+    // For approved (or pending) tasks today, open the
+    // CompletionDetailSheet (Photos / Notes / Stats hero / Edit).
+    // Otherwise drop into the submit sheet so he can still log work.
+    // Mirrors KidMissions' behavior so home + missions feel
+    // consistent on the kid side.
     const openQuestSheet = (questId) => {
       const t = props.tasks.find((x) => x.id === questId);
-      if (t) props.setOpenTask(t);
+      if (!t) return;
+      const c = props.compByTask?.[questId];
+      const showStats = c?.id && (c.status === "approved" || c.status === "pending");
+      if (showStats) {
+        props.setOpenCompletionId?.(c.id);
+      } else {
+        props.setOpenTask(t);
+      }
     };
     return (
       <KidGameHome
@@ -3199,7 +3282,11 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
         const onOpen = isApproved && c?.id
           ? () => setOpenCompletionId(c.id)
           : () => setOpenTask(t);
-        return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} undoTask={undoTask} />;
+        /* Kids never delete (per memory rule). undoTask is intentionally
+            NOT passed — the "Oops — undo this" affordance hides for kids
+            so a mis-tap can't retract a real submission. Parent undoes
+            via the Approvals tab if it was a mistake. */
+        return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} />;
       })}
 
       {/* Extra-credit / bonus stars at the bottom — anything on today's
@@ -3231,7 +3318,11 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
               const onOpen = isApproved && c?.id
                 ? () => setOpenCompletionId(c.id)
                 : () => setOpenTask(t);
-              return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} undoTask={undoTask} />;
+              /* Kids never delete (per memory rule). undoTask is intentionally
+            NOT passed — the "Oops — undo this" affordance hides for kids
+            so a mis-tap can't retract a real submission. Parent undoes
+            via the Approvals tab if it was a mistake. */
+        return <MissionCard key={t.id} task={t} comp={c} onOpen={onOpen} mode={mode} priorities={priorities} users={users} activities={activities} streaks={streaks} subProgress={subProgress} toggleSub={toggleSub} />;
             })}
           </>
         );
@@ -4381,7 +4472,11 @@ function CompletionDetailSheet({
                   <CompletionPhotoTile
                     key={p.path}
                     photo={p}
-                    canRemove={true}
+                    /* "Kids never delete" rule — only parents see the X
+                        on a proof photo. Kids can still tap the photo
+                        to view it full-screen via the lightbox; the
+                        destructive action is the only thing gated. */
+                    canRemove={isParent}
                     onRemove={() => onRemovePhoto(p.path)}
                   />
                 ))}
@@ -4696,13 +4791,23 @@ function CompletionDetailSheet({
                 💾 Edit this completion's details
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => { onUndo(); onClose(); }}
-              className="w-full py-3 rounded-2xl bg-rose-50 text-rose-700 font-extrabold text-sm active:scale-95"
-            >
-              ↺ Un-mark this task (today)
-            </button>
+            {/* Un-mark is a destructive action. Per the "kids never
+                delete" rule, only parents see the button. Kids see a
+                gentle "ask a grown-up" line so they understand the
+                shape of the rule without a do-nothing button to tap. */}
+            {isParent ? (
+              <button
+                type="button"
+                onClick={() => { onUndo(); onClose(); }}
+                className="w-full py-3 rounded-2xl bg-rose-50 text-rose-700 font-extrabold text-sm active:scale-95"
+              >
+                ↺ Un-mark this task (today)
+              </button>
+            ) : (
+              <div className="w-full py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-500 font-bold text-xs text-center px-3">
+                🔒 Only a grown-up can undo or change this. Ask Mom or Dad if something's wrong.
+              </div>
+            )}
             {isParent && (
               <button
                 type="button"
@@ -4713,8 +4818,9 @@ function CompletionDetailSheet({
               </button>
             )}
             <div className="text-[11px] text-slate-400 px-1 mt-2 leading-snug">
-              Un-mark removes only today's completion — yesterday's history stays.
-              {isParent && " Edit task changes the activity, stars, or rules for everyone going forward."}
+              {isParent
+                ? <>Un-mark removes only today's completion — yesterday's history stays. Edit task changes the activity, stars, or rules for everyone going forward.</>
+                : <>Your work is safe — only grown-ups can change or remove it.</>}
             </div>
           </div>
         )}
@@ -4833,7 +4939,7 @@ function PiggyBank({ stars }) {
 }
 
 // ===================== KID: DREAM PLAN (interactive) =====================
-function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }) {
+function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, removeRewardRequest, user, users = [], currentProfileId }) {
   const active = rewards.filter((r) => r.active);
   const [picked, setPicked] = useState([]);
   const [perDay, setPerDay] = useState(25);
@@ -4841,6 +4947,12 @@ function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }
   const [wishNote, setWishNote] = useState("");
   const [wishOpen, setWishOpen] = useState(false);
   const myWishes = (rewardRequests || []).filter((w) => w.by === user?.id);
+  // Auth-side parent check — Mike acting as Reznor still gets the
+  // parent-only X button because we read the AUTH identity, not
+  // the acted-as profile. Same pattern submitTask uses to gate
+  // auto-approve so a stale-bundle helper can't forge a parent.
+  const authProfile = users.find((u) => u.id === currentProfileId);
+  const isAuthParent = !!(authProfile?.role === "parent" || authProfile?.isAdmin);
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const chosen = active.filter((r) => picked.includes(r.id)).sort((a, b) => a.starCost - b.starCost);
   const total = chosen.reduce((s, r) => s + r.starCost, 0);
@@ -4879,13 +4991,60 @@ function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }
       )}
       {myWishes.length > 0 && (
         <div className="mt-2">
-          {myWishes.map((w) => (
-            <Card key={w.id} className="p-3 mb-2 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-violet-100 grid place-items-center text-lg">⭐</div>
-              <div className="flex-1 min-w-0"><div className="font-bold text-sm">{w.title}</div><div className="text-[11px] text-slate-400">{w.status === "approved" && w.starCost ? `${w.starCost}⭐ — now in your rewards!` : (w.note || "your wish")}</div></div>
-              <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${WISH_STATUS[w.status].cls}`}>{WISH_STATUS[w.status].label}</span>
-            </Card>
-          ))}
+          {myWishes.map((w) => {
+            const isApproved = w.status === "approved";
+            const isDeclined = w.status === "declined" || w.status === "denied";
+            return (
+              <Card key={w.id} className="p-3 mb-2 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-violet-100 grid place-items-center text-lg shrink-0">⭐</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm truncate">{w.title}</div>
+                  <div className="text-[11px] text-slate-400 truncate">{isApproved && w.starCost ? `${w.starCost}⭐ — now in your rewards!` : (w.note || "your wish")}</div>
+                </div>
+                {isApproved && removeRewardRequest ? (
+                  /* Approved → "Got it!" button anyone can tap to
+                     dismiss the row. The reward already exists in the
+                     rewards table; removing this request is just
+                     clearing a notification-style entry, not a
+                     destructive delete. */
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Got it — clear "${w.title}" from your wishes? It's already in your rewards.`)) {
+                        removeRewardRequest(w.id);
+                      }
+                    }}
+                    className="text-[11px] font-extrabold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 active:scale-95 rounded-full px-3 py-1.5 flex items-center gap-1 shrink-0"
+                    title="Tap to acknowledge and clear from your wishes"
+                  >
+                    Got it! 👍
+                  </button>
+                ) : (
+                  <span className={`text-[10px] font-bold px-2 py-1 rounded-full shrink-0 ${WISH_STATUS[w.status].cls}`}>{WISH_STATUS[w.status].label}</span>
+                )}
+                {/* Parent cleanup — declined / requested wishes can be
+                    cleared by the parent (auth identity, so Mike
+                    acting as Reznor still sees the X). Per the
+                    kids-never-delete rule, kids see nothing. */}
+                {isAuthParent && removeRewardRequest && !isApproved && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const verb = isDeclined ? "Remove this denied wish?" : "Withdraw this wish?";
+                      if (window.confirm(`${verb}\n\n"${w.title}"`)) {
+                        removeRewardRequest(w.id);
+                      }
+                    }}
+                    className="text-slate-400 hover:text-rose-500 active:scale-90 shrink-0 p-1"
+                    title="Parent: remove this wish row"
+                    aria-label="Remove wish"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -7955,45 +8114,107 @@ function RewardEditRow({ r, updateReward, removeReward }) {
 }
 
 // ===================== PARENT: CALENDAR =====================
-function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, activities, users = [] }) {
+function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, weeklyActivityDays = {}, weeklyActivityTimes = {}, toggleWeeklyDay, setWeeklyDayTime, activities, users = [] }) {
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("2026-06-12");
   const sorted = [...events].sort((a, b) => a.date.localeCompare(b.date));
   const catColor = { School: "bg-sky-100 text-sky-700", Activity: "bg-emerald-100 text-emerald-700", "Field Trip": "bg-amber-100 text-amber-700" };
-  const tkdAct = activities.find((a) => a.id === "a_tkd");
-  // Build the weekly grid from scheduled activities (status-aware) + this week's Taekwondo picks
+  // Active activities that opted into the per-week day picker. Mike:
+  // "We should be able to add another activity like Swim, Basketball,
+  // Drums for when those do have days they change. … flexibility to
+  // add these when needed and to hide them when they aren't needed."
+  // Status-aware: paused / archived activities drop out automatically.
+  const weeklyActivities = activities.filter((a) => a.weeklySchedule && a.status === "active");
+  // Per-activity day lookup that respects legacy tkdDays / tkdTimes
+  // for a_tkd. If the parent never touched the new generic picker for
+  // Taekwondo, we read the original familySettings; otherwise the
+  // generic state wins so flipping a new day in either UI is the
+  // canonical source.
+  const daysFor = (a) => {
+    if (Array.isArray(weeklyActivityDays?.[a.id])) return weeklyActivityDays[a.id];
+    if (a.id === "a_tkd") return tkdDays || [];
+    return [];
+  };
+  const timesFor = (a) => {
+    if (weeklyActivityTimes?.[a.id]) return weeklyActivityTimes[a.id];
+    if (a.id === "a_tkd") return tkdTimes || {};
+    return {};
+  };
+  const toggleDayFor = (a, day) => {
+    // For a_tkd, write to BOTH the new generic state AND the legacy
+    // tkdDays so the rest of the app (pinnedToday, treasure streak)
+    // sees the same picks until everything's migrated.
+    if (a.id === "a_tkd" && toggleTkdDay) toggleTkdDay(day);
+    if (toggleWeeklyDay) toggleWeeklyDay(a.id, day);
+  };
+  const setTimeFor = (a, day, t) => {
+    if (a.id === "a_tkd" && setTkdTime) setTkdTime(day, t);
+    if (setWeeklyDayTime) setWeeklyDayTime(a.id, day, t);
+  };
+  // Build the weekly grid: scheduled fixed-day items + every weekly-
+  // schedule activity's per-week picks.
   const weekly = DAYS.map((day) => {
     const items = [];
     activities.forEach((a) => (a.schedule || []).forEach((s) => { if (s.day === day) items.push({ name: a.short || a.name, time: s.time, color: a.color, status: a.status, note: a.note }); }));
-    if (tkdDays.includes(day)) items.push({ name: "Taekwondo", time: tkdTimes[day] || "set a time", color: tkdAct?.color || "#dc2626", tkd: true, status: tkdAct?.status });
+    for (const a of weeklyActivities) {
+      if (daysFor(a).includes(day)) {
+        items.push({ name: a.short || a.name, time: timesFor(a)[day] || "set a time", color: a.color, weeklyPicked: true, status: a.status });
+      }
+    }
     return { day, items };
   });
-  const need = Math.max(0, TKD_TARGET - tkdDays.length);
   const statusTag = { break: i18nTOf("cal_status_break", "on break"), seasonal: i18nTOf("cal_status_seasonal", "seasonal") };
   return (
     <div className="px-4 pt-4">
       <h2 className="font-extrabold text-lg px-1">{i18nTOf("cal_heading", "Calendar")}</h2>
       <Card className="p-3 mt-2 bg-amber-50 border-amber-100 flex items-center gap-2 text-sm text-amber-800"><Sun size={16} /> {i18nTOf("cal_summer_banner", "Summer Mode: June 11 – Sept 1, 2026. School starts back ~Sept 1.")}</Card>
 
-      <SectionTitle icon={<Heart size={16} className="text-violet-500" />} right={<span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${tkdDays.length >= TKD_TARGET ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{i18nTOf("cal_tkd_picked", "{n} of {target} picked").replaceAll("{n}", tkdDays.length).replaceAll("{target}", TKD_TARGET)}</span>}>{i18nTOf("cal_tkd_section", "Taekwondo this week")}</SectionTitle>
-      <Card className="p-3 mb-1">
-        <div className="text-[11px] text-slate-400 mb-2">{i18nTOf("cal_tkd_hint", "Available any day except Sunday. Tap the days he'll go this week and set the time.")}</div>
-        {TKD_SLOTS.map((s) => {
-          const on = tkdDays.includes(s.day);
-          return (
-            <div key={s.day} className={`flex items-center gap-2 px-2 py-1.5 rounded-xl mb-1 ${on ? "bg-violet-50" : ""}`}>
-              <button onClick={() => toggleTkdDay(s.day)} className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${on ? "bg-violet-600 text-white" : "border-2 border-slate-200 text-transparent"}`}><Check size={15} /></button>
-              <div className="w-24 text-sm font-semibold text-slate-600 shrink-0">{s.day}</div>
-              {on
-                ? <input value={tkdTimes[s.day] || ""} onChange={(e) => setTkdTime(s.day, e.target.value)} placeholder={i18nTOf("cal_tkd_set_time", "set time")} className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-xs" />
-                : <div className="flex-1 text-xs text-slate-400">{s.time || i18nTOf("cal_tkd_time_flexible", "time flexible")}</div>}
-            </div>
-          );
-        })}
-        {need > 0
-          ? <div className="text-[11px] font-semibold text-amber-600 mt-1">{i18nTOf("cal_tkd_pick_more", "Pick {n} more to hit the 2×/week goal.").replaceAll("{n}", need)}</div>
-          : <div className="text-[11px] font-semibold text-emerald-600 mt-1">{i18nTOf("cal_tkd_on_track", "Nice — on track for the week. 🥋")}</div>}
-      </Card>
+      {/* One section per activity that opted into weeklySchedule. */}
+      {weeklyActivities.map((a) => {
+        const picked = daysFor(a);
+        const times = timesFor(a);
+        const target = Number(a.weeklyTarget) || 0;
+        const need = target > 0 ? Math.max(0, target - picked.length) : 0;
+        return (
+          <div key={a.id}>
+            <SectionTitle
+              icon={<span className="w-3 h-3 rounded-full" style={{ background: a.color || "#64748b" }} />}
+              right={target > 0 && (
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${picked.length >= target ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                  {picked.length} of {target} picked
+                </span>
+              )}
+            >
+              {a.name} this week
+            </SectionTitle>
+            <Card className="p-3 mb-1">
+              <div className="text-[11px] text-slate-400 mb-2">
+                Tap the days he'll go this week and set the time. Toggle the activity off under More → Activities when the season ends.
+              </div>
+              {TKD_SLOTS.map((s) => {
+                const on = picked.includes(s.day);
+                return (
+                  <div key={s.day} className={`flex items-center gap-2 px-2 py-1.5 rounded-xl mb-1 ${on ? "bg-violet-50" : ""}`}>
+                    <button onClick={() => toggleDayFor(a, s.day)} className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${on ? "text-white" : "border-2 border-slate-200 text-transparent"}`} style={on ? { background: a.color || "#7c3aed" } : undefined}><Check size={15} /></button>
+                    <div className="w-24 text-sm font-semibold text-slate-600 shrink-0">{s.day}</div>
+                    {on
+                      ? <input value={times[s.day] || ""} onChange={(e) => setTimeFor(a, s.day, e.target.value)} placeholder={i18nTOf("cal_tkd_set_time", "set time")} className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-xs" />
+                      : <div className="flex-1 text-xs text-slate-400">{i18nTOf("cal_tkd_time_flexible", "time flexible")}</div>}
+                  </div>
+                );
+              })}
+              {target > 0 && (need > 0
+                ? <div className="text-[11px] font-semibold text-amber-600 mt-1">Pick {need} more to hit the {target}×/week goal.</div>
+                : <div className="text-[11px] font-semibold text-emerald-600 mt-1">Nice — on track for the week.</div>)}
+            </Card>
+          </div>
+        );
+      })}
+      {weeklyActivities.length === 0 && (
+        <Card className="p-3 mt-2 text-[12px] text-slate-500">
+          No weekly-schedule activities yet. Turn one on under More → Activities → tap an activity → enable "Weekly schedule" for seasonal sports like Basketball or Swim.
+        </Card>
+      )}
 
       <SectionTitle icon={<Clock size={16} className="text-teal-500" />}>{i18nTOf("cal_kids_week", "{kid}'s week").replaceAll("{kid}", kidName(users))}</SectionTitle>
       <Card className="p-1 mb-1">
@@ -8010,7 +8231,7 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: it.color }} />
                       <span className="text-slate-600">{it.name}</span>
                       <span className="text-slate-400">· {it.time}</span>
-                      {it.tkd && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600">{i18nTOf("cal_this_week_tag", "this week")}</span>}
+                      {it.weeklyPicked && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600">{i18nTOf("cal_this_week_tag", "this week")}</span>}
                       {paused && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-500">{statusTag[it.status]}</span>}
                     </div>
                   );
@@ -9323,7 +9544,13 @@ function ParentRecap(props) {
   let mem = null;
   if (ds?.since) {
     const start = new Date(ds.since + "T12:00");
-    const daysSince = Math.round((today - start) / 86400000);
+    // Days-since reads from the canonical streak count, not a
+    // Math.round of (today - since). The Math.round version was a
+    // day behind every other surface (Today / Insights / Stars all
+    // read streaks.current = 317; Recap was computing 316 because
+    // Math.round on the exact-noon delta lost a day to floating-
+    // point rounding). The canonical streak is the source of truth.
+    const daysSince = ds.current ?? Math.round((today - start) / 86400000);
     const anniv = new Date(start); anniv.setFullYear(start.getFullYear() + 1);
     const toAnniv = Math.ceil((anniv - today) / 86400000);
     mem = { daysSince, anniv, toAnniv, start };
@@ -9905,7 +10132,7 @@ function LanguagesPage({ displayLangs = ["en"], setDisplayLangs }) {
 }
 
 function PrivacySafety(props) {
-  const { familyId = "", users = [], sessionEmail = "", signOut, completions = [], albumPhotos = [], gifted = [], songPlays = [], setTab } = props;
+  const { familyId = "", users = [], sessionEmail = "", signOut, completions = [], albumPhotos = [], gifted = [], songPlays = [], setTab, setSub } = props;
   const fid = String(familyId || "");
   const familyShort = fid ? fid.slice(0, 8) + "…" + fid.slice(-4) : "—";
   const parents = users.filter((u) => u.role === "parent");
@@ -9917,15 +10144,33 @@ function PrivacySafety(props) {
     gifts: (gifted || []).length,
     songPlays: (songPlays || []).length,
   };
-  const Row = ({ label, value, hint }) => (
-    <div className="flex items-baseline justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
-      <div className="text-[12px] font-bold text-slate-600">{label}</div>
-      <div className="text-right">
-        <div className="text-[12px] font-extrabold text-slate-800 tabular-nums break-all">{value}</div>
-        {hint && <div className="text-[10px] text-slate-400">{hint}</div>}
+  // Privacy & Safety rows can be clickable when the data has a
+  // natural drill-down (People / Photo Gallery / etc.). Mike's ask:
+  // "You should be able to click anything in here and get the
+  // deeper info. For example you need to be able to click a helper
+  // in our case Sara and see what she is able to do."
+  const Row = ({ label, value, hint, onClick }) => {
+    const body = (
+      <div className="flex items-baseline justify-between gap-3 py-2 border-b border-slate-100 last:border-0 w-full text-left">
+        <div className="text-[12px] font-bold text-slate-600">{label}</div>
+        <div className="text-right flex items-baseline gap-1">
+          <div>
+            <div className="text-[12px] font-extrabold text-slate-800 tabular-nums break-all">{value}</div>
+            {hint && <div className="text-[10px] text-slate-400">{hint}</div>}
+          </div>
+          {onClick && <span className="text-slate-300 text-[12px] ml-1">›</span>}
+        </div>
       </div>
-    </div>
-  );
+    );
+    if (!onClick) return body;
+    return (
+      <button type="button" onClick={onClick} className="w-full active:scale-[0.99] transition hover:bg-slate-50 -mx-3 px-3 rounded">
+        {body}
+      </button>
+    );
+  };
+  const openPeople = setSub ? () => setSub("people") : null;
+  const openGallery = setSub ? () => setSub("gallery") : null;
   return (
     <div className="px-4 pt-4">
       <div className="rounded-3xl p-4 mb-3 text-white bg-gradient-to-br from-indigo-500 to-violet-600">
@@ -9945,15 +10190,15 @@ function PrivacySafety(props) {
       <Card className="p-3 mb-3">
         <Row label={i18nTOf("priv_row_family_id", "Family ID")} value={familyShort} hint={i18nTOf("priv_row_family_id_hint", "Unique to your family — used to isolate every row.")} />
         <Row label={i18nTOf("priv_row_signed_in", "Signed in as")} value={sessionEmail || "—"} />
-        <Row label={i18nTOf("priv_row_parents", "Parents")} value={`${parents.length}`} hint={parents.map((u) => u.name).join(", ") || "—"} />
-        <Row label={i18nTOf("priv_row_helpers", "Helpers")} value={`${helpers.length}`} hint={helpers.map((u) => u.name).join(", ") || i18nTOf("priv_row_none", "(none)")} />
-        <Row label={i18nTOf("priv_row_kids", "Kids")} value={`${kids.length}`} hint={kids.map((u) => u.name).join(", ") || "—"} />
+        <Row label={i18nTOf("priv_row_parents", "Parents")} value={`${parents.length}`} hint={parents.map((u) => u.name).join(", ") || "—"} onClick={openPeople} />
+        <Row label={i18nTOf("priv_row_helpers", "Helpers")} value={`${helpers.length}`} hint={helpers.map((u) => u.name).join(", ") || i18nTOf("priv_row_none", "(none)")} onClick={openPeople} />
+        <Row label={i18nTOf("priv_row_kids", "Kids")} value={`${kids.length}`} hint={kids.map((u) => u.name).join(", ") || "—"} onClick={openPeople} />
       </Card>
 
       <SectionTitle icon={<Camera size={16} className="text-cyan-500" />}>{i18nTOf("priv_sec_stored", "What's stored")}</SectionTitle>
       <Card className="p-3 mb-3">
         <Row label={i18nTOf("priv_row_completions", "Completions")} value={counts.completions} />
-        <Row label={i18nTOf("priv_row_photos", "Photos")} value={counts.photos} hint={i18nTOf("priv_row_photos_hint", "Stored in your family's bucket — never shared.")} />
+        <Row label={i18nTOf("priv_row_photos", "Photos")} value={counts.photos} hint={i18nTOf("priv_row_photos_hint", "Stored in your family's bucket — never shared.")} onClick={openGallery} />
         <Row label={i18nTOf("priv_row_gifts", "Gifts")} value={counts.gifts} />
         <Row label={i18nTOf("priv_row_song_plays", "Song plays")} value={counts.songPlays} />
       </Card>
@@ -9969,9 +10214,13 @@ function PrivacySafety(props) {
       </Card>
 
       <SectionTitle icon={<Download size={16} className="text-emerald-500" />}>{i18nTOf("priv_sec_own_data", "Own your data")}</SectionTitle>
+      {/* These CTAs used to bounce the parent back to the More menu
+          root and require a second tap to find Export / Audit. Now
+          they navigate directly to the sub-page via setSub, the
+          same mechanism the More menu uses internally. */}
       <button
         type="button"
-        onClick={() => setTab?.("more")}
+        onClick={() => setSub ? setSub("export") : setTab?.("more")}
         className="w-full mb-2 active:scale-[0.98] transition"
       >
         <Card className="p-3 flex items-center gap-3 text-left">
@@ -9986,7 +10235,7 @@ function PrivacySafety(props) {
       </button>
       <button
         type="button"
-        onClick={() => setTab?.("more")}
+        onClick={() => setSub ? setSub("audit") : setTab?.("more")}
         className="w-full mb-3 active:scale-[0.98] transition"
       >
         <Card className="p-3 flex items-center gap-3 text-left">
@@ -10019,7 +10268,7 @@ function PrivacySafety(props) {
 
 function MoreParent(props) {
   const [sub, setSub] = useState("menu");
-  if (sub === "privacy") return <BackWrap title={i18nTOf("more_privacy", "Privacy & Safety")} onBack={() => setSub("menu")}><PrivacySafety {...props} /></BackWrap>;
+  if (sub === "privacy") return <BackWrap title={i18nTOf("more_privacy", "Privacy & Safety")} onBack={() => setSub("menu")}><PrivacySafety {...props} setSub={setSub} /></BackWrap>;
   if (sub === "audit") return <BackWrap title={i18nTOf("more_audit", "Data audit")} onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
@@ -10474,20 +10723,108 @@ function Portfolio({ completions, tasks, users, gifted, activities, books = [], 
   );
 }
 
-function Weekly({ completions }) {
-  const rows = [
-    ["Drums", "5 days"], ["English reading", "5 days"], ["Spanish", "6 days"],
-    ["Writing", "4 submissions"], ["Math", "4 days"], ["Field trip", "Yes ✓"],
-  ];
-  const totalStars = completions.filter((c) => c.status === "approved").reduce((s, c) => s + c.awardedStars, 0);
+function Weekly({ completions = [], gifted = [], tasks = [], activities = [], books = [] }) {
+  // Mike's review: "For Weekly Summary get rid of the Demo. We have
+  // enough info you can use what we actually have." Every figure
+  // below is now derived from canonical state — completions, gifts,
+  // tasks, activities, books — instead of a hardcoded placeholder
+  // bag. Week window = last 7 days (inclusive).
+  const start = new Date(today); start.setDate(today.getDate() - 6);
+  const startIso = isoLocal(start);
+  const inWeek = (iso) => iso && iso >= startIso && iso <= TODAY_ISO;
+
+  const approvedThisWeek = completions.filter((c) => c.status === "approved" && inWeek(c.completionDate));
+  const giftsThisWeek = (gifted || []).filter((g) => inWeek(g.date));
+  const totalStars =
+    approvedThisWeek.reduce((s, c) => s + (c.awardedStars || 0), 0) +
+    giftsThisWeek.reduce((s, g) => s + (Number(g.stars) || 0), 0);
+
+  // Per-activity day counts — group approved completions by activity,
+  // then count distinct dates so two drum logs on the same day = 1.
+  const taskById = Object.fromEntries(tasks.map((t) => [t.id, t]));
+  const actLookup = (act) => activities.find((a) => a.id === act);
+  const byActivity = new Map(); // activityId → Set<dateISO>
+  for (const c of approvedThisWeek) {
+    const t = taskById[c.taskId];
+    if (!t) continue;
+    const aid = t.activityId || TYPE_TO_ACT[t.activityType];
+    if (!aid) continue;
+    if (!byActivity.has(aid)) byActivity.set(aid, new Set());
+    byActivity.get(aid).add(c.completionDate);
+  }
+  const rows = [...byActivity.entries()]
+    .map(([aid, dates]) => {
+      const a = actLookup(aid);
+      return { name: a?.short || a?.name || aid, days: dates.size, aid };
+    })
+    .sort((a, b) => b.days - a.days);
+
+  // Books finished this week — real, not a "Yes ✓" placeholder.
+  const booksFinishedThisWeek = (books || []).filter((b) => b.status === "finished" && inWeek(b.finished));
+
+  // 🏆 Wins — anything done all 7 days this week + books finished.
+  // Honest data instead of a "she read solo" hardcoded sentence.
+  const dailyWins = rows.filter((r) => r.days >= 7);
+  const winLines = [];
+  for (const w of dailyWins) winLines.push(`Daily streak on ${w.name} (7/7).`);
+  if (booksFinishedThisWeek.length > 0) {
+    winLines.push(`Finished ${booksFinishedThisWeek.length} book${booksFinishedThisWeek.length === 1 ? "" : "s"}: ${booksFinishedThisWeek.map((b) => b.canonicalTitle || b.title).join(", ")}.`);
+  }
+  if (giftsThisWeek.length > 0) {
+    const bonusStars = giftsThisWeek.reduce((s, g) => s + (Number(g.stars) || 0), 0);
+    winLines.push(`${giftsThisWeek.length} bonus gift${giftsThisWeek.length === 1 ? "" : "s"} for going above and beyond (+${bonusStars}⭐).`);
+  }
+
+  // ⚠️ Needs attention — required/active activities done < 3 days.
+  // Skips one-offs (field trips, anything seasonal/paused).
+  const activeRequired = new Set();
+  for (const t of tasks) {
+    if (!t.required || t.active === false) continue;
+    const aid = t.activityId || TYPE_TO_ACT[t.activityType];
+    if (!aid) continue;
+    const a = actLookup(aid);
+    if (!a || a.status !== "active") continue;
+    activeRequired.add(aid);
+  }
+  const slipping = [...activeRequired]
+    .map((aid) => ({ aid, days: byActivity.get(aid)?.size || 0, name: actLookup(aid)?.short || actLookup(aid)?.name || aid }))
+    .filter((r) => r.days < 3)
+    .sort((a, b) => a.days - b.days);
+
   return (
     <>
-      <Card className="p-4 mb-3 text-center"><div className="text-3xl font-extrabold text-amber-500">{totalStars + 130} ⭐</div><div className="text-xs text-slate-400">stars this week (demo)</div></Card>
-      {rows.map(([k, v]) => (
-        <Card key={k} className="p-3 mb-2 flex items-center justify-between"><span className="text-sm font-semibold">{k}</span><span className="text-sm text-slate-500">{v}</span></Card>
-      ))}
-      <Card className="p-3 mt-2 bg-emerald-50 border-emerald-100"><div className="text-xs font-bold text-emerald-700 mb-1">🏆 Wins of the week</div><div className="text-sm text-emerald-800">Read a full Spanish book solo. Hit 2-hour drum stretch goal twice.</div></Card>
-      <Card className="p-3 mt-2 bg-amber-50 border-amber-100"><div className="text-xs font-bold text-amber-700 mb-1">⚠️ Needs attention</div><div className="text-sm text-amber-800">Math slipped to 4 days — aim for daily next week.</div></Card>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-amber-500">{totalStars}</div><div className="text-[11px] text-slate-400">stars this week</div></Card>
+        <Card className="p-3 text-center"><div className="text-2xl font-extrabold text-emerald-500">{approvedThisWeek.length}</div><div className="text-[11px] text-slate-400">activities completed</div></Card>
+      </div>
+      {rows.length === 0 ? (
+        <Card className="p-4 text-center text-sm text-slate-400">Nothing approved yet this week.</Card>
+      ) : (
+        rows.map((r) => (
+          <Card key={r.aid} className="p-3 mb-2 flex items-center justify-between">
+            <span className="text-sm font-semibold">{r.name}</span>
+            <span className="text-sm text-slate-500 tabular-nums">{r.days} day{r.days === 1 ? "" : "s"}</span>
+          </Card>
+        ))
+      )}
+      {winLines.length > 0 && (
+        <Card className="p-3 mt-2 bg-emerald-50 border-emerald-100">
+          <div className="text-xs font-bold text-emerald-700 mb-1">🏆 Wins of the week</div>
+          <ul className="text-sm text-emerald-800 list-disc pl-4 space-y-0.5">
+            {winLines.map((l, i) => <li key={i}>{l}</li>)}
+          </ul>
+        </Card>
+      )}
+      {slipping.length > 0 && (
+        <Card className="p-3 mt-2 bg-amber-50 border-amber-100">
+          <div className="text-xs font-bold text-amber-700 mb-1">⚠️ Needs attention</div>
+          <ul className="text-sm text-amber-800 list-disc pl-4 space-y-0.5">
+            {slipping.map((r) => (
+              <li key={r.aid}>{r.name} only {r.days} day{r.days === 1 ? "" : "s"} this week.</li>
+            ))}
+          </ul>
+        </Card>
+      )}
     </>
   );
 }
@@ -10975,6 +11312,18 @@ function ActivityRow({ a, onUpdate, streaks, setStreak, stopStreak, bumpStreak, 
           <button onClick={() => setEditColor((v) => !v)} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 flex items-center gap-1"><Palette size={12} /> Color</button>
           <button onClick={() => setOpenStreak((v) => !v)} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-orange-100 text-orange-600 flex items-center gap-1"><Flame size={12} /> {st ? `Streak ${st.current}d` : "Track streak"}</button>
           {onProgress && <button onClick={() => onProgress(a.id)} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-600 flex items-center gap-1"><CalIcon size={12} /> Progress</button>}
+          {/* Weekly schedule toggle — when on, the Calendar surfaces
+              a per-week day picker for this activity (basketball
+              / swim / etc.). Days carry into todaysTasks via the
+              pinnedToday bypass so a Tuesday basketball pick lands
+              in today's to-do automatically. */}
+          <button
+            onClick={() => onUpdate(a.id, { weeklySchedule: !a.weeklySchedule })}
+            className={`text-[11px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1 ${a.weeklySchedule ? "bg-violet-600 text-white" : "bg-violet-50 text-violet-700"}`}
+            title="When on, parent picks specific days each week on the Calendar"
+          >
+            🗓️ {a.weeklySchedule ? "Weekly schedule on" : "Weekly schedule"}
+          </button>
         </div>
         {editColor && <div className="flex flex-wrap gap-1.5 mt-2">{ACT_PALETTE.map((c) => <button key={c} onClick={() => { onUpdate(a.id, { color: c }); setEditColor(false); }} className="w-7 h-7 rounded-lg" style={{ background: c, outline: a.color === c ? "2px solid #1e293b" : "none", outlineOffset: "1px" }} />)}</div>}
         {openStreak && (st ? (

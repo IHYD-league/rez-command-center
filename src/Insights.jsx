@@ -618,9 +618,12 @@ export default function Insights({
     for (const c of approved) {
       const d = c.completionDate || c.completion_date;
       if (d && (!earliest || d < earliest)) earliest = d;
-      const t = (tasks || []).find((x) => x.id === c.taskId);
-      if (t?.category) catCounts.set(t.category, (catCounts.get(t.category) || 0) + 1);
-      const aid = t?.activityId || TYPE_TO_ACT[t?.activityType];
+      // Renamed `t` → `task` here too. No call site uses `t(...)` in
+      // this scope today, but keeping both shadow sites renamed
+      // protects against a future copy-paste tripping the same bug.
+      const task = (tasks || []).find((x) => x.id === c.taskId);
+      if (task?.category) catCounts.set(task.category, (catCounts.get(task.category) || 0) + 1);
+      const aid = task?.activityId || TYPE_TO_ACT[task?.activityType];
       const act = (activities || []).find((a) => a.id === aid);
       if (act?.pillar) pillarCounts.set(act.pillar, (pillarCounts.get(act.pillar) || 0) + 1);
     }
@@ -641,8 +644,18 @@ export default function Insights({
       for (const p of proof) {
         if (!p || p.type !== "photo" || !p.path) continue;
         proofCount += 1;
-        const t = (tasks || []).find((x) => x.id === c.taskId);
-        const aid = t?.activityId || TYPE_TO_ACT[t?.activityType];
+        // Renamed from `t` to `task` so the module-level i18n helper
+        // `t` isn't shadowed inside this loop. The bug: line below
+        // used `t("ins_other_bucket", ...)` to translate the "Other"
+        // fallback, but the inner `const t = ...find(...)` had
+        // shadowed `t` with the task object — so calling it as a
+        // function threw "t is not a function" the moment Insights
+        // tried to render with any approved completion that didn't
+        // map to a known activity (or with the wrong task lookup).
+        // After minification both `t`s collapsed to "C" → the
+        // user-facing message Mike saw.
+        const task = (tasks || []).find((x) => x.id === c.taskId);
+        const aid = task?.activityId || TYPE_TO_ACT[task?.activityType];
         const act = (activities || []).find((a) => a.id === aid);
         const name = act?.name || t("ins_other_bucket", "Other");
         byActivity.set(name, (byActivity.get(name) || 0) + 1);

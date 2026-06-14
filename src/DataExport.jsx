@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { Download, Calendar as CalIcon, Filter, FileText } from "lucide-react";
+import { Download, Calendar as CalIcon, Filter, FileText, Image as ImageIcon } from "lucide-react";
+import JSZip from "jszip";
+import { signedUrlFor } from "./lib/storage.js";
+import { toast } from "./lib/toast.js";
 
 /* =====================================================================
    DataExport — Phase 4 (CSV-only).
@@ -113,6 +116,9 @@ export default function DataExport({
   songPlays = [],
   books = [],
   users = [],
+  awards = [],
+  albumPhotos = [],
+  gifted = [],
 }) {
   const [datasetId, setDatasetId] = useState("completions");
   const [from, setFrom] = useState("");      // empty = no lower bound
@@ -485,9 +491,260 @@ export default function DataExport({
         <span className="font-bold">On iPhone:</span> the file lands in your <b>Files app</b> (or a share-sheet
         with "Save to Files" / "Open in Numbers" / AirDrop). On desktop it goes to your normal Downloads folder.
       </div>
-      <div className="text-[10px] text-slate-400 mt-2 px-1 leading-snug">
-        Photo bundles aren't in this export yet — coming as the next small piece. The CSVs above are the
-        higher-value, lower-risk data ownership ship.
+      <PhotoBundleCard
+        completions={completions}
+        albumPhotos={albumPhotos}
+        books={books}
+        songs={songs}
+        users={users}
+        awards={awards}
+        gifted={gifted}
+        tasks={tasks}
+      />
+    </div>
+  );
+}
+
+// Collect every storage path the family has uploaded across the
+// whole app. Mike's framing: "Export Data should include all photos
+// you have uploaded across the entire app. Accomplishments, Photo
+// gallery. Anywhere." Buckets each path under a folder so the parent
+// downloads a single ZIP and can immediately see what's what:
+//   proof/   — completion proof shots
+//   album/   — album / memory photos
+//   covers/  — book + song custom covers
+//   avatars/ — profile photos
+//   awards/  — accomplishment uploads
+//   gifts/   — bonus-star photo proofs
+//
+// Returns [{ path, folder, name, sourceRef }]. sourceRef is a short
+// human-readable label that lands in the manifest CSV so the parent
+// can reconcile each file with its DB row.
+function collectAllPhotoPaths({ completions = [], albumPhotos = [], books = [], songs = [], users = [], awards = [], gifted = [], tasks = [] }) {
+  const out = [];
+  const taskById = Object.fromEntries(tasks.map((t) => [t.id, t]));
+  // Completion proofs
+  for (const c of completions) {
+    if (!Array.isArray(c.proof)) continue;
+    for (const p of c.proof) {
+      if (!p?.path) continue;
+      const task = taskById[c.taskId];
+      out.push({
+        path: p.path,
+        folder: "proof",
+        name: p.name || basenameOf(p.path),
+        sourceRef: `completion ${c.id} · ${task?.title || c.taskId} · ${c.completionDate || ""}`,
+      });
+    }
+  }
+  // Album / memory photos
+  for (const a of albumPhotos) {
+    if (!a?.path) continue;
+    out.push({
+      path: a.path,
+      folder: "album",
+      name: a.caption ? `${a.caption.slice(0, 40)}.jpg` : basenameOf(a.path),
+      sourceRef: `album ${a.id} · ${a.caption || ""} · ${a.takenAt || ""}`,
+    });
+  }
+  // Book covers (custom uploads only — Open Library URLs aren't ours)
+  for (const b of books) {
+    if (!b?.customCoverPath) continue;
+    out.push({
+      path: b.customCoverPath,
+      folder: "covers",
+      name: `book-${slugify(b.canonicalTitle || b.title) || b.id}.jpg`,
+      sourceRef: `book ${b.id} · ${b.canonicalTitle || b.title || ""}`,
+    });
+  }
+  // Song covers (custom uploads only)
+  for (const s of songs) {
+    if (!s?.customCoverPath) continue;
+    out.push({
+      path: s.customCoverPath,
+      folder: "covers",
+      name: `song-${slugify(s.canonicalTitle || s.title) || s.id}.jpg`,
+      sourceRef: `song ${s.id} · ${s.canonicalTitle || s.title || ""}`,
+    });
+  }
+  // Profile avatars
+  for (const u of users) {
+    if (!u?.photo) continue;
+    // Skip external URLs (data:, https://) — only export our own storage.
+    if (/^(https?|data|blob):/.test(u.photo)) continue;
+    out.push({
+      path: u.photo,
+      folder: "avatars",
+      name: `${slugify(u.name) || u.id}.jpg`,
+      sourceRef: `avatar ${u.id} · ${u.name || ""}`,
+    });
+  }
+  // Awards / accomplishments
+  for (const a of awards) {
+    if (!a?.filePath) continue;
+    out.push({
+      path: a.filePath,
+      folder: "awards",
+      name: `award-${slugify(a.title) || a.id}.jpg`,
+      sourceRef: `award ${a.id} · ${a.title || ""}`,
+    });
+  }
+  // Gift bonus photo proofs
+  for (const g of gifted) {
+    const p = g?.extra?.photoPath;
+    if (!p) continue;
+    out.push({
+      path: p,
+      folder: "gifts",
+      name: `gift-${slugify(g.label) || g.id}.jpg`,
+      sourceRef: `gift ${g.id} · ${g.label || ""} · ${g.date || ""}`,
+    });
+  }
+  // Dedupe — content-hashing means many surfaces can reference the
+  // same path. Keep the first occurrence's folder; record the rest as
+  // alternate sourceRefs so the manifest is complete.
+  const byPath = new Map();
+  for (const item of out) {
+    const existing = byPath.get(item.path);
+    if (!existing) {
+      byPath.set(item.path, { ...item, altRefs: [] });
+    } else {
+      existing.altRefs.push(item.sourceRef);
+    }
+  }
+  return [...byPath.values()];
+}
+
+function basenameOf(path) {
+  const seg = (path || "").split("/").pop() || "photo";
+  return seg.includes(".") ? seg : `${seg}.jpg`;
+}
+function slugify(s) {
+  return (s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+}
+
+function PhotoBundleCard(props) {
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const items = useMemo(() => collectAllPhotoPaths(props), [props]);
+  const total = items.length;
+  const buildZip = async () => {
+    if (busy || total === 0) return;
+    setBusy(true);
+    setProgress(0);
+    try {
+      const zip = new JSZip();
+      const usedNames = new Set();
+      // Manifest CSV documents every entry so the parent can trace a
+      // file back to the DB row it came from. Written first so it
+      // lives at the root of the zip regardless of fetch failures.
+      const manifestRows = [
+        ["folder", "filename", "source_ref", "alt_refs", "storage_path"],
+      ];
+      let downloaded = 0;
+      let failed = 0;
+      // Fetch in parallel batches so we don't hammer the network but
+      // also don't take forever on slow connections. 4 at a time is a
+      // safe baseline for Supabase signed-URL bandwidth.
+      const BATCH = 4;
+      for (let i = 0; i < items.length; i += BATCH) {
+        const batch = items.slice(i, i + BATCH);
+        await Promise.all(batch.map(async (it) => {
+          // Disambiguate filenames within a folder so two completions
+          // with the same proof name don't collide in the zip.
+          let name = it.name;
+          let n = 1;
+          while (usedNames.has(`${it.folder}/${name}`)) {
+            const dot = name.lastIndexOf(".");
+            const stem = dot > 0 ? name.slice(0, dot) : name;
+            const ext = dot > 0 ? name.slice(dot) : "";
+            name = `${stem}-${n}${ext}`;
+            n += 1;
+          }
+          usedNames.add(`${it.folder}/${name}`);
+          try {
+            const url = await signedUrlFor(it.path);
+            if (!url) throw new Error("no signed URL");
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            zip.file(`${it.folder}/${name}`, blob);
+            downloaded += 1;
+            manifestRows.push([it.folder, name, it.sourceRef, (it.altRefs || []).join(" | "), it.path]);
+          } catch (err) {
+            failed += 1;
+            // Eat the failure — partial bundles are still useful.
+            manifestRows.push([it.folder, name, `MISSING (${err.message || err}) — ${it.sourceRef}`, (it.altRefs || []).join(" | "), it.path]);
+          }
+          setProgress(downloaded + failed);
+        }));
+      }
+      const manifestCsv = manifestRows
+        .map((row) => row.map((cell) => {
+          const s = String(cell ?? "");
+          return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        }).join(","))
+        .join("\n");
+      zip.file("manifest.csv", manifestCsv);
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `command-center-photos-${stamp}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
+      if (failed > 0) {
+        toast.info?.(`Bundle ready: ${downloaded} photo${downloaded === 1 ? "" : "s"} downloaded, ${failed} couldn't be reached. See manifest.csv inside the zip.`);
+      } else {
+        toast.success?.(`Bundle ready — ${downloaded} photo${downloaded === 1 ? "" : "s"} 📸`);
+      }
+    } catch (err) {
+      toast.error?.("Photo bundle failed: " + (err?.message || err));
+    } finally {
+      setBusy(false);
+      setProgress(0);
+    }
+  };
+  return (
+    <div className="mt-6 rounded-3xl border-2 border-violet-200 bg-gradient-to-br from-violet-50 to-pink-50 p-4">
+      <div className="flex items-center gap-2 mb-1">
+        <ImageIcon size={18} className="text-violet-600" />
+        <div className="text-sm font-extrabold text-slate-800">Photo bundle</div>
+      </div>
+      <div className="text-[11px] text-slate-600 leading-snug mb-3">
+        Downloads every photo your family has uploaded across the whole app — proof shots, album memories, book covers, song covers, accomplishment files, gift photo proofs, profile avatars. Each lands in a sensibly named folder inside one .zip. A manifest.csv inside the zip ties each file back to the row it came from.
+      </div>
+      <div className="rounded-2xl bg-white border border-violet-100 p-3 mb-3 flex items-center justify-between">
+        <div className="text-sm">
+          <span className="font-extrabold text-slate-800 tabular-nums">{total}</span>
+          {" "}
+          <span className="text-slate-500">{total === 1 ? "photo" : "photos"} ready to bundle</span>
+        </div>
+        {busy && total > 0 && (
+          <div className="text-[12px] font-bold text-violet-700 tabular-nums">{progress} / {total}</div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={buildZip}
+        disabled={busy || total === 0}
+        className={`w-full py-3.5 rounded-2xl font-extrabold flex items-center justify-center gap-2 active:scale-95 transition ${
+          busy || total === 0
+            ? "bg-slate-200 text-slate-400"
+            : "bg-violet-600 text-white shadow"
+        }`}
+      >
+        <Download size={18} />
+        {busy ? `Bundling… (${progress} / ${total})` : (total === 0 ? "No photos to bundle yet" : "Download photo bundle (.zip)")}
+      </button>
+      <div className="text-[10px] text-slate-500 mt-2 leading-snug">
+        Large bundles may take a minute. The zip lands wherever your browser puts downloads.
+        On iPhone, expect a Save-to-Files prompt.
       </div>
     </div>
   );
