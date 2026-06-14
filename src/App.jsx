@@ -1787,11 +1787,17 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const _durationBackfillRef = React.useRef(false);
   useEffect(() => {
     if (_durationBackfillRef.current) return;
+    // Any song with a title but no duration is a candidate — we don't
+    // require prior iTunes matching. Reznor's Fade to Black / Toxicity
+    // were added via SongLogger before MusicLibrary ever mounted to
+    // auto-enrich them, so they had no externalSource. The earlier
+    // matchStatus gate skipped them entirely. Now we re-hit iTunes
+    // for anything missing duration, populate if a match comes back,
+    // leave null + matchStatus untouched if not.
     const stale = (songs || []).filter(
       (s) =>
         !Number.isFinite(s.durationMs)
-        && s.externalSource === "itunes"
-        && s.matchStatus && s.matchStatus !== "unmatched" && s.matchStatus !== "rejected"
+        && s.matchStatus !== "rejected"
         && (s.canonicalTitle || s.title)
     );
     if (stale.length === 0) return;
