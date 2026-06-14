@@ -9943,7 +9943,7 @@ function LanguagesPage({ displayLangs = ["en"], setDisplayLangs }) {
 }
 
 function PrivacySafety(props) {
-  const { familyId = "", users = [], sessionEmail = "", signOut, completions = [], albumPhotos = [], gifted = [], songPlays = [], setTab } = props;
+  const { familyId = "", users = [], sessionEmail = "", signOut, completions = [], albumPhotos = [], gifted = [], songPlays = [], setTab, setSub } = props;
   const fid = String(familyId || "");
   const familyShort = fid ? fid.slice(0, 8) + "…" + fid.slice(-4) : "—";
   const parents = users.filter((u) => u.role === "parent");
@@ -10007,9 +10007,13 @@ function PrivacySafety(props) {
       </Card>
 
       <SectionTitle icon={<Download size={16} className="text-emerald-500" />}>{i18nTOf("priv_sec_own_data", "Own your data")}</SectionTitle>
+      {/* These CTAs used to bounce the parent back to the More menu
+          root and require a second tap to find Export / Audit. Now
+          they navigate directly to the sub-page via setSub, the
+          same mechanism the More menu uses internally. */}
       <button
         type="button"
-        onClick={() => setTab?.("more")}
+        onClick={() => setSub ? setSub("export") : setTab?.("more")}
         className="w-full mb-2 active:scale-[0.98] transition"
       >
         <Card className="p-3 flex items-center gap-3 text-left">
@@ -10024,7 +10028,7 @@ function PrivacySafety(props) {
       </button>
       <button
         type="button"
-        onClick={() => setTab?.("more")}
+        onClick={() => setSub ? setSub("audit") : setTab?.("more")}
         className="w-full mb-3 active:scale-[0.98] transition"
       >
         <Card className="p-3 flex items-center gap-3 text-left">
@@ -10057,7 +10061,7 @@ function PrivacySafety(props) {
 
 function MoreParent(props) {
   const [sub, setSub] = useState("menu");
-  if (sub === "privacy") return <BackWrap title={i18nTOf("more_privacy", "Privacy & Safety")} onBack={() => setSub("menu")}><PrivacySafety {...props} /></BackWrap>;
+  if (sub === "privacy") return <BackWrap title={i18nTOf("more_privacy", "Privacy & Safety")} onBack={() => setSub("menu")}><PrivacySafety {...props} setSub={setSub} /></BackWrap>;
   if (sub === "audit") return <BackWrap title={i18nTOf("more_audit", "Data audit")} onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
