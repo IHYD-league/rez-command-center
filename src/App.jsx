@@ -4548,7 +4548,13 @@ function CompletionDetailSheet({
               // chips. Matches the polished look of the drums hero
               // without the song-plays join (those are drums-only).
               if (hasStatSchema(task) && !isDrumsRow && !isReadingRow && !isPhotoRow) {
-                const fields = task.statSchema.practice || [];
+                // Pick practice[] or game[] based on the completion's
+                // stored isGame flag. Plan B iter 3 ships the toggle
+                // in TaskSheet; this hero card reads the result.
+                const isGameRow = !!x.isGame;
+                const gameFields = Array.isArray(task.statSchema?.game) ? task.statSchema.game : [];
+                const practiceFields = Array.isArray(task.statSchema?.practice) ? task.statSchema.practice : [];
+                const fields = isGameRow && gameFields.length > 0 ? gameFields : practiceFields;
                 const numericFields = fields.filter((f) => f.type === "minutes" || f.type === "count");
                 const textFields = fields.filter((f) => f.type === "text");
                 const filledNumerics = numericFields.filter((f) => Number(x[f.key]) > 0);
@@ -4559,16 +4565,23 @@ function CompletionDetailSheet({
                 const minutesField = numericFields.find((f) => f.type === "minutes" && Number(x[f.key]) > 0);
                 const heroVal = minutesField ? Number(x[minutesField.key]) : Math.max(0, ...filledNumerics.map((f) => Number(x[f.key]) || 0));
                 const heroLabel = minutesField ? "min total" : (filledNumerics[0]?.label || "");
+                // Visual gear: game days get a warm amber/orange/rose
+                // gradient + 🏆 header so a parent can scan their kid's
+                // history at a glance and pick out game days.
+                const gradient = isGameRow
+                  ? "linear-gradient(135deg, #7f1d1d 0%, #c2410c 35%, #f59e0b 75%, #fde68a 100%)"
+                  : "linear-gradient(135deg, #4338ca 0%, #7c3aed 45%, #ec4899 100%)";
+                const headerLabel = isGameRow ? "🏆 Game day" : "📊 What he did";
                 return (
                   <div
                     className="rounded-3xl p-4 mb-2 text-white relative overflow-hidden border-2 border-white/15 shadow-xl"
-                    style={{ background: "linear-gradient(135deg, #4338ca 0%, #7c3aed 45%, #ec4899 100%)" }}
+                    style={{ background: gradient }}
                   >
                     <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "20%", top: "20%", color: "rgba(255,255,255,0.5)", fontSize: 12 }}>✦</span>
                     <span aria-hidden="true" className="absolute pointer-events-none" style={{ left: "78%", top: "26%", color: "rgba(255,255,255,0.4)", fontSize: 10 }}>✦</span>
                     <div className="relative">
                       <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-extrabold flex items-center gap-1.5 mb-2">
-                        📊 What he did
+                        {headerLabel}
                       </div>
                       {heroVal > 0 && (
                         <div className="flex items-baseline gap-2 mb-3">
@@ -5215,25 +5228,52 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   // has a stat_schema AND no proofType special case is active —
   // drums/reading/photo keep their existing polished branches.
   // Basketball / piano / soccer / etc. (no proofType set) hit this
-  // branch and render inputs straight from task.statSchema.practice.
+  // branch and render inputs straight from the task's schema.
   const useSchemaFields = hasStatSchema(task) && !isReading && !isDrums && !isPhoto;
-  const schemaFields = useSchemaFields ? (task.statSchema.practice || []) : [];
+  // Game-day mode (Plan B iter 3). A task whose template defines
+  // BOTH practice[] and game[] arrays can flip between them via a
+  // toggle in the submit sheet. Basketball / soccer / hockey have
+  // game variants; piano / guitar / singing don't (game[] absent).
+  const hasGameSchema = useSchemaFields
+    && Array.isArray(task.statSchema?.game)
+    && task.statSchema.game.length > 0;
+  const [isGame, setIsGame] = useState(() =>
+    useSchemaFields && existing?.extra?.isGame === true
+  );
+  // Active fields depend on the toggle. The two arrays often share
+  // keys (e.g. "minutes" on both practice + game) which is fine —
+  // the same value carries over when the toggle flips.
+  const schemaFields = useSchemaFields
+    ? (isGame && hasGameSchema ? task.statSchema.game : task.statSchema.practice) || []
+    : [];
+  // Seed values for EVERY key across both arrays so flipping the
+  // toggle mid-flow doesn't lose data the parent already typed in
+  // the other mode.
+  const allSchemaKeys = useSchemaFields
+    ? (() => {
+        const s = new Set();
+        for (const f of (task.statSchema.practice || [])) s.add(f.key);
+        for (const f of (task.statSchema.game || [])) s.add(f.key);
+        return Array.from(s);
+      })()
+    : [];
   const [schemaValues, setSchemaValues] = useState(() => {
     const seed = {};
     if (!useSchemaFields) return seed;
-    for (const f of schemaFields) {
-      const v = existing?.extra?.[f.key];
-      seed[f.key] = v === undefined || v === null ? "" : String(v);
+    for (const k of allSchemaKeys) {
+      const v = existing?.extra?.[k];
+      seed[k] = v === undefined || v === null ? "" : String(v);
     }
     return seed;
   });
   const setSchemaField = (key, value) => setSchemaValues((prev) => ({ ...prev, [key]: value }));
-  // Pack the schema values into extra. Numbers (minutes/count) are
-  // coerced; text stays string. Empty strings are stripped so the
-  // row's extra stays clean instead of carrying "" for every blank.
+  // Pack the schema values into extra. Only the active fields'
+  // values get written so practice extras don't bleed into a game
+  // row (and vice-versa). isGame is stamped so the Stats hero card
+  // knows which schema to render later.
   const schemaExtra = () => {
     if (!useSchemaFields) return {};
-    const out = {};
+    const out = { isGame: !!isGame };
     for (const f of schemaFields) {
       const raw = schemaValues[f.key];
       if (raw === undefined || raw === "") continue;
@@ -5585,10 +5625,29 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                 proofType special case. Drums / reading / photo
                 tasks keep their existing polished UI below. */}
             {useSchemaFields && schemaFields.length > 0 && (
-              <div className="rounded-2xl bg-gradient-to-br from-indigo-50 via-violet-50 to-pink-50 border border-indigo-100 p-3">
-                <div className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-700 mb-2 flex items-center gap-1">
-                  📊 Stats
+              <div className={`rounded-2xl border p-3 ${isGame ? "bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 border-amber-200" : "bg-gradient-to-br from-indigo-50 via-violet-50 to-pink-50 border-indigo-100"}`}>
+                <div className={`text-[10px] uppercase tracking-widest font-extrabold mb-2 flex items-center gap-1 ${isGame ? "text-amber-700" : "text-indigo-700"}`}>
+                  {isGame ? "🏆 Game stats" : "📊 Practice stats"}
                 </div>
+                {hasGameSchema && (
+                  <button
+                    type="button"
+                    onClick={() => setIsGame((v) => !v)}
+                    className={`w-full flex items-center justify-between rounded-xl border-2 p-2.5 mb-3 active:scale-[0.99] transition ${isGame ? "bg-amber-100 border-amber-300" : "bg-white border-slate-200"}`}
+                  >
+                    <div className="text-left">
+                      <div className="text-[11px] font-extrabold text-slate-800 flex items-center gap-1.5">
+                        🏆 Game day?
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        {isGame ? "Logging game stats (points, assists, etc.)" : "Tap to log a game instead of practice"}
+                      </div>
+                    </div>
+                    <span className={`w-10 h-6 rounded-full p-0.5 transition shrink-0 ${isGame ? "bg-amber-500" : "bg-slate-300"}`}>
+                      <span className={`block w-5 h-5 bg-white rounded-full transition ${isGame ? "translate-x-4" : ""}`} />
+                    </span>
+                  </button>
+                )}
                 <div className="space-y-2">
                   {schemaFields.map((f) => {
                     const v = schemaValues[f.key] ?? "";
