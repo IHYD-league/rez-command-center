@@ -11141,7 +11141,7 @@ function PendingRequestRow({ req, onApprove, onDeny }) {
       <div className="mt-2"><Field label="Relationship (optional)"><input value={relationship} onChange={(e) => setRelationship(e.target.value)} placeholder="Aunt, sitter, friend…" className="ppl-input" /></Field></div>
       <div className="mt-3 text-xs font-semibold text-slate-500 mb-1">Role</div>
       <div className="grid grid-cols-2 gap-2">
-        {[["helper", "Helper / Sitter"], ["grandparent", "Grandparent"], ["guest", "Guest (temporary)"], ["parent", "Parent admin"]].map(([k, l]) => (
+        {[["kid", "Kid"], ["helper", "Helper / Sitter"], ["grandparent", "Grandparent"], ["guest", "Guest (temporary)"], ["parent", "Parent admin"]].map(([k, l]) => (
           <button key={k} type="button" onClick={() => { setRole(k); if (k === "guest") setTemp(true); }} className={`py-2 rounded-xl text-xs font-semibold ${role === k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>
         ))}
       </div>
@@ -11267,12 +11267,12 @@ function AddPersonForm({ onCancel, onAdd }) {
   const [expires, setExpires] = useState("2026-06-13");
   const [approveSimple, setApproveSimple] = useState(false);
   const emojis = ["🙂", "🧡", "🧩", "👵", "👴", "🧑", "👩", "👨", "⭐", "🦖"];
-  const colors = { parent: "#2563eb", grandparent: "#7c3aed", helper: "#0d9488", guest: "#64748b" };
+  const colors = { parent: "#2563eb", grandparent: "#7c3aed", helper: "#0d9488", guest: "#64748b", kid: "#f59e0b" };
   const emailOk = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const ready = name.trim().length > 0 && emailOk;
   const submit = () => onAdd({
     name: name.trim(),
-    relationship: relationship.trim() || (role === "guest" ? "Guest sitter" : role === "grandparent" ? "Grandparent" : "Helper"),
+    relationship: relationship.trim() || (role === "guest" ? "Guest sitter" : role === "grandparent" ? "Grandparent" : role === "kid" ? "Kid" : "Helper"),
     role, emoji, color: colors[role] || "#64748b", active: true,
     email: email.trim().toLowerCase() || null,
     accessType: temp ? "temporary" : "permanent",
@@ -11292,7 +11292,7 @@ function AddPersonForm({ onCancel, onAdd }) {
 
       <div className="mt-3 text-xs font-semibold text-slate-500 mb-1">Role</div>
       <div className="grid grid-cols-2 gap-2">
-        {[["helper", "Helper / Sitter"], ["grandparent", "Grandparent"], ["guest", "Guest (temporary)"], ["parent", "Parent admin"]].map(([k, l]) => (
+        {[["kid", "Kid"], ["helper", "Helper / Sitter"], ["grandparent", "Grandparent"], ["guest", "Guest (temporary)"], ["parent", "Parent admin"]].map(([k, l]) => (
           <button key={k} onClick={() => { setRole(k); if (k === "guest") setTemp(true); }} className={`py-2 rounded-xl text-xs font-semibold ${role === k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{l}</button>
         ))}
       </div>
