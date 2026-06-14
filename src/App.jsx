@@ -367,7 +367,7 @@ const SEED_ACTIVITIES = [
   { id: "a_field", name: "Field Trips",               short: "Trip",    color: "#0ea5e9", pillar: "brain", status: "seasonal", note: "Activate when there's actually a trip on the calendar", schedule: [] },
   { id: "a_chores",name: "Chores",                    short: "Chores",  color: "#64748b", pillar: "body",  status: "active",   note: "", schedule: [] },
   { id: "a_swim",  name: "Swim (Rose Bowl Aquatics)", short: "Swim",    color: "#0891b2", pillar: "body",  status: "active",   note: "Off in August — use Jim Herrick lessons instead", address: "Rose Bowl Aquatics, 360 N Arroyo Blvd, Pasadena, CA 91103", schedule: [{ day: "Tuesday", time: "5:00–6:00 PM" }, { day: "Thursday", time: "5:00–6:00 PM" }] },
-  { id: "a_tkd",   name: "Taekwondo",                 short: "TKD",     color: "#dc2626", pillar: "body",  status: "active",   note: "Pick ~2 days/week (any day but Sunday)", address: "", schedule: [] },
+  { id: "a_tkd",   name: "Taekwondo",                 short: "TKD",     color: "#dc2626", pillar: "body",  status: "active",   note: "Pick ~2 days/week (any day but Sunday)", address: "", schedule: [], weeklySchedule: true, weeklyTarget: 2 },
   { id: "a_dance", name: "Hip Hop Dance",             short: "Dance",   color: "#db2777", pillar: "body",  status: "active",   note: "", address: "", schedule: [{ day: "Monday", time: "5:30–6:30 PM" }] },
   { id: "a_bball", name: "Basketball",                short: "Ball",    color: "#65a30d", pillar: "body",  status: "break",    note: "Taking a break for now", schedule: [{ day: "Saturday", time: "TBD" }] },
   { id: "a_move",  name: "Movement",                  short: "Move",    color: "#16a34a", pillar: "body",  status: "active",   note: "", schedule: [] },
@@ -715,6 +715,19 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     "tkdTimes",
     Object.fromEntries(TKD_SLOTS.map((s) => [s.day, s.time]))
   );
+  // Generic weekly schedules — any activity that opts in (via
+  // a.weeklySchedule === true) gets a per-week day picker on the
+  // Calendar. Mike's framing: "When Basketball does come back in
+  // the rotation. It's only 2 months at a time and each new season
+  // has different practice days. We need the flexibility to add
+  // these when needed and to hide when they aren't active."
+  //   weeklyActivityDays: { a_basketball: ["Tuesday","Thursday"] }
+  //   weeklyActivityTimes: { a_basketball: { Tuesday: "5pm" } }
+  // Backwards-compat: the existing tkdDays / tkdTimes settings stay
+  // the canonical source for a_tkd until a parent uses the generic
+  // picker on Taekwondo; then the migration below merges them.
+  const [weeklyActivityDays, setWeeklyActivityDays] = familySetting("weeklyActivityDays", {});
+  const [weeklyActivityTimes, setWeeklyActivityTimes] = familySetting("weeklyActivityTimes", {});
   const [taskNotes, setTaskNotes] = familySetting("taskNotes", SEED_TASK_NOTES);
   const [subProgress, setSubProgress] = familySetting("subProgress", {});
   // Board theme — parent picks; one theme per family because the board
@@ -812,12 +825,25 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     // Calendar TKD pick: today's weekday is in tkdDays → pin the
     // Taekwondo task even if its mode/days say otherwise.
     if (Array.isArray(tkdDays) && tkdDays.includes(WEEKDAY)) set.add("t_tkd");
+    // Generic weekly-schedule picks. For any activity opted into the
+    // per-week picker, if today's weekday is in its day list, pin
+    // every active task that belongs to that activity. Covers
+    // basketball / swim / drums when seasons rotate.
+    if (weeklyActivityDays && typeof weeklyActivityDays === "object") {
+      for (const [actId, dayList] of Object.entries(weeklyActivityDays)) {
+        if (!Array.isArray(dayList) || !dayList.includes(WEEKDAY)) continue;
+        for (const t of tasks) {
+          if (t.active === false) continue;
+          if (t.activityId === actId) set.add(t.id);
+        }
+      }
+    }
     // Generic per-date bonus pins (Phase 2). Mike's add-to-today
     // picker writes here.
     const bonus = pinnedBonus?.[TODAY_ISO];
     if (Array.isArray(bonus)) bonus.forEach((id) => set.add(id));
     return set;
-  }, [topPriorities, tkdDays, pinnedBonus]);
+  }, [topPriorities, tkdDays, weeklyActivityDays, tasks, pinnedBonus]);
 
   const todaysTasks = useMemo(() => {
     const naSet = new Set(taskNaDays?.[TODAY_ISO] || []);
@@ -1477,6 +1503,33 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }));
   const toggleTkdDay = (day) => setTkdDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   const setTkdTime = (day, time) => setTkdTimes((prev) => ({ ...prev, [day]: time }));
+  // Generic toggles — basketball / swim / any activity with
+  // weeklySchedule=true uses these. Writes a per-activity entry in
+  // the weeklyActivityDays / Times settings. Removing the last day
+  // for an activity drops the key entirely to keep the JSON tidy.
+  const toggleWeeklyDay = (activityId, day) => {
+    setWeeklyActivityDays((prev) => {
+      const list = (prev?.[activityId] || []).slice();
+      const i = list.indexOf(day);
+      if (i >= 0) list.splice(i, 1);
+      else list.push(day);
+      const next = { ...(prev || {}) };
+      if (list.length === 0) delete next[activityId];
+      else next[activityId] = list;
+      return next;
+    });
+  };
+  const setWeeklyDayTime = (activityId, day, time) => {
+    setWeeklyActivityTimes((prev) => {
+      const byDay = { ...((prev?.[activityId]) || {}) };
+      if (time) byDay[day] = time;
+      else delete byDay[day];
+      const next = { ...(prev || {}) };
+      if (Object.keys(byDay).length === 0) delete next[activityId];
+      else next[activityId] = byDay;
+      return next;
+    });
+  };
   const addTask = (t) => setTasks((prev) => [...prev, t]);
   const updateTask = (id, patch) => setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   const removeTask = (id) => setTasks((prev) => prev.filter((t) => t.id !== id));
@@ -1825,7 +1878,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const shared = {
     user, users, tasks, todaysTasks, todaysTopEight, todaysNATasks, topPriorities, setDailyTopEight, resetDailyTopEight, setWeeklyTopEight, taskNaDays, markTaskNA, restoreTaskFromNA, pinnedBonus, pinTaskToToday, unpinTaskFromToday, todayOrder, setTodayOrder, songPlayRequests, requestSongPlayChange, decideSongPlayRequest, libraryOrder, setLibraryOrder, currentPrefs, setPref, langs, displayLangs, setDisplayLangs, rewards, completions, compByTask, events, handoff, redemptions,
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
-    priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
+    priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, weeklyActivityDays, weeklyActivityTimes, toggleWeeklyDay, setWeeklyDayTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
     submitTask, saveDraft, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest, removeRewardRequest,
     openCompletionId, setOpenCompletionId, updateCompletion, addCompletionPhoto, removeCompletionPhoto,
@@ -8061,45 +8114,107 @@ function RewardEditRow({ r, updateReward, removeReward }) {
 }
 
 // ===================== PARENT: CALENDAR =====================
-function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, activities, users = [] }) {
+function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, weeklyActivityDays = {}, weeklyActivityTimes = {}, toggleWeeklyDay, setWeeklyDayTime, activities, users = [] }) {
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("2026-06-12");
   const sorted = [...events].sort((a, b) => a.date.localeCompare(b.date));
   const catColor = { School: "bg-sky-100 text-sky-700", Activity: "bg-emerald-100 text-emerald-700", "Field Trip": "bg-amber-100 text-amber-700" };
-  const tkdAct = activities.find((a) => a.id === "a_tkd");
-  // Build the weekly grid from scheduled activities (status-aware) + this week's Taekwondo picks
+  // Active activities that opted into the per-week day picker. Mike:
+  // "We should be able to add another activity like Swim, Basketball,
+  // Drums for when those do have days they change. … flexibility to
+  // add these when needed and to hide them when they aren't needed."
+  // Status-aware: paused / archived activities drop out automatically.
+  const weeklyActivities = activities.filter((a) => a.weeklySchedule && a.status === "active");
+  // Per-activity day lookup that respects legacy tkdDays / tkdTimes
+  // for a_tkd. If the parent never touched the new generic picker for
+  // Taekwondo, we read the original familySettings; otherwise the
+  // generic state wins so flipping a new day in either UI is the
+  // canonical source.
+  const daysFor = (a) => {
+    if (Array.isArray(weeklyActivityDays?.[a.id])) return weeklyActivityDays[a.id];
+    if (a.id === "a_tkd") return tkdDays || [];
+    return [];
+  };
+  const timesFor = (a) => {
+    if (weeklyActivityTimes?.[a.id]) return weeklyActivityTimes[a.id];
+    if (a.id === "a_tkd") return tkdTimes || {};
+    return {};
+  };
+  const toggleDayFor = (a, day) => {
+    // For a_tkd, write to BOTH the new generic state AND the legacy
+    // tkdDays so the rest of the app (pinnedToday, treasure streak)
+    // sees the same picks until everything's migrated.
+    if (a.id === "a_tkd" && toggleTkdDay) toggleTkdDay(day);
+    if (toggleWeeklyDay) toggleWeeklyDay(a.id, day);
+  };
+  const setTimeFor = (a, day, t) => {
+    if (a.id === "a_tkd" && setTkdTime) setTkdTime(day, t);
+    if (setWeeklyDayTime) setWeeklyDayTime(a.id, day, t);
+  };
+  // Build the weekly grid: scheduled fixed-day items + every weekly-
+  // schedule activity's per-week picks.
   const weekly = DAYS.map((day) => {
     const items = [];
     activities.forEach((a) => (a.schedule || []).forEach((s) => { if (s.day === day) items.push({ name: a.short || a.name, time: s.time, color: a.color, status: a.status, note: a.note }); }));
-    if (tkdDays.includes(day)) items.push({ name: "Taekwondo", time: tkdTimes[day] || "set a time", color: tkdAct?.color || "#dc2626", tkd: true, status: tkdAct?.status });
+    for (const a of weeklyActivities) {
+      if (daysFor(a).includes(day)) {
+        items.push({ name: a.short || a.name, time: timesFor(a)[day] || "set a time", color: a.color, weeklyPicked: true, status: a.status });
+      }
+    }
     return { day, items };
   });
-  const need = Math.max(0, TKD_TARGET - tkdDays.length);
   const statusTag = { break: i18nTOf("cal_status_break", "on break"), seasonal: i18nTOf("cal_status_seasonal", "seasonal") };
   return (
     <div className="px-4 pt-4">
       <h2 className="font-extrabold text-lg px-1">{i18nTOf("cal_heading", "Calendar")}</h2>
       <Card className="p-3 mt-2 bg-amber-50 border-amber-100 flex items-center gap-2 text-sm text-amber-800"><Sun size={16} /> {i18nTOf("cal_summer_banner", "Summer Mode: June 11 – Sept 1, 2026. School starts back ~Sept 1.")}</Card>
 
-      <SectionTitle icon={<Heart size={16} className="text-violet-500" />} right={<span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${tkdDays.length >= TKD_TARGET ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{i18nTOf("cal_tkd_picked", "{n} of {target} picked").replaceAll("{n}", tkdDays.length).replaceAll("{target}", TKD_TARGET)}</span>}>{i18nTOf("cal_tkd_section", "Taekwondo this week")}</SectionTitle>
-      <Card className="p-3 mb-1">
-        <div className="text-[11px] text-slate-400 mb-2">{i18nTOf("cal_tkd_hint", "Available any day except Sunday. Tap the days he'll go this week and set the time.")}</div>
-        {TKD_SLOTS.map((s) => {
-          const on = tkdDays.includes(s.day);
-          return (
-            <div key={s.day} className={`flex items-center gap-2 px-2 py-1.5 rounded-xl mb-1 ${on ? "bg-violet-50" : ""}`}>
-              <button onClick={() => toggleTkdDay(s.day)} className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${on ? "bg-violet-600 text-white" : "border-2 border-slate-200 text-transparent"}`}><Check size={15} /></button>
-              <div className="w-24 text-sm font-semibold text-slate-600 shrink-0">{s.day}</div>
-              {on
-                ? <input value={tkdTimes[s.day] || ""} onChange={(e) => setTkdTime(s.day, e.target.value)} placeholder={i18nTOf("cal_tkd_set_time", "set time")} className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-xs" />
-                : <div className="flex-1 text-xs text-slate-400">{s.time || i18nTOf("cal_tkd_time_flexible", "time flexible")}</div>}
-            </div>
-          );
-        })}
-        {need > 0
-          ? <div className="text-[11px] font-semibold text-amber-600 mt-1">{i18nTOf("cal_tkd_pick_more", "Pick {n} more to hit the 2×/week goal.").replaceAll("{n}", need)}</div>
-          : <div className="text-[11px] font-semibold text-emerald-600 mt-1">{i18nTOf("cal_tkd_on_track", "Nice — on track for the week. 🥋")}</div>}
-      </Card>
+      {/* One section per activity that opted into weeklySchedule. */}
+      {weeklyActivities.map((a) => {
+        const picked = daysFor(a);
+        const times = timesFor(a);
+        const target = Number(a.weeklyTarget) || 0;
+        const need = target > 0 ? Math.max(0, target - picked.length) : 0;
+        return (
+          <div key={a.id}>
+            <SectionTitle
+              icon={<span className="w-3 h-3 rounded-full" style={{ background: a.color || "#64748b" }} />}
+              right={target > 0 && (
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${picked.length >= target ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                  {picked.length} of {target} picked
+                </span>
+              )}
+            >
+              {a.name} this week
+            </SectionTitle>
+            <Card className="p-3 mb-1">
+              <div className="text-[11px] text-slate-400 mb-2">
+                Tap the days he'll go this week and set the time. Toggle the activity off under More → Activities when the season ends.
+              </div>
+              {TKD_SLOTS.map((s) => {
+                const on = picked.includes(s.day);
+                return (
+                  <div key={s.day} className={`flex items-center gap-2 px-2 py-1.5 rounded-xl mb-1 ${on ? "bg-violet-50" : ""}`}>
+                    <button onClick={() => toggleDayFor(a, s.day)} className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${on ? "text-white" : "border-2 border-slate-200 text-transparent"}`} style={on ? { background: a.color || "#7c3aed" } : undefined}><Check size={15} /></button>
+                    <div className="w-24 text-sm font-semibold text-slate-600 shrink-0">{s.day}</div>
+                    {on
+                      ? <input value={times[s.day] || ""} onChange={(e) => setTimeFor(a, s.day, e.target.value)} placeholder={i18nTOf("cal_tkd_set_time", "set time")} className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-xs" />
+                      : <div className="flex-1 text-xs text-slate-400">{i18nTOf("cal_tkd_time_flexible", "time flexible")}</div>}
+                  </div>
+                );
+              })}
+              {target > 0 && (need > 0
+                ? <div className="text-[11px] font-semibold text-amber-600 mt-1">Pick {need} more to hit the {target}×/week goal.</div>
+                : <div className="text-[11px] font-semibold text-emerald-600 mt-1">Nice — on track for the week.</div>)}
+            </Card>
+          </div>
+        );
+      })}
+      {weeklyActivities.length === 0 && (
+        <Card className="p-3 mt-2 text-[12px] text-slate-500">
+          No weekly-schedule activities yet. Turn one on under More → Activities → tap an activity → enable "Weekly schedule" for seasonal sports like Basketball or Swim.
+        </Card>
+      )}
 
       <SectionTitle icon={<Clock size={16} className="text-teal-500" />}>{i18nTOf("cal_kids_week", "{kid}'s week").replaceAll("{kid}", kidName(users))}</SectionTitle>
       <Card className="p-1 mb-1">
@@ -8116,7 +8231,7 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: it.color }} />
                       <span className="text-slate-600">{it.name}</span>
                       <span className="text-slate-400">· {it.time}</span>
-                      {it.tkd && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600">{i18nTOf("cal_this_week_tag", "this week")}</span>}
+                      {it.weeklyPicked && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600">{i18nTOf("cal_this_week_tag", "this week")}</span>}
                       {paused && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-500">{statusTag[it.status]}</span>}
                     </div>
                   );
@@ -11179,6 +11294,18 @@ function ActivityRow({ a, onUpdate, streaks, setStreak, stopStreak, bumpStreak, 
           <button onClick={() => setEditColor((v) => !v)} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 flex items-center gap-1"><Palette size={12} /> Color</button>
           <button onClick={() => setOpenStreak((v) => !v)} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-orange-100 text-orange-600 flex items-center gap-1"><Flame size={12} /> {st ? `Streak ${st.current}d` : "Track streak"}</button>
           {onProgress && <button onClick={() => onProgress(a.id)} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-600 flex items-center gap-1"><CalIcon size={12} /> Progress</button>}
+          {/* Weekly schedule toggle — when on, the Calendar surfaces
+              a per-week day picker for this activity (basketball
+              / swim / etc.). Days carry into todaysTasks via the
+              pinnedToday bypass so a Tuesday basketball pick lands
+              in today's to-do automatically. */}
+          <button
+            onClick={() => onUpdate(a.id, { weeklySchedule: !a.weeklySchedule })}
+            className={`text-[11px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1 ${a.weeklySchedule ? "bg-violet-600 text-white" : "bg-violet-50 text-violet-700"}`}
+            title="When on, parent picks specific days each week on the Calendar"
+          >
+            🗓️ {a.weeklySchedule ? "Weekly schedule on" : "Weekly schedule"}
+          </button>
         </div>
         {editColor && <div className="flex flex-wrap gap-1.5 mt-2">{ACT_PALETTE.map((c) => <button key={c} onClick={() => { onUpdate(a.id, { color: c }); setEditColor(false); }} className="w-7 h-7 rounded-lg" style={{ background: c, outline: a.color === c ? "2px solid #1e293b" : "none", outlineOffset: "1px" }} />)}</div>}
         {openStreak && (st ? (
