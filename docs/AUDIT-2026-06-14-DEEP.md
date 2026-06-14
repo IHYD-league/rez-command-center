@@ -117,9 +117,101 @@ After that the per-family activity catalog, achievement decoupling, and kid-name
 
 ---
 
-## Pending — not yet audited
+## 3. UX consistency vs memory rules
 
-- **UX consistency vs memory rules** — interrupted before report. Would cover every rule in `MEMORY.md` (kids-never-delete violations, i18n `replace` vs `replaceAll`, capture attr, t-helper shadowing, etc.). Worth re-running.
-- **Code health + maintainability** — interrupted. Would cover the 9000-line `App.jsx` monolith, dead code, dup patterns, stale TODOs, bundle size. Worth re-running.
+### Holding up everywhere (0 violations)
+- `capture="environment"` ban — 0 hits across 17 file inputs in `src/`
+- i18n `.replace("{X}", …)` — 0 hits; 74 sites correctly use `.replaceAll`
+- Bare `Map` / `Image` in App.jsx — 0 unaliased JSX uses; all `new Map()` are intentional
+- Conditional column spreads in `toDb` mappers — 0 hits of `...(o.` in `src/data/transform.js`
+- Status vocab vs DB constraint — `transform.js:397` normalizes `denied` → `declined` for `reward_requests`; DreamPlan renders both as the same "Not this time" pill so legacy rows stay readable
+- Cover vs proof photo separation — `customCoverPath` cleanly separated from `completion.proof[]`; "Also use as cover" checkbox at `App.jsx:5513` writes the file path to both
+- Uploads auto-save a draft — `App.jsx:5441` (`handleFile` calls `persistDraft(nextPhotos)`) and `:5455` (`removePhotoAt` also calls `persistDraft`)
 
-Both are 5-minute relaunches if Mike wants the full picture before acting.
+### 🔴 Active violations
+
+| Rule | File:Line | Evidence |
+|---|---|---|
+| No dev placeholder copy | `src/App.jsx:373` | `note: "Taking a break for now"` + `time: "TBD"` — Basketball activity row, rendered in the activities list |
+| No dev placeholder copy | `src/App.jsx:9560` | `…(TODO real-build: cloud storage so files & photos live beyond this session and sync across devices.)` — rendered to a `<div>` in Activities |
+| No dev placeholder copy | `src/App.jsx:10993` | `<p>Lightweight for now — expand into real standards later.</p>` — visible JSX |
+| No dev placeholder copy | `src/App.jsx:10995` | `<div>TODO: grade-band standards, evidence uploads per goal.</div>` — visible JSX |
+| No dev placeholder copy | `src/App.jsx:11681` | `…Iteration 2 wires the submit sheet + stats hero to this schema. For now it's set as metadata.` — visible string under the priority editor |
+| Don't shadow `t` helper | `src/PhotoGallery.jsx:372` | `const t = (tasks \|\| []).find((x) => x.id === c.taskId);` — module-level `t = (k,fb) => tOf(...)` is at line 6. No `t("…")` call inside this scope today, but the shadow exists (latent — one new i18n call away from the "C is not a function" crash) |
+| **Kids never delete** | `src/App.jsx:5078–5089` (DreamPlan) | Kid "Got it!" button fires `removeRewardRequest(w.id)` for an approved wish row. Comment self-justifies as non-destructive — but a kid is firing a DB row removal. Per the strict rule, route via Approvals queue or parent-only. |
+
+### 🟡 Drift to watch
+- `KidGameHome.jsx:151, 372, 500` — three `const t = setTimeout(...)` / `const t = Math.min(...)` shadows inside short useEffect closures with no `t("…")` calls *yet*. No active bug, but every one is a future trap.
+- `App.jsx:5450` `removePhotoAt` — TaskSheet receives `role` but `removePhotoAt` runs regardless. Removing a draft photo isn't auditable data loss, but the surface is kid-reachable; either gate to parent or convert to a request when `role === "kid"`.
+- `App.jsx:40-44` header comment — `REZNOR COMMAND CENTER — MVP PROTOTYPE` / `TODO(real-build)` not user-visible but worth refreshing before multi-family.
+
+### 🛠 Lint candidates (ordered by ROI)
+1. `capture="environment"` ban — `! grep -rnE 'capture\s*=\s*"environment"' src/` — zero false positives.
+2. i18n placeholder must use `.replaceAll` — `! grep -rnE '\.replace\("\{' src/` — zero false positives.
+3. No placeholder copy in JSX — coarser regex but would have caught all 5 active violations.
+4. **Bonus:** ESLint custom rule for files with `const t = (k, fb) => tOf` that flags any subsequent `const t =` / `let t =` declaration. Would catch the PhotoGallery shadow + the three KidGameHome latent shadows automatically.
+
+---
+
+## 4. Code health + maintainability
+
+### Holding up
+- **Lib layer is well-shaped.** `src/lib/{sheet,toast,lightbox,giftEditor,juice,starBurst,levelUp}.js` are tight subscribe-pattern singletons. `i18n.js`, `statTemplates.js`, `storage.js`, `libraryOrder.js`, `albumCover.js`, `dataAudit.js` are decoupled and reused by leaf screens.
+- **Sub-screens are already modularized.** `BoardGame.jsx`, `MusicLibrary.jsx`, `Insights.jsx`, `PhotoGallery.jsx`, `KidGameHome.jsx`, `MilestoneSlideshow.jsx`, `CustomizationHub.jsx`, `DataExport.jsx` are clean leaves with no circular refs.
+- **Migrations mostly idempotent.** 26/30 use `if (not) exists` / `drop policy if exists`. Re-running is safe.
+- **Effect cleanup balances.** Every `addEventListener` in App.jsx pairs with `removeEventListener`; every `setTimeout` in effects clears. No obvious leaks.
+
+### 🟡 Erosion in progress (ranked by pain)
+1. **`src/App.jsx` is 11,994 lines, 100 top-level components, 214 `useState` calls** — 47% of the entire source tree.
+2. **Inline `byId` map building duplicated ≥5 times** — `App.jsx:4671, 5887, 6229, 6699, 6903` all build `Object.fromEntries(list.map((x) => [x.id, x]))`. Plus 99 linear `.find((x) => x.id === id)` calls in App.jsx alone.
+3. **9 inline `toLocaleDateString("en-US")` sites bypass the existing `fmtShort` / `fmtDate` / `fmtDateObj` helpers** — `App.jsx:3839, 4032, 4819, 6143, 8379, 9802, 9811, 10786, 11122`. Ignores i18n lang prefs the rest of the app respects.
+4. **Stale prototype banner** at `App.jsx:40-44`.
+5. **Painted-asset placeholder comments** at `App.jsx:2999, 3024, 3071, 3127` reference `/public/art/login-bg.png`, `/art/profile-frame.png` — `public/art/` doesn't exist. Ship or remove.
+6. **Dead lucide imports** — `Crown` and `Sun` imported at `App.jsx:5` but `<Crown` / `<Sun` appear zero times in JSX. Bundle tree-shakes them but they're import noise.
+
+### 🔴 Active hazards
+- **Zero tests.** No `.test.*`, no `.spec.*`, no `vitest.config`. The "PostgREST batch column normalization" + "match status vocab to DB constraint" + "i18n placeholders need replaceAll" memory items are all bugs that bit production once. Each is a unit-testable pure function.
+- **Two `eslint-disable react-hooks/exhaustive-deps` escape hatches** — `App.jsx:1718`. Correct here but worth a `// reason:` comment.
+
+### 🛠 Top 5 refactors that would pay (ROI ranked)
+
+| # | Branch | Scope | Approx LOC out of App.jsx |
+|---|---|---|---|
+| 1 | `refactor/extract-parent-screens` | Move `CalendarView` (8241-8395), `ReadingLibrary` + `BookGridTile` + `BookShelfTile` + `BookRow` + `BookEditPanel` + `AddBookForm` + `AddBacklogBookForm` (8513-9473), `Accomplishments` + `AddAwardForm` (9522-9608), and `People` + `PendingRequestRow` + `AccessEditor` + `EmailEditor` + `AddPersonForm` (11001-11330) into `src/parent/*.jsx`. Each is a leaf — props in, callbacks out, no shared-state surgery. | ~2,200 |
+| 2 | `refactor/extract-completion-detail-sheet` | `CompletionDetailSheet` (4404-4901) + `CompletionPhotoTile` + `PhotoThumbnail` + `formatHistoryValue` + `StatRow` → `src/sheets/CompletionDetailSheet.jsx`. Already uses `useBottomSheet`. | ~500 |
+| 3 | `refactor/extract-task-management` | `ManageActivities` (11332-11513) + `ManageTasks` (11515-11733) → `src/parent/Manage.jsx`. | ~400 |
+| 4 | `feat/byid-and-format-helpers` | `src/lib/collections.js` with `byId(list)`; `src/lib/formatDate.js` with `fmtRelative/fmtFull/fmtTime(at, langs)`. Replace 5 inline `byId` sites + 9 inline `toLocaleDateString` sites. | ~200 consolidated |
+| 5 | `chore/strip-dev-placeholder-copy` | Delete the prototype header comment (40-45); rewrite the two user-visible TODOs (9560, 10995); drop painted-asset placeholder comments (2999/3024/3071/3127); drop dead `Crown` + `Sun` imports. | ~20-min job; eliminates embarrassing strings before second-family rollout |
+
+### 📦 Bundle take
+1.18 MB raw → **329 KB gzip**, single chunk. For a parent-facing PWA on cellular that's the threshold where code-splitting starts to matter but isn't urgent. The biggest single win: **route-split `DataExport.jsx` (jszip is ~880 KB on disk and only used in one screen most parents will never open)** via `const DataExport = lazy(() => import('./DataExport.jsx'))`. Same for `MilestoneSlideshow.jsx` and `BoardGame.jsx`. Should cut the initial bundle 20-30%. lucide-react is already tree-shaken. Pair the split with the App.jsx extraction PR (refactor #1) — chunk boundaries follow module boundaries, so one rebase buys both wins.
+
+### Test coverage = zero
+Recommended first three units, ranked by past-incident value:
+1. `toDb` / `toApp` in `src/data/transform.js` — column-normalization + status-vocab bugs from memory all live here.
+2. `tt` / `taskTitle` / `tOf` placeholder substitution in `src/lib/i18n.js` — the `replaceAll` bug ships easily and is invisible until a second `{X}` appears.
+3. `runDataAudit` in `src/lib/dataAudit.js` — pure function, fans into every audit signal, easy table-driven tests.
+
+---
+
+## Updated synthesis (all four axes in)
+
+Critical-blocking finding (broken migration) still dominates priority. After that, the four axes corroborate each other on a few themes:
+
+- **Dev placeholder copy is the single most embarrassing leak** — both UX-rules and code-health axes flagged the same 4-5 sites independently (`App.jsx:373, 9560, 10993, 10995, 11681`). One short PR removes them all and unlocks the multi-family vibe-check.
+- **App.jsx monolith is *the* maintainability tax** — refactors 1-3 above pull ~3,100 lines out into clean leaves with no shared-state surgery. Best done before the multi-family bug-flood.
+- **Within-family actor forgery + audit gaps** (trust axis) and **kids-never-delete violation in DreamPlan "Got it!"** (UX axis) both point at the same underlying issue: most non-`completions` mutation handlers ship without trigger-side enforcement or history. A single `chore/audit-trail-sweep` PR can address both.
+- **Zero tests** is the silent multiplier — every past production incident is a unit test waiting to be written.
+
+### Suggested launch sequence (consolidated)
+
+1. **🚨 `fix/gifted-soft-delete-column-name`** — single-line migration fix, blocking
+2. **`chore/strip-dev-placeholder-copy`** — 20-minute removal of 5 visible TODOs / "for now" / placeholder strings; corroborated by both UX-rules and code-health axes
+3. **`fix/multi-family-signup-path`** — invite codes + "Create a family" branch in Login
+4. **`fix/purge-seed-fallbacks`** — empty-state wizard, no Lynch ghost-writes
+5. **`fix/actor-identity-trigger-scope`** — generalize the trigger to `gifted_stars`, `redemptions`, `reward_requests`, `song_plays`
+6. **`fix/destructive-audit-sweep`** — `removeAward`/`removeBook`/`removeSong`/`updateUser`/etc gain history; cover/avatar replaces gain GC; DreamPlan "Got it!" routes through Approvals
+7. **`refactor/extract-parent-screens` + `feat/byid-and-format-helpers`** — pull ~2,400 LOC out of App.jsx and add the two missing helper modules
+8. **`feat/test-scaffolding`** — vitest config + the three highest-value test files (transform, i18n, dataAudit)
+
+Steps 1-2 ship today. Steps 3-6 are the multi-family launch gate. Steps 7-8 are the sustainability investment that unlocks faster iteration after launch.
