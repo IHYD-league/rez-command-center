@@ -56,7 +56,8 @@ export function EnrichedSongRow({ s, rank, maxCount, updateSong, familyId }) {
         externalId:      match.externalId,
         enrichedAt:      new Date().toISOString(),
         matchStatus:     "auto",
-        durationMs:      match.durationMs ?? null,
+        // durationMs intentionally omitted until migration
+        // 20260614120000_song_duration_ms.sql is applied.
       });
     })();
     return () => { cancelled = true; };
@@ -270,7 +271,8 @@ export function SongMatchPicker({ s, updateSong, busy, setBusy, onClose }) {
       externalId:      c.externalId,
       enrichedAt:      new Date().toISOString(),
       matchStatus:     "confirmed",
-      durationMs:      c.durationMs ?? null,
+      // durationMs intentionally omitted until migration
+      // 20260614120000_song_duration_ms.sql is applied.
     });
     onClose();
   };
