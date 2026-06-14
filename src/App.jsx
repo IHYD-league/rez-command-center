@@ -1491,6 +1491,21 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       if (w) addReward({ id: "r_" + Date.now(), title: w.title, starCost: cost || 100, category: "Dream", active: true });
     }
   };
+  // removeRewardRequest — clears a wish row from the kid's Dream
+  // Plan view. Mike's framing: "No, that's very farMs" was Reznor
+  // mis-typing Knotts Berry Farms; the typo'd row stayed forever
+  // even after Knotts was approved. Two clean-up paths:
+  //   - APPROVED wishes: anyone can tap "Got it" — the reward
+  //     already exists in the rewards table, so removing the
+  //     request row loses zero meaningful data. Not a "delete"
+  //     under the kids-never-delete rule.
+  //   - REQUESTED / DECLINED wishes: parent-only. The Dream Plan
+  //     UI gates the X button by checking the AUTH identity (not
+  //     the acted-as profile) so Mike acting as Reznor still gets
+  //     the X.
+  const removeRewardRequest = (id) => {
+    setRewardRequests((prev) => prev.filter((w) => w.id !== id));
+  };
   const addTaskNote = (taskId, text) => { if (!text.trim()) return; setTaskNotes((prev) => ({ ...prev, [taskId]: [{ text: text.trim(), by: currentUserId, time: "now" }, ...(prev[taskId] || [])] })); };
   const addBook = (b) => setBooks((prev) => [b, ...prev]);
   const updateBook = (id, patch) => setBooks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
@@ -1812,7 +1827,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
-    submitTask, saveDraft, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest,
+    submitTask, saveDraft, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest, removeRewardRequest, currentProfileId,
     openCompletionId, setOpenCompletionId, updateCompletion, addCompletionPhoto, removeCompletionPhoto,
     pendingRegistrations, approveRegistration, denyRegistration, currentProfileId, setCurrentUserId,
     kidData,
@@ -4871,7 +4886,7 @@ function PiggyBank({ stars }) {
 }
 
 // ===================== KID: DREAM PLAN (interactive) =====================
-function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }) {
+function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, removeRewardRequest, user, users = [], currentProfileId }) {
   const active = rewards.filter((r) => r.active);
   const [picked, setPicked] = useState([]);
   const [perDay, setPerDay] = useState(25);
@@ -4879,6 +4894,12 @@ function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }
   const [wishNote, setWishNote] = useState("");
   const [wishOpen, setWishOpen] = useState(false);
   const myWishes = (rewardRequests || []).filter((w) => w.by === user?.id);
+  // Auth-side parent check — Mike acting as Reznor still gets the
+  // parent-only X button because we read the AUTH identity, not
+  // the acted-as profile. Same pattern submitTask uses to gate
+  // auto-approve so a stale-bundle helper can't forge a parent.
+  const authProfile = users.find((u) => u.id === currentProfileId);
+  const isAuthParent = !!(authProfile?.role === "parent" || authProfile?.isAdmin);
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const chosen = active.filter((r) => picked.includes(r.id)).sort((a, b) => a.starCost - b.starCost);
   const total = chosen.reduce((s, r) => s + r.starCost, 0);
@@ -4917,13 +4938,60 @@ function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, user }
       )}
       {myWishes.length > 0 && (
         <div className="mt-2">
-          {myWishes.map((w) => (
-            <Card key={w.id} className="p-3 mb-2 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-violet-100 grid place-items-center text-lg">⭐</div>
-              <div className="flex-1 min-w-0"><div className="font-bold text-sm">{w.title}</div><div className="text-[11px] text-slate-400">{w.status === "approved" && w.starCost ? `${w.starCost}⭐ — now in your rewards!` : (w.note || "your wish")}</div></div>
-              <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${WISH_STATUS[w.status].cls}`}>{WISH_STATUS[w.status].label}</span>
-            </Card>
-          ))}
+          {myWishes.map((w) => {
+            const isApproved = w.status === "approved";
+            const isDeclined = w.status === "declined" || w.status === "denied";
+            return (
+              <Card key={w.id} className="p-3 mb-2 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-violet-100 grid place-items-center text-lg shrink-0">⭐</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm truncate">{w.title}</div>
+                  <div className="text-[11px] text-slate-400 truncate">{isApproved && w.starCost ? `${w.starCost}⭐ — now in your rewards!` : (w.note || "your wish")}</div>
+                </div>
+                {isApproved && removeRewardRequest ? (
+                  /* Approved → "Got it!" button anyone can tap to
+                     dismiss the row. The reward already exists in the
+                     rewards table; removing this request is just
+                     clearing a notification-style entry, not a
+                     destructive delete. */
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Got it — clear "${w.title}" from your wishes? It's already in your rewards.`)) {
+                        removeRewardRequest(w.id);
+                      }
+                    }}
+                    className="text-[11px] font-extrabold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 active:scale-95 rounded-full px-3 py-1.5 flex items-center gap-1 shrink-0"
+                    title="Tap to acknowledge and clear from your wishes"
+                  >
+                    Got it! 👍
+                  </button>
+                ) : (
+                  <span className={`text-[10px] font-bold px-2 py-1 rounded-full shrink-0 ${WISH_STATUS[w.status].cls}`}>{WISH_STATUS[w.status].label}</span>
+                )}
+                {/* Parent cleanup — declined / requested wishes can be
+                    cleared by the parent (auth identity, so Mike
+                    acting as Reznor still sees the X). Per the
+                    kids-never-delete rule, kids see nothing. */}
+                {isAuthParent && removeRewardRequest && !isApproved && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const verb = isDeclined ? "Remove this denied wish?" : "Withdraw this wish?";
+                      if (window.confirm(`${verb}\n\n"${w.title}"`)) {
+                        removeRewardRequest(w.id);
+                      }
+                    }}
+                    className="text-slate-400 hover:text-rose-500 active:scale-90 shrink-0 p-1"
+                    title="Parent: remove this wish row"
+                    aria-label="Remove wish"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </Card>
+            );
+          })}
         </div>
       )}
 
