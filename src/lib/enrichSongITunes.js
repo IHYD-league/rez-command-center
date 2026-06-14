@@ -46,6 +46,7 @@ function normalize(track) {
     coverThumbUrl:  highResCover(track.artworkUrl100, 200),
     externalId:     track.trackId ? `itunes:${track.trackId}` : "",
     externalSource: "itunes",
+    durationMs:     Number(track.trackTimeMillis) || null,
   };
 }
 

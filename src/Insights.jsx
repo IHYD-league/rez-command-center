@@ -498,9 +498,9 @@ export default function Insights({
 }) {
   /* ----- PRACTICE TIME ---------------------------------------------- */
   const practiceStats = useMemo(() => {
-    let totalMin = 0;
     let drumeoMin = 0;
     let melodicsMin = 0;
+    let songMin = 0;
     let earliest = null;
     const byDate = new Map(); // YYYY-MM-DD → minutes
     for (const c of completions || []) {
@@ -508,7 +508,6 @@ export default function Insights({
       const mel = Number(c?.extra?.melodics || 0);
       const sum = drumeo + mel;
       if (sum > 0) {
-        totalMin += sum;
         drumeoMin += drumeo;
         melodicsMin += mel;
         const d = c.completionDate || c.completion_date;
@@ -518,10 +517,31 @@ export default function Insights({
         }
       }
     }
-    const last14 = daysBack(14).map((d) => ({ date: d, value: byDate.get(d) || 0 }));
+    // Song-play minutes — sum each play's canonical iTunes duration.
+    // Plays without a backfilled duration count as 0 rather than
+    // guessing an average; the backfill effect in App.jsx fills them
+    // on session start. By-date map merges so the 14-day chart
+    // reflects total time, not just practice-app time.
+    const byId = Object.fromEntries((songs || []).map((s) => [s.id, s]));
+    for (const sp of songPlays || []) {
+      const sid = sp.songId || sp.song_id;
+      const song = byId[sid];
+      const ms = Number(song?.durationMs) || 0;
+      if (ms <= 0) continue;
+      const min = ms / 60000;
+      songMin += min;
+      const d = sp.playedOn || sp.played_on;
+      if (d) {
+        byDate.set(d, (byDate.get(d) || 0) + min);
+        if (!earliest || d < earliest) earliest = d;
+      }
+    }
+    songMin = Math.round(songMin);
+    const totalMin = drumeoMin + melodicsMin + songMin;
+    const last14 = daysBack(14).map((d) => ({ date: d, value: Math.round(byDate.get(d) || 0) }));
     const last14Sum = last14.reduce((s, r) => s + r.value, 0);
-    return { totalMin, drumeoMin, melodicsMin, earliest, last14, last14Sum };
-  }, [completions]);
+    return { totalMin, drumeoMin, melodicsMin, songMin, earliest, last14, last14Sum };
+  }, [completions, songs, songPlays]);
 
   /* ----- MOST-PLAYED SONGS ------------------------------------------ */
   const topSongs = useMemo(() => {
@@ -703,6 +723,7 @@ export default function Insights({
         </div>
         <div className="text-[11px] text-slate-500 mt-1">
           Drumeo {practiceStats.drumeoMin}m · Melodics {practiceStats.melodicsMin}m
+          {practiceStats.songMin > 0 && ` · Played ${practiceStats.songMin}m`}
         </div>
         <DayBars data={practiceStats.last14} color="#7c3aed" suffix=" min" />
         <div className="text-[11px] text-slate-400 mt-1.5 flex items-center justify-between">

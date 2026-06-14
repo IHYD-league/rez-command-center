@@ -209,6 +209,10 @@ export const toApp = {
     // URL — resolved to a signed URL at display time. Takes precedence
     // over cover_url (MB/CAA cache) when present.
     customCoverPath: r.custom_cover_path || "",
+    // iTunes trackTimeMillis. NULL on un-enriched or pre-backfill rows;
+    // the drum minutes calc treats null as 0 so a missing duration
+    // never silently negates a play.
+    durationMs:      r.duration_ms ?? null,
   }),
 
   songPlay: (r) => ({
@@ -458,6 +462,7 @@ export const toDb = {
     enriched_at:      o.enrichedAt || null,
     match_status:     o.matchStatus || "unmatched",
     custom_cover_path: o.customCoverPath || null,
+    duration_ms:      Number.isFinite(o.durationMs) ? o.durationMs : null,
   }),
 
   songPlay: (familyId) => (o) => ({
