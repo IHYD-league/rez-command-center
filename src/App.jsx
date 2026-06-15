@@ -11562,11 +11562,10 @@ const ACTIVITY_PRESET_PACKS = [
   {
     pack: "Dance & Movement",
     items: [
+      { name: "Dance",       short: "Dance",   color: "#db2777", pillar: "body" },
       { name: "Ballet",      short: "Ballet",  color: "#f472b6", pillar: "body" },
-      { name: "Hip Hop Dance", short: "Dance", color: "#db2777", pillar: "body" },
-      { name: "Jazz",        short: "Jazz",    color: "#c026d3", pillar: "body" },
-      { name: "Tap",         short: "Tap",     color: "#a21caf", pillar: "body" },
       { name: "Yoga",        short: "Yoga",    color: "#10b981", pillar: "body" },
+      { name: "Cheer",       short: "Cheer",   color: "#a21caf", pillar: "body" },
     ],
   },
   {
@@ -11875,14 +11874,125 @@ function AddActivityForm({ onCancel, onAdd }) {
 }
 
 // ===================== PARENT: TASKS & CHORES =====================
+// Generic chore presets — common across most families with kids. Parent
+// picks what's true for their household. Each adds as a normal task
+// in the Chores activity category with sensible default star value.
+const CHORE_PRESETS = [
+  "Make your bed",
+  "Brush teeth (morning)",
+  "Brush teeth (night)",
+  "Take a shower",
+  "Get dressed",
+  "Tidy your room",
+  "Put away laundry",
+  "Set the table",
+  "Clear the table",
+  "Wash the dishes",
+  "Load the dishwasher",
+  "Unload the dishwasher",
+  "Take out the trash",
+  "Feed the dog",
+  "Walk the dog",
+  "Feed the cat",
+  "Water the plants",
+  "Pack school bag",
+  "Pack lunch",
+  "Practice instrument",
+  "Read for 20 minutes",
+  "Help cook dinner",
+  "Vacuum",
+  "Sweep the floor",
+];
+
+function ChorePresetPicker({ existingTitles, onAdd, onClose }) {
+  const [picked, setPicked] = useState(() => new Set());
+  const isExisting = (title) => existingTitles.has(title.toLowerCase());
+  const togglePick = (title) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(title)) next.delete(title); else next.add(title);
+    return next;
+  });
+  const submit = () => {
+    const adds = [];
+    for (const title of CHORE_PRESETS) {
+      if (!picked.has(title)) continue;
+      adds.push({
+        id: "t_" + title.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 20) + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 5),
+        title,
+        category: "Chores",
+        activityType: "Chores",
+        activityId: "a_chores",
+        required: false,
+        starValue: 3,
+        proofRequired: false,
+        proofType: null,
+        approvalRequired: true,
+        mode: "both",
+        minutes: 5,
+      });
+    }
+    if (adds.length > 0) onAdd(adds);
+    onClose();
+  };
+  return (
+    <Card className="p-4 mb-2">
+      <div className="flex items-center justify-between mb-2">
+        <div className="font-bold text-sm">Chore presets</div>
+        <button onClick={onClose} className="text-slate-400 text-xs font-bold">Close</button>
+      </div>
+      <div className="text-[11px] text-slate-400 mb-3">Tap the chores that apply to your kid. They'll be added at 3⭐ each — you can adjust per row afterward.</div>
+      <div className="flex flex-wrap gap-1.5">
+        {CHORE_PRESETS.map((title) => {
+          const taken = isExisting(title);
+          const sel = picked.has(title);
+          return (
+            <button
+              key={title}
+              type="button"
+              disabled={taken}
+              onClick={() => togglePick(title)}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                taken ? "bg-slate-100 text-slate-300 line-through cursor-not-allowed" :
+                sel ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              {title}
+              {taken && <span className="ml-1 text-[9px]">already added</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex gap-2 mt-3">
+        <button onClick={onClose} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs">Cancel</button>
+        <button
+          disabled={picked.size === 0}
+          onClick={submit}
+          className={`flex-1 py-2 rounded-xl font-bold text-xs text-white ${picked.size === 0 ? "bg-slate-300" : "bg-indigo-600"}`}
+        >
+          Add {picked.size} {picked.size === 1 ? "chore" : "chores"}
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 function ManageTasks({ tasks, updateTask, removeTask, addTask, activities }) {
-  const [panel, setPanel] = useState(null); // null | 'chore' | 'task'
+  const [panel, setPanel] = useState(null); // null | 'chore' | 'task' | 'chorepresets'
+  const existingTaskTitles = useMemo(
+    () => new Set((tasks || []).map((t) => (t.title || "").toLowerCase())),
+    [tasks]
+  );
+  const addManyChores = (items) => {
+    for (const t of items) addTask(t);
+  };
   return (
     <>
       <div className="flex gap-2 mb-2">
+        <button onClick={() => setPanel(panel === "chorepresets" ? null : "chorepresets")} className="flex-1 py-2.5 rounded-2xl bg-slate-200 text-slate-700 font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> Chore presets</button>
         <button onClick={() => setPanel(panel === "chore" ? null : "chore")} className="flex-1 py-2.5 rounded-2xl bg-slate-700 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> {i18nTOf("manage_tasks_chore_btn", "Chore")}</button>
         <button onClick={() => setPanel(panel === "task" ? null : "task")} className="flex-1 py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> {i18nTOf("manage_tasks_task_btn", "Task")}</button>
       </div>
+      {panel === "chorepresets" && <ChorePresetPicker existingTitles={existingTaskTitles} onAdd={addManyChores} onClose={() => setPanel(null)} />}
       {panel === "chore" && <AddChoreForm onAdd={(t) => { addTask(t); setPanel(null); }} onCancel={() => setPanel(null)} />}
       {panel === "task" && <AddTaskForm activities={activities} onAdd={(t) => { addTask(t); setPanel(null); }} onCancel={() => setPanel(null)} />}
       {tasks.map((t) => <TaskEditRow key={t.id} t={t} activities={activities} updateTask={updateTask} removeTask={removeTask} />)}
