@@ -4345,7 +4345,7 @@ function DayBreakdown({
 function StatDetailSheet({ onClose, meta, body, tally }) {
   const { handleClose, dragHandlers, backdropStyle, sheetStyle } = useBottomSheet({ onClose });
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center" style={{ fontFamily: "inherit" }}>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center" style={{ fontFamily: "inherit" }}>
       <div onClick={handleClose} className="absolute inset-0" style={backdropStyle} />
       <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto shadow-2xl" style={sheetStyle}>
         <div
@@ -4519,7 +4519,7 @@ function CompletionDetailSheet({
   const isParent = role === "parent";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ fontFamily: "inherit" }}>
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" style={{ fontFamily: "inherit" }}>
       <div onClick={onClose} className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" />
       <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 max-h-[88vh] overflow-y-auto shadow-2xl">
         {/* Header */}
@@ -5014,7 +5014,7 @@ function StatRow({ label, value }) {
 
 function CelebrateOverlay({ data, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-6" onClick={onClose}>
       <div className="absolute inset-0 bg-black/55" />
       <div className="relative rounded-3xl p-6 text-center text-white max-w-xs w-full shadow-2xl" style={{ background: `linear-gradient(135deg,${data.color},#ef4444)` }}>
         <div className="text-6xl">🔥</div>
@@ -5693,7 +5693,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center" style={{ fontFamily: "inherit" }}>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center" style={{ fontFamily: "inherit" }}>
       <div
         onClick={handleClose}
         className="absolute inset-0"
@@ -6305,7 +6305,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
   })();
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center">
       <div onClick={handleClose} className="absolute inset-0" style={backdropStyle} />
       <div className="relative w-full max-w-md bg-slate-50 rounded-t-3xl max-h-[92vh] overflow-y-auto shadow-2xl" style={sheetStyle}>
         {/* header — drag-handle pill on top of the colored header bar */}
@@ -6521,7 +6521,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
 // ===================== PARENT: ACTIVITY PROGRESS =====================
 function ProgressSheet({ activity, streaks, onClose }) {
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative w-full max-w-md bg-slate-50 rounded-t-3xl max-h-[92vh] overflow-y-auto">
         <div className="sticky top-0 z-10 p-4 text-white flex items-center gap-3" style={{ background: activity.color }}>
@@ -7255,7 +7255,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
           .filter((t) => t.active !== false && !todayIds.has(t.id) && !naIds.has(t.id))
           .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
         return (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
             <div onClick={() => setShowAddPicker(false)} className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" />
             <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 max-h-[80vh] overflow-y-auto shadow-2xl">
               <div className="flex items-center justify-between mb-3">
@@ -8332,29 +8332,53 @@ function inOverride(iso, overrides) {
 // One row in the new week strip — Mon / Tue / etc. with the count of
 // items and a thin colored bar showing what's scheduled. Tap to open
 // the sheet for that day.
-function WeekDayCell({ iso, weekday, label, count, overridden, isToday, onTap }) {
+// Day cell — name + colored pills for every item on that day. Each
+// pill shows title and (if set) time. Tap a pill → edits that entry
+// directly. Tap empty space → opens the day sheet to add a new one.
+function WeekDayCell({ items, weekday, label, overridden, isToday, onTapDay, onTapItem }) {
   return (
-    <button
-      type="button"
-      onClick={onTap}
-      className={`w-full flex items-center gap-2 py-3 px-3 rounded-2xl mb-1.5 text-left transition active:scale-[0.99] ${
+    <div
+      onClick={onTapDay}
+      className={`w-full cursor-pointer flex items-start gap-3 py-3 px-3 rounded-2xl mb-1.5 transition active:scale-[0.99] ${
         isToday ? "bg-indigo-50 border-2 border-indigo-200" : "bg-white border border-slate-100"
       }`}
     >
-      <div className={`w-12 shrink-0 text-center ${isToday ? "text-indigo-700" : "text-slate-500"}`}>
+      <div className={`w-12 shrink-0 text-center ${isToday ? "text-indigo-700" : "text-slate-500"} pt-0.5`}>
         <div className="text-[10px] font-bold uppercase tracking-wider">{weekday}</div>
         <div className="text-xl font-extrabold leading-tight">{label}</div>
       </div>
       <div className="flex-1 min-w-0">
         {overridden && (
-          <div className="text-[10px] font-bold uppercase tracking-wider text-violet-600 mb-0.5">{overridden.label || "This week is different"}</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-violet-600 mb-1">{overridden.label || "This week is different"}</div>
         )}
-        <div className="text-sm font-semibold text-slate-700">
-          {count === 0 ? <span className="text-slate-300 font-medium">Tap to add</span> : `${count} ${count === 1 ? "thing" : "things"}`}
-        </div>
+        {items.length === 0 ? (
+          <div className="text-sm text-slate-300 font-medium pt-1">Tap to add</div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {items.map((it) => (
+              <span
+                key={it.key}
+                role={it.event ? "button" : undefined}
+                tabIndex={it.event ? 0 : undefined}
+                onClick={(e) => {
+                  if (!it.event) return;
+                  e.stopPropagation();
+                  onTapItem && onTapItem(it.event);
+                }}
+                className={`inline-flex items-center gap-1 max-w-full px-2.5 py-1.5 rounded-full text-[12px] font-bold text-white shadow-sm leading-tight ${it.event ? "active:scale-95" : "opacity-90"}`}
+                style={{ background: it.color || "#6366f1" }}
+                title={it.subtitle || ""}
+              >
+                {it.recurring && <span className="text-[10px] leading-none">↻</span>}
+                <span className="truncate">{it.title}</span>
+                {it.time && <span className="text-white/85 font-semibold">· {fmt12(it.time)}</span>}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      <ChevronRight size={16} className="text-slate-300 shrink-0" />
-    </button>
+      <ChevronRight size={16} className="text-slate-300 shrink-0 mt-1" />
+    </div>
   );
 }
 
@@ -8678,6 +8702,29 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
   const weekEndIso = fmtIso(weekDates[6]);
   const weekOverride = inOverride(weekStartIso, weekOverrides);
 
+  // Color-code events: if title contains/matches an activity name,
+  // use that activity's color so "Drum class" / "Swim" / "Soccer
+  // practice" inherit their owning activity's color. Otherwise fall
+  // back to a category color so School / Activity / Field Trip are
+  // visually distinct even without a linked activity.
+  const CATEGORY_COLORS = {
+    School:       "#0ea5e9",
+    Activity:     "#10b981",
+    "Field Trip": "#f59e0b",
+    Personal:     "#a855f7",
+    Other:        "#6366f1",
+  };
+  const colorForEvent = (ev) => {
+    const t = (ev.title || "").toLowerCase();
+    for (const a of activities || []) {
+      const n = (a.name || "").toLowerCase();
+      const s = (a.short || "").toLowerCase();
+      if (!n) continue;
+      if (t.includes(n) || (s && t.includes(s))) return a.color;
+    }
+    return CATEGORY_COLORS[ev.category] || CATEGORY_COLORS.Other;
+  };
+
   // Build a per-day items list combining date-specific events and
   // recurring events (matched by weekday). Recurring entries hide
   // when the week is overridden — temp events for that week land as
@@ -8695,7 +8742,7 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
             title: ev.title,
             time: ev.time,
             subtitle: ev.notes,
-            color: "#7c3aed",
+            color: colorForEvent(ev),
             recurring: true,
             recurWeekdayLabel: WEEKDAY_NAMES_FULL[ev.recurWeekday],
             event: ev,
@@ -8707,7 +8754,7 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
           title: ev.title,
           time: ev.time,
           subtitle: ev.notes,
-          color: "#0ea5e9",
+          color: colorForEvent(ev),
           recurring: false,
           event: ev,
         });
@@ -8803,21 +8850,25 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
         return (
           <WeekDayCell
             key={iso}
-            iso={iso}
             weekday={WEEKDAY_NAMES[d.getDay()]}
             label={String(d.getDate())}
-            count={items.length}
+            items={items}
             overridden={weekOverride}
             isToday={iso === todayIso}
-            onTap={() => setOpenDay(iso)}
+            onTapDay={() => setOpenDay(iso)}
+            onTapItem={(ev) => { setOpenDay(iso); setEditingEvent(ev); }}
           />
         );
       })}
 
       {/* Day sheet — overlay */}
       {openDay && !editingEvent && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-end" onClick={() => setOpenDay(null)}>
-          <div className="w-full max-w-md mx-auto bg-white rounded-t-3xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-end" onClick={() => setOpenDay(null)}>
+          <div
+            className="w-full max-w-md mx-auto bg-white rounded-t-3xl max-h-[80vh] overflow-y-auto"
+            style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <DaySheet
               iso={openDay}
               items={openDayItems}
@@ -8831,8 +8882,12 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
 
       {/* Add/edit event sheet */}
       {editingEvent && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={() => setEditingEvent(null)}>
-          <div className="w-full max-w-md mx-auto bg-white rounded-t-3xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-end" onClick={() => setEditingEvent(null)}>
+          <div
+            className="w-full max-w-md mx-auto bg-white rounded-t-3xl max-h-[90vh] overflow-y-auto"
+            style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <EventEditSheet
               event={editingEvent === "new" ? null : editingEvent}
               defaultDate={openDay || todayIso}
