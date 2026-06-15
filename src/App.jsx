@@ -8486,9 +8486,10 @@ function TimePicker({ value, onChange }) {
 }
 
 // Add / edit event sheet body. Used for both new and existing events.
-function EventEditSheet({ event, defaultDate, defaultRecurWeekday, onSave, onDelete, onClose }) {
+function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = [], pastTitles = [], onSave, onDelete, onClose }) {
   const isEdit = !!event;
   const [title, setTitle] = useState(event?.title || "");
+  const [showSuggestions, setShowSuggestions] = useState(true);
   const [date, setDate] = useState(event?.date || defaultDate || "");
   const [time, setTime] = useState(event?.time || null);
   const [recur, setRecur] = useState(
@@ -8496,6 +8497,38 @@ function EventEditSheet({ event, defaultDate, defaultRecurWeekday, onSave, onDel
     Number.isInteger(defaultRecurWeekday) ? defaultRecurWeekday : null
   );
   const [notes, setNotes] = useState(event?.notes || "");
+
+  // Fuzzy autocomplete: surface up to 6 best matches from the family's
+  // own activities and any titles they've used on past calendar
+  // entries. Tap a row to fill the title (and reuse its color when
+  // saved — colorForEvent matches the title back to an activity).
+  const suggestions = useMemo(() => {
+    const haystack = [];
+    for (const a of activities) {
+      if (a.status === "archived") continue;
+      haystack.push({ key: "a:" + a.id, label: a.name, color: a.color, kind: "activity" });
+      if (a.short && a.short.toLowerCase() !== a.name.toLowerCase()) {
+        haystack.push({ key: "as:" + a.id, label: a.short, color: a.color, kind: "activity" });
+      }
+    }
+    const seenPast = new Set(haystack.map((h) => h.label.toLowerCase()));
+    for (const t of pastTitles) {
+      const k = (t || "").trim();
+      if (!k) continue;
+      if (seenPast.has(k.toLowerCase())) continue;
+      seenPast.add(k.toLowerCase());
+      haystack.push({ key: "p:" + k, label: k, color: "#94a3b8", kind: "past" });
+    }
+    const q = title.trim();
+    if (!q) return haystack.slice(0, 6);
+    const scored = haystack
+      .map((h) => ({ h, m: fuzzyMatch(q, h.label) }))
+      .filter((x) => x.m.hit && x.h.label.toLowerCase() !== q.toLowerCase())
+      .sort((a, b) => b.m.score - a.m.score)
+      .slice(0, 6)
+      .map((x) => x.h);
+    return scored;
+  }, [activities, pastTitles, title]);
   const repeatChecked = Number.isInteger(recur);
   const dayFor = (iso) => iso ? new Date(iso + "T12:00").getDay() : null;
   const toggleRepeat = () => {
@@ -8526,11 +8559,34 @@ function EventEditSheet({ event, defaultDate, defaultRecurWeekday, onSave, onDel
       <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1">What</label>
       <input
         value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        onChange={(e) => { setTitle(e.target.value); setShowSuggestions(true); }}
+        onFocus={() => setShowSuggestions(true)}
         placeholder="e.g. Soccer practice"
         autoFocus={!isEdit}
-        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-base font-semibold mb-3"
+        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-base font-semibold"
       />
+      {showSuggestions && suggestions.length > 0 && !isEdit && (
+        <div className="mt-1.5 mb-3 rounded-xl border border-slate-100 bg-slate-50 p-1.5">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 px-1.5 mb-1">
+            {title.trim() ? "Did you mean" : "Tap to use one you already have"}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {suggestions.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => { setTitle(s.label); setShowSuggestions(false); }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-bold text-slate-700 active:scale-95"
+              >
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color || "#94a3b8" }} />
+                {s.label}
+                {s.kind === "past" && <span className="text-[9px] font-medium text-slate-400">past</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {(!showSuggestions || suggestions.length === 0 || isEdit) && <div className="mb-3" />}
       <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1">When</label>
       <input
         type="date"
@@ -8892,6 +8948,8 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
               event={editingEvent === "new" ? null : editingEvent}
               defaultDate={openDay || todayIso}
               defaultRecurWeekday={null}
+              activities={activities}
+              pastTitles={Array.from(new Set((events || []).map((e) => e.title).filter(Boolean)))}
               onSave={saveEvent}
               onDelete={editingEvent !== "new" ? deleteEvent : null}
               onClose={() => setEditingEvent(null)}
