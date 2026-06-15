@@ -26,6 +26,7 @@ const ENTITIES = {
   activities:      { table: "activities",       toApp: toApp.activity,       toDb: toDb.activity,       key: "id"   },
   practiceSessions:{ table: "practice_sessions", toApp: toApp.practiceSession, toDb: toDb.practiceSession, key: "id"   },
   shoppingItems:   { table: "shopping_items",   toApp: toApp.shoppingItem,   toDb: toDb.shoppingItem,   key: "id"   },
+  dailyCheckins:   { table: "daily_checkins",   toApp: toApp.dailyCheckin,   toDb: toDb.dailyCheckin,   key: "id"   },
   events:          { table: "events",           toApp: toApp.event,          toDb: toDb.event,          key: "id"   },
   handoffNotes:    { table: "handoff_notes",    toApp: toApp.handoffNote,    toDb: toDb.handoffNote,    key: "id"   },
   albumPhotos:     { table: "album_photos",     toApp: toApp.albumPhoto,     toDb: toDb.albumPhoto,     key: "id"   },

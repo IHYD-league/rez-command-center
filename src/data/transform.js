@@ -190,6 +190,15 @@ export const toApp = {
     deletedBy: r.deleted_by ?? null,
   }),
 
+  dailyCheckin: (r) => ({
+    id: r.id,
+    profileId: r.profile_id,
+    date: r.date,
+    mood: r.mood,
+    note: r.note || "",
+    createdAt: r.created_at,
+  }),
+
   shoppingItem: (r) => ({
     id: r.id,
     title: r.title,
@@ -296,6 +305,7 @@ export const toApp = {
     durationMinutes: r.duration_minutes ?? null, // null = use family default
     recurWeekday: r.recur_weekday ?? null, // 0..6 or null
     address: r.address ?? "",
+    driverProfileId: r.driver_profile_id ?? null,
     category: r.category ?? "",
     notes: r.notes ?? "",
   }),
@@ -499,6 +509,15 @@ export const toDb = {
     deleted_by: o.deletedBy ?? null,
   }),
 
+  dailyCheckin: (familyId) => (o) => ({
+    id: o.id,
+    family_id: familyId,
+    profile_id: o.profileId,
+    date: o.date,
+    mood: o.mood,
+    note: o.note || null,
+  }),
+
   shoppingItem: (familyId) => (o) => ({
     id: o.id,
     family_id: familyId,
@@ -600,6 +619,7 @@ export const toDb = {
     duration_minutes: Number.isFinite(o.durationMinutes) ? o.durationMinutes : null,
     recur_weekday: Number.isInteger(o.recurWeekday) ? o.recurWeekday : null,
     address: o.address || null,
+    driver_profile_id: o.driverProfileId || null,
     category: o.category ?? null,
     notes: o.notes ?? null,
   }),

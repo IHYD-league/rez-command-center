@@ -808,6 +808,27 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // adds at the store, Mike checks off at home.
   const [shoppingItems, _setShoppingItems] = useState(() => initial?.shoppingItems ?? []);
   const setShoppingItems = makeSyncedSetter(_setShoppingItems, "shoppingItems", sync);
+  // Daily kid mood check-ins. One row per (profileId, date). Reznor
+  // taps a 3-emoji row on his Today; parents see a 7-day mood strip
+  // on theirs.
+  const [dailyCheckins, _setDailyCheckins] = useState(() => initial?.dailyCheckins ?? []);
+  const setDailyCheckins = makeSyncedSetter(_setDailyCheckins, "dailyCheckins", sync);
+  const setMoodCheckin = (profileId, mood, note = "") => {
+    if (!profileId || !mood) return;
+    const today = new Date().toISOString().slice(0, 10);
+    setDailyCheckins((prev) => {
+      const existing = prev.find((c) => c.profileId === profileId && c.date === today);
+      if (existing) return prev.map((c) => c.id === existing.id ? { ...c, mood, note: note || c.note } : c);
+      return [...prev, {
+        id: "chk_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+        profileId,
+        date: today,
+        mood,
+        note,
+        createdAt: new Date().toISOString(),
+      }];
+    });
+  };
   const addPracticeSession = (s) => setPracticeSessions((prev) => [...prev, { ...s, id: s.id || ("ps_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6)) }]);
   // addShoppingItem auto-routes by ACTED-AS profile role:
   //   kid acting (currentUserId points at a kid profile) → request_status='pending',
@@ -2125,6 +2146,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     pendingMoreSub, setPendingMoreSub,
     practiceSessions, addPracticeSession, removePracticeSession,
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
+    dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
   };
 
@@ -3506,7 +3528,7 @@ function LoginScreen({ users, currentProfileId, onPick, onSignOut, sessionEmail 
 }
 
 // ===================== KID: MISSIONS =====================
-function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, setOpenCompletionId, availableToday, earnedToday, pendingStars, starBank, mode, priorities, user, users, activities, streaks, subProgress, toggleSub, undoTask }) {
+function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, setOpenCompletionId, availableToday, earnedToday, pendingStars, starBank, mode, priorities, user, users, activities, streaks, subProgress, toggleSub, undoTask, dailyCheckins = [], setMoodCheckin }) {
   // Read from the parent-curated Top 8 so the kid's missions tab,
   // home quests, and the board all show the same list. Fall back to
   // the broader todaysTasks only if Top 8 is somehow empty.
@@ -3531,6 +3553,39 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
       </div>
 
       <div className="mt-3"><PiggyBank stars={starBank} kidName={user?.name} /></div>
+
+      {/* Daily mood check-in. One tap; today's pick stays highlighted. */}
+      {user?.id && setMoodCheckin && (() => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const todayCheckin = dailyCheckins.find((c) => c.profileId === user.id && c.date === todayIso);
+        const moods = [
+          { v: "happy", emoji: "😊", label: "Good day" },
+          { v: "ok",    emoji: "😐", label: "Just okay" },
+          { v: "off",   emoji: "😞", label: "Off day" },
+        ];
+        return (
+          <Card className="p-3 mt-3 bg-gradient-to-br from-sky-50 to-violet-50 border-sky-100">
+            <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-2">How are you today?</div>
+            <div className="flex gap-2">
+              {moods.map((m) => (
+                <button
+                  key={m.v}
+                  type="button"
+                  onClick={() => setMoodCheckin(user.id, m.v)}
+                  className={`flex-1 py-3 rounded-2xl flex flex-col items-center gap-0.5 transition active:scale-95 ${todayCheckin?.mood === m.v ? "bg-white ring-2 ring-sky-400 shadow" : "bg-white/70"}`}
+                >
+                  <span className="text-2xl leading-none">{m.emoji}</span>
+                  <span className="text-[10px] font-bold text-slate-600">{m.label}</span>
+                </button>
+              ))}
+            </div>
+            {todayCheckin && (
+              <div className="text-[10px] text-center text-slate-400 mt-1.5">Saved — your parents can see this.</div>
+            )}
+          </Card>
+        );
+      })()}
+
       <StreakStrip streaks={streaks} activities={activities} />
 
       <SectionTitle icon={<Trophy size={16} className="text-rose-500" />}>{i18nTOf("sec_today_missions", "Today's missions")} <span className="text-[11px] font-normal text-slate-400">· {i18nTOf("hint_most_important_first", "most important first")}</span></SectionTitle>
@@ -7105,7 +7160,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub, dailyCheckins = [] }) {
   const [showAddPicker, setShowAddPicker] = useState(false);
   // Reorder mode is per-section so flipping it on for Bonus
   // doesn't add nudge buttons to Still-to-do too. Same pattern as
@@ -7209,6 +7264,47 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
       </div>
 
       <StreakStrip streaks={streaks} activities={activities} />
+
+      {/* Per-kid 7-day mood strip. Renders only when at least one
+          check-in exists for the family. Tiny chip-row at a glance —
+          tap a kid's chips for the full Insights moods view (future). */}
+      {(() => {
+        const kids = (users || []).filter((u) => u.role === "kid");
+        if (kids.length === 0) return null;
+        const days = [];
+        const now = new Date();
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(now.getTime() - i * 86400000);
+          days.push(d.toISOString().slice(0, 10));
+        }
+        const moodEmoji = { happy: "😊", ok: "😐", off: "😞" };
+        const moodTint = { happy: "bg-emerald-100", ok: "bg-slate-100", off: "bg-rose-100" };
+        const anyCheckin = kids.some((k) => (dailyCheckins || []).some((c) => c.profileId === k.id));
+        if (!anyCheckin) return null;
+        return (
+          <Card className="p-3 mt-3">
+            <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-2">Last 7 days · mood</div>
+            {kids.map((k) => (
+              <div key={k.id} className="flex items-center gap-2 mb-1.5 last:mb-0">
+                <span className="text-xs font-bold w-16 truncate">{k.name}</span>
+                <div className="flex gap-1 flex-1">
+                  {days.map((iso) => {
+                    const c = (dailyCheckins || []).find((x) => x.profileId === k.id && x.date === iso);
+                    const d = new Date(iso + "T12:00");
+                    const dayLabel = d.toLocaleDateString("en-US", { weekday: "narrow" });
+                    return (
+                      <div key={iso} className={`flex-1 rounded-lg py-1 text-center ${c ? moodTint[c.mood] : "bg-slate-50 border border-dashed border-slate-200"}`}>
+                        <div className="text-base leading-none">{c ? moodEmoji[c.mood] : "·"}</div>
+                        <div className="text-[8px] text-slate-400 leading-none mt-0.5">{dayLabel}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </Card>
+        );
+      })()}
 
       {nextRewardTitle ? (
         <Card className="p-4 mt-3">
@@ -8625,6 +8721,9 @@ function DaySheet({ iso, items, onAdd, onEdit, onClose }) {
               {it.address && (
                 <div className="text-[11px] text-slate-600 mt-1 leading-snug select-text">{it.address}</div>
               )}
+              {it.driverName && (
+                <div className="text-[11px] font-bold text-indigo-700 mt-1">🚗 {it.driverName} taking</div>
+              )}
             </div>
             {it.recurring && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 shrink-0">Every {it.recurWeekdayLabel}</span>}
             {it.event && <ChevronRight size={14} className="text-slate-300 shrink-0 mt-0.5" />}
@@ -8798,13 +8897,14 @@ function findOverlaps({ candidate, allEvents = [], defaultDuration = 60 }) {
 }
 
 // Add / edit event sheet body. Used for both new and existing events.
-function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = [], pastTitles = [], allEvents = [], onSave, onDelete, onClose }) {
+function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = [], pastTitles = [], allEvents = [], drivers = [], onSave, onDelete, onClose }) {
   const isEdit = !!event;
   const [title, setTitle] = useState(event?.title || "");
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [date, setDate] = useState(event?.date || defaultDate || "");
   const [time, setTime] = useState(event?.time || null);
   const [durationMinutes, setDurationMinutes] = useState(event?.durationMinutes ?? null);
+  const [driverProfileId, setDriverProfileId] = useState(event?.driverProfileId || "");
   const [recur, setRecur] = useState(
     Number.isInteger(event?.recurWeekday) ? event.recurWeekday :
     Number.isInteger(defaultRecurWeekday) ? defaultRecurWeekday : null
@@ -8861,6 +8961,7 @@ function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = 
       durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
       recurWeekday: repeatChecked ? recur : null,
       address: address.trim() || null,
+      driverProfileId: driverProfileId || null,
       notes: notes.trim() || null,
       category: event?.category || "Activity",
     };
@@ -8995,6 +9096,32 @@ function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = 
         className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm"
       />
       {address.trim() && <MapLinksRow address={address} size="sm" />}
+
+      {drivers.length > 0 && (
+        <>
+          <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1 mt-4">Who's driving (optional)</label>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setDriverProfileId("")}
+              className={`px-2.5 py-1.5 rounded-full text-xs font-bold ${!driverProfileId ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-500"}`}
+            >
+              — Not set
+            </button>
+            {drivers.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setDriverProfileId(p.id === driverProfileId ? "" : p.id)}
+                className={`px-2.5 py-1.5 rounded-full text-xs font-bold ${driverProfileId === p.id ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700"}`}
+              >
+                🚗 {p.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1 mt-4">Notes (optional)</label>
       <textarea
         value={notes}
@@ -9188,6 +9315,7 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
             time: ev.time,
             subtitle: ev.notes,
             address: ev.address || "",
+            driverName: ev.driverProfileId ? (users.find((u) => u.id === ev.driverProfileId)?.name || "") : "",
             color: colorForEvent(ev),
             recurring: true,
             recurWeekdayLabel: WEEKDAY_NAMES_FULL[ev.recurWeekday],
@@ -9201,6 +9329,7 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
           time: ev.time,
           subtitle: ev.notes,
           address: ev.address || "",
+          driverName: ev.driverProfileId ? (users.find((u) => u.id === ev.driverProfileId)?.name || "") : "",
           color: colorForEvent(ev),
           recurring: false,
           event: ev,
@@ -9495,6 +9624,7 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
                 "Dentist",
               ]))}
               allEvents={events}
+              drivers={(users || []).filter((u) => ["parent","helper","grandparent","guest"].includes(u.role))}
               onSave={saveEvent}
               onDelete={editingEvent !== "new" ? deleteEvent : null}
               onClose={() => setEditingEvent(null)}
