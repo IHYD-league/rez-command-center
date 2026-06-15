@@ -808,19 +808,43 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const [shoppingItems, _setShoppingItems] = useState(() => initial?.shoppingItems ?? []);
   const setShoppingItems = makeSyncedSetter(_setShoppingItems, "shoppingItems", sync);
   const addPracticeSession = (s) => setPracticeSessions((prev) => [...prev, { ...s, id: s.id || ("ps_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6)) }]);
-  const addShoppingItem = (title, notes = "") => {
+  // addShoppingItem auto-routes by ACTED-AS profile role:
+  //   kid acting (currentUserId points at a kid profile) → request_status='pending',
+  //     parent sees it in a Pending Requests card with Approve / Decline.
+  //   parent / helper / grandparent → request_status=null (on the list).
+  // The doc's soul-feature: Reznor adds "drumsticks" → it sits as a
+  // pending request → Mike/Krissie approve onto the real list.
+  const addShoppingItem = (title, notes = "", { brand } = {}) => {
     const t = (title || "").trim();
     if (!t) return;
+    const actorProfile = users.find((u) => u.id === currentUserId);
+    const isKidActing = actorProfile?.role === "kid";
     setShoppingItems((prev) => [...prev, {
       id: "si_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
       title: t,
       notes,
+      brand: brand || "",
       checked: false,
       checkedAt: null,
       checkedBy: null,
-      addedBy: currentProfileId || currentUserId || null,
+      addedBy: currentUserId || currentProfileId || null,
+      requestStatus: isKidActing ? "pending" : null,
+      decidedBy: null,
+      decidedAt: null,
+      declineReason: "",
       createdAt: new Date().toISOString(),
     }]);
+  };
+  const decideShoppingRequest = (id, decision, declineReason = "") => {
+    if (!["approved", "declined"].includes(decision)) return;
+    const actor = currentProfileId || currentUserId || null;
+    setShoppingItems((prev) => prev.map((it) => it.id === id ? {
+      ...it,
+      requestStatus: decision,
+      decidedBy: actor,
+      decidedAt: new Date().toISOString(),
+      declineReason: decision === "declined" ? (declineReason || "Not this week").slice(0, 80) : "",
+    } : it));
   };
   const toggleShoppingItem = (id) => setShoppingItems((prev) => prev.map((it) => {
     if (it.id !== id) return it;
@@ -2092,7 +2116,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     bigRewardTitle, bigRewardCost,
     pendingMoreSub, setPendingMoreSub,
     practiceSessions, addPracticeSession, removePracticeSession,
-    shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem,
+    shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, decideShoppingRequest,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
   };
 
@@ -11575,7 +11599,7 @@ function MoreParent(props) {
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
-  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} users={props.users} /></BackWrap>;
+  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
@@ -12381,7 +12405,9 @@ function EmailSetup(props) {
 // long-press / pencil to rename, X to remove. Strikethrough on
 // checked items sinks them to the bottom. One-tap "Clear bought"
 // when the trip's over. The whole point is being faster than texting.
-function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, users = [] }) {
+function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, decideShoppingRequest, users = [], user = null }) {
+  const isKid = user?.role === "kid";
+  const isParent = user?.role === "parent" || user?.role === "helper" || user?.role === "grandparent";
   const [draft, setDraft] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
@@ -12421,12 +12447,28 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     for (const it of picked) addShoppingItem(it.title);
     setScanResults(null);
   };
-  const sorted = (shoppingItems || []).slice().sort((a, b) => {
-    if (a.checked !== b.checked) return a.checked ? 1 : -1;
-    return (a.createdAt || "").localeCompare(b.createdAt || "");
-  });
-  const remaining = sorted.filter((it) => !it.checked).length;
-  const done = sorted.filter((it) => it.checked).length;
+  // Partition into pending kid requests / on-the-list / declined.
+  // "On the list" includes both parent-added items (request_status NULL)
+  // and approved kid requests — once approved, a request behaves like
+  // a normal item with all the usual check-off mechanics.
+  const all = (shoppingItems || []).slice();
+  const pendingRequests = all
+    .filter((it) => it.requestStatus === "pending")
+    .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+  const onList = all
+    .filter((it) => it.requestStatus !== "pending" && it.requestStatus !== "declined")
+    .sort((a, b) => {
+      if (a.checked !== b.checked) return a.checked ? 1 : -1;
+      return (a.createdAt || "").localeCompare(b.createdAt || "");
+    });
+  const declined = all
+    .filter((it) => it.requestStatus === "declined")
+    .sort((a, b) => (b.decidedAt || "").localeCompare(a.decidedAt || ""));
+  const remaining = onList.filter((it) => !it.checked).length;
+  const done = onList.filter((it) => it.checked).length;
+  const [showDeclined, setShowDeclined] = useState(false);
+  const [decliningId, setDecliningId] = useState(null);
+  const [declineReasonDraft, setDeclineReasonDraft] = useState("");
   const submit = (e) => {
     e?.preventDefault?.();
     addShoppingItem(draft);
@@ -12502,12 +12544,61 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
         </Card>
       )}
 
-      {sorted.length > 0 && (
+      {/* Parent-side: pending kid requests */}
+      {isParent && pendingRequests.length > 0 && (
+        <Card className="p-3 mb-3 bg-amber-50 border border-amber-200">
+          <div className="text-[11px] uppercase tracking-wider font-bold text-amber-700 mb-2">⭐ Pending requests · {pendingRequests.length}</div>
+          {pendingRequests.map((it) => (
+            <div key={it.id} className="bg-white border border-amber-100 rounded-xl p-2.5 mb-2 last:mb-0">
+              <div className="font-bold text-sm">{it.title}</div>
+              {it.brand && <div className="text-[10px] text-slate-500">brand: {it.brand}</div>}
+              {it.addedBy && findName(it.addedBy) && (
+                <div className="text-[10px] text-slate-400">from {findName(it.addedBy)}</div>
+              )}
+              {decliningId === it.id ? (
+                <div className="mt-2">
+                  <input
+                    value={declineReasonDraft}
+                    onChange={(e) => setDeclineReasonDraft(e.target.value)}
+                    placeholder="Optional: short reason (e.g. 'not this week')"
+                    className="w-full border border-slate-200 rounded-lg px-2 py-1 text-sm mb-2"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={() => { setDecliningId(null); setDeclineReasonDraft(""); }} className="flex-1 py-1.5 rounded-lg bg-slate-100 text-slate-500 font-bold text-xs">Cancel</button>
+                    <button onClick={() => { decideShoppingRequest(it.id, "declined", declineReasonDraft); setDecliningId(null); setDeclineReasonDraft(""); }} className="flex-1 py-1.5 rounded-lg bg-rose-600 text-white font-bold text-xs">Decline</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => { setDecliningId(it.id); setDeclineReasonDraft(""); }} className="flex-1 py-1.5 rounded-lg bg-rose-50 text-rose-600 border border-rose-200 font-bold text-xs">Decline</button>
+                  <button onClick={() => decideShoppingRequest(it.id, "approved")} className="flex-1 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-xs">Approve</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {/* Kid-side: their own pending requests */}
+      {isKid && pendingRequests.filter((it) => it.addedBy === user?.id).length > 0 && (
+        <Card className="p-3 mb-3 bg-amber-50 border border-amber-200">
+          <div className="text-[11px] uppercase tracking-wider font-bold text-amber-700 mb-2">⭐ Waiting for mom or dad</div>
+          {pendingRequests.filter((it) => it.addedBy === user?.id).map((it) => (
+            <div key={it.id} className="bg-white border border-amber-100 rounded-xl p-2.5 mb-2 last:mb-0">
+              <div className="font-bold text-sm">{it.title}</div>
+              {it.brand && <div className="text-[10px] text-slate-500">brand: {it.brand}</div>}
+              <button onClick={() => removeShoppingItem(it.id)} className="text-[10px] font-bold text-slate-400 mt-1">Cancel</button>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {onList.length > 0 && (
         <div className="flex items-center justify-between mb-2 px-1">
           <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500">
             {remaining} to buy {done > 0 && <span className="text-slate-300 font-medium normal-case"> · {done} done</span>}
           </div>
-          {done > 0 && (
+          {done > 0 && isParent && (
             <button onClick={() => { if (confirm(`Clear ${done} bought item${done === 1 ? "" : "s"}?`)) clearCheckedShoppingItems(); }} className="text-[11px] font-bold text-rose-600 active:scale-95">
               Clear bought
             </button>
@@ -12515,12 +12606,12 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
         </div>
       )}
 
-      {sorted.length === 0 ? (
+      {onList.length === 0 && pendingRequests.length === 0 ? (
         <Card className="p-6 text-center text-sm text-slate-400">
           List is empty. Add the first thing above.
         </Card>
       ) : (
-        sorted.map((it) => (
+        onList.map((it) => (
           <div
             key={it.id}
             className={`flex items-center gap-2 p-3 mb-1.5 rounded-xl border ${it.checked ? "bg-slate-50 border-slate-100" : "bg-white border-slate-100"}`}
@@ -12566,6 +12657,31 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
             </button>
           </div>
         ))
+      )}
+
+      {/* Declined kid requests — collapsed by default to keep the list clean. */}
+      {declined.length > 0 && (
+        <div className="mt-4">
+          <button
+            onClick={() => setShowDeclined((s) => !s)}
+            className="w-full flex items-center justify-between text-[11px] uppercase tracking-wider font-bold text-slate-400 mb-2 px-1"
+          >
+            <span>{showDeclined ? "▾" : "▸"} Not this week · {declined.length}</span>
+          </button>
+          {showDeclined && declined.map((it) => (
+            <div key={it.id} className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 mb-1.5">
+              <div className="font-semibold text-sm text-slate-500 line-through">{it.title}</div>
+              {it.declineReason && <div className="text-[11px] text-slate-500 italic mt-0.5">{it.declineReason}</div>}
+              <div className="flex items-center justify-between mt-1">
+                <div className="text-[10px] text-slate-400">
+                  {it.addedBy && findName(it.addedBy) ? `from ${findName(it.addedBy)}` : ""}
+                  {it.decidedBy && findName(it.decidedBy) ? ` · declined by ${findName(it.decidedBy)}` : ""}
+                </div>
+                <button onClick={() => removeShoppingItem(it.id)} className="text-[10px] font-bold text-slate-400">Remove</button>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </>
   );

@@ -198,6 +198,11 @@ export const toApp = {
     checkedAt: r.checked_at || null,
     checkedBy: r.checked_by || null,
     addedBy: r.added_by || null,
+    requestStatus: r.request_status || null,   // null | 'pending' | 'approved' | 'declined'
+    decidedBy: r.decided_by || null,
+    decidedAt: r.decided_at || null,
+    declineReason: r.decline_reason || "",
+    brand: r.brand || "",
     createdAt: r.created_at,
   }),
 
@@ -501,6 +506,11 @@ export const toDb = {
     checked_at: o.checkedAt || null,
     checked_by: o.checkedBy || null,
     added_by: o.addedBy || null,
+    request_status: o.requestStatus || null,
+    decided_by: o.decidedBy || null,
+    decided_at: o.decidedAt || null,
+    decline_reason: o.declineReason || null,
+    brand: o.brand || null,
   }),
 
   practiceSession: (familyId) => (o) => ({
