@@ -20,6 +20,7 @@ import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx
 import { uploadFamilyPhoto, useSignedUrl, uploadFamilyAudio } from "./lib/storage.js";
 import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
+import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { supabase } from "./lib/supabase.js";
@@ -814,16 +815,22 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   //   parent / helper / grandparent → request_status=null (on the list).
   // The doc's soul-feature: Reznor adds "drumsticks" → it sits as a
   // pending request → Mike/Krissie approve onto the real list.
-  const addShoppingItem = (title, notes = "", { brand } = {}) => {
+  const addShoppingItem = (title, notes = "", { brand, listName, section } = {}) => {
     const t = (title || "").trim();
     if (!t) return;
     const actorProfile = users.find((u) => u.id === currentUserId);
     const isKidActing = actorProfile?.role === "kid";
+    // Auto-classify into a store section (Produce / Dairy / Pantry /
+    // etc.) so the grouped view at the store doesn't make Krissie
+    // backtrack. Parent can override from the edit sheet.
+    const resolvedSection = (section || classifyShoppingItem(t)).slice(0, 32);
     setShoppingItems((prev) => [...prev, {
       id: "si_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
       title: t,
       notes,
       brand: brand || "",
+      section: resolvedSection,
+      listName: (listName || "Grocery").slice(0, 32),
       checked: false,
       checkedAt: null,
       checkedBy: null,
@@ -12415,15 +12422,41 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
   const [editBrandDraft, setEditBrandDraft] = useState("");
+  const [editSectionDraft, setEditSectionDraft] = useState("");
+
+  // v2: lists + sections. activeList drives the per-list filter; the
+  // tabs at the top let parents flip between "Grocery" and "Costco"
+  // (or anything else they add). New empty lists land via the "+ New"
+  // button, which holds the name in pendingNewListName until the user
+  // adds the first item — at that point the list is real (because at
+  // least one item carries that list_name).
+  const [activeList, setActiveList] = useState("Grocery");
+  const [newListEditing, setNewListEditing] = useState(false);
+  const [newListName, setNewListName] = useState("");
+
+  const availableLists = useMemo(() => {
+    const s = new Set(["Grocery"]);
+    for (const it of (shoppingItems || [])) {
+      if (it.listName) s.add(it.listName);
+    }
+    return Array.from(s);
+  }, [shoppingItems]);
+
+  // Items filtered to the active list. Everything downstream
+  // (history, favorites, partitions) reads from this slice so each
+  // list behaves like its own little world.
+  const listItems = useMemo(
+    () => (shoppingItems || []).filter((it) => (it.listName || "Grocery") === activeList),
+    [shoppingItems, activeList]
+  );
 
   // Smart-add: history map keyed by lowercased title. Surfaces
   // favorites + fuzzy type-ahead with brand carry-over so Krissie
-  // doesn't retype "Honey Nut Cheerios" every week. Per the doc
-  // (v1.5 phase): "Start typing 'pea' → suggests 'Peanut butter' because
-  // you've added it before. Gets faster every week."
+  // doesn't retype "Honey Nut Cheerios" every week. Scoped to the
+  // active list so Costco favorites don't pollute the Grocery view.
   const history = useMemo(() => {
     const m = new Map();
-    for (const it of (shoppingItems || [])) {
+    for (const it of listItems) {
       const k = (it.title || "").trim().toLowerCase();
       if (!k) continue;
       const prev = m.get(k) || { title: it.title, count: 0, lastUsed: "", brand: "" };
@@ -12437,7 +12470,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
       m.set(k, prev);
     }
     return m;
-  }, [shoppingItems]);
+  }, [listItems]);
 
   // Favorites = items added 2+ times historically, sorted by recency.
   // Top 8 surface as one-tap chips above the input.
@@ -12448,15 +12481,16 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   }, [history]);
 
   // Currently-on-the-list set so favorites already in play hide.
+  // Scoped to the active list.
   const activeTitles = useMemo(() => {
     const s = new Set();
-    for (const it of (shoppingItems || [])) {
+    for (const it of listItems) {
       if (it.checked) continue;
       if (it.requestStatus === "declined") continue;
       s.add((it.title || "").trim().toLowerCase());
     }
     return s;
-  }, [shoppingItems]);
+  }, [listItems]);
 
   // Fuzzy suggestions for the typed draft. Skip exact matches (no
   // point suggesting what they already typed) and titles currently
@@ -12508,11 +12542,11 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     for (const it of picked) addShoppingItem(it.title);
     setScanResults(null);
   };
-  // Partition into pending kid requests / on-the-list / declined.
-  // "On the list" includes both parent-added items (request_status NULL)
-  // and approved kid requests — once approved, a request behaves like
-  // a normal item with all the usual check-off mechanics.
-  const all = (shoppingItems || []).slice();
+  // Partition the ACTIVE-LIST items into pending / on-the-list /
+  // declined. "On the list" includes parent-added items and approved
+  // kid requests. Pending / declined ARE list-scoped because the kid
+  // requested an item with a specific list_name when they added it.
+  const all = listItems.slice();
   const pendingRequests = all
     .filter((it) => it.requestStatus === "pending")
     .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
@@ -12525,6 +12559,19 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const declined = all
     .filter((it) => it.requestStatus === "declined")
     .sort((a, b) => (b.decidedAt || "").localeCompare(a.decidedAt || ""));
+
+  // Group on-list items by section (Produce → Dairy → … → Other).
+  // Items lacking a section fall into "Other". Within a section,
+  // unchecked first, then checked at the bottom (still per-section).
+  const onListBySection = useMemo(() => {
+    const m = new Map();
+    for (const it of onList) {
+      const sec = it.section && SHOPPING_SECTION_EMOJI[it.section] ? it.section : "Other";
+      if (!m.has(sec)) m.set(sec, []);
+      m.get(sec).push(it);
+    }
+    return m;
+  }, [onList]);
   const remaining = onList.filter((it) => !it.checked).length;
   const done = onList.filter((it) => it.checked).length;
   const [showDeclined, setShowDeclined] = useState(false);
@@ -12532,7 +12579,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [declineReasonDraft, setDeclineReasonDraft] = useState("");
   const submit = (e) => {
     e?.preventDefault?.();
-    addShoppingItem(draft, "", { brand: draftBrand });
+    addShoppingItem(draft, "", { brand: draftBrand, listName: activeList });
     setDraft("");
     setDraftBrand("");
     setShowSmartSuggestions(true);
@@ -12540,26 +12587,73 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   // One-tap quick-add from favorites / suggestions: pulls the saved
   // brand pref along so Krissie gets "Jif" not generic peanut butter.
   const quickAdd = (entry) => {
-    addShoppingItem(entry.title, "", { brand: entry.brand || "" });
+    addShoppingItem(entry.title, "", { brand: entry.brand || "", listName: activeList });
     setDraft("");
     setDraftBrand("");
     setShowSmartSuggestions(true);
+  };
+  const commitNewList = () => {
+    const name = (newListName || "").trim().slice(0, 24);
+    if (!name) return;
+    setActiveList(name);
+    setNewListEditing(false);
+    setNewListName("");
   };
   const finishEdit = () => {
     if (editingId) {
       const patch = {};
       if (editDraft.trim()) patch.title = editDraft.trim();
       patch.brand = (editBrandDraft || "").trim();
+      if (editSectionDraft) patch.section = editSectionDraft;
       if (updateShoppingItem) updateShoppingItem(editingId, patch);
       else if (patch.title) renameShoppingItem(editingId, patch.title);
     }
     setEditingId(null);
     setEditDraft("");
     setEditBrandDraft("");
+    setEditSectionDraft("");
   };
   const findName = (pid) => users.find((u) => u.id === pid)?.name;
   return (
     <>
+      {/* v2: list-selector tabs. "Grocery" is always present;
+          additional lists derive from existing items + a "+ New" tab
+          to create a fresh one. */}
+      <div className="flex items-center gap-1.5 mb-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+        {availableLists.map((name) => (
+          <button
+            key={name}
+            type="button"
+            onClick={() => setActiveList(name)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition ${activeList === name ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"}`}
+          >
+            {name}
+          </button>
+        ))}
+        {!newListEditing ? (
+          <button
+            type="button"
+            onClick={() => { setNewListEditing(true); setNewListName(""); }}
+            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-50 text-slate-500 border border-dashed border-slate-300"
+          >
+            + New
+          </button>
+        ) : (
+          <span className="shrink-0 flex items-center gap-1">
+            <input
+              value={newListName}
+              onChange={(e) => setNewListName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitNewList(); if (e.key === "Escape") { setNewListEditing(false); setNewListName(""); } }}
+              placeholder="Costco, Target…"
+              autoFocus
+              className="border border-indigo-200 rounded-full px-2.5 py-1 text-xs font-bold w-32"
+            />
+            <button onClick={commitNewList} disabled={!newListName.trim()} className={`px-2 py-1 rounded-full text-[10px] font-bold ${newListName.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}>Go</button>
+            <button onClick={() => { setNewListEditing(false); setNewListName(""); }} className="px-1 text-[10px] font-bold text-slate-400">Cancel</button>
+          </span>
+        )}
+      </div>
+
       {/* ⭐ Quick add — favorites from your own history (added 2+ times).
           Brand pref carries over, so tapping "Cheerios" adds with
           "Honey Nut Cheerios" as the brand if that's what you bought
@@ -12743,66 +12837,84 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
           List is empty. Add the first thing above.
         </Card>
       ) : (
-        onList.map((it) => (
-          <div
-            key={it.id}
-            className={`flex items-center gap-2 p-3 mb-1.5 rounded-xl border ${it.checked ? "bg-slate-50 border-slate-100" : "bg-white border-slate-100"}`}
-          >
-            <button
-              onClick={() => toggleShoppingItem(it.id)}
-              aria-label={it.checked ? "Uncheck" : "Check"}
-              className={`w-7 h-7 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${it.checked ? "bg-emerald-500 text-white" : "border-2 border-slate-200"}`}
-            >
-              {it.checked && <Check size={15} />}
-            </button>
-            <div className="flex-1 min-w-0">
-              {editingId === it.id ? (
-                <div>
-                  <input
-                    value={editDraft}
-                    onChange={(e) => setEditDraft(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") finishEdit(); if (e.key === "Escape") { setEditingId(null); setEditDraft(""); setEditBrandDraft(""); } }}
-                    autoFocus
-                    className="w-full border border-indigo-200 rounded-lg px-2 py-1 text-sm font-semibold mb-1"
-                  />
-                  <input
-                    value={editBrandDraft}
-                    onChange={(e) => setEditBrandDraft(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") finishEdit(); if (e.key === "Escape") { setEditingId(null); setEditDraft(""); setEditBrandDraft(""); } }}
-                    placeholder="Brand (optional)"
-                    className="w-full border border-indigo-100 rounded-lg px-2 py-1 text-xs"
-                  />
-                  <div className="flex gap-1.5 mt-1">
-                    <button type="button" onClick={() => { setEditingId(null); setEditDraft(""); setEditBrandDraft(""); }} className="text-[10px] font-bold text-slate-400 px-1.5 py-0.5">Cancel</button>
-                    <div className="flex-1" />
-                    <button type="button" onClick={finishEdit} className="text-[10px] font-bold text-indigo-600 px-1.5 py-0.5">Save</button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => { setEditingId(it.id); setEditDraft(it.title || ""); setEditBrandDraft(it.brand || ""); }}
-                  className={`text-left w-full font-semibold text-sm leading-snug ${it.checked ? "line-through text-slate-400" : "text-slate-800"}`}
-                >
-                  {it.title}
-                </button>
-              )}
-              {editingId !== it.id && it.brand && (
-                <div className="text-[10px] text-amber-700 font-bold">{it.brand}</div>
-              )}
-              {editingId !== it.id && it.checked && it.checkedBy && findName(it.checkedBy) && (
-                <div className="text-[10px] text-slate-400">✓ by {findName(it.checkedBy)}</div>
-              )}
-              {editingId !== it.id && !it.checked && it.addedBy && findName(it.addedBy) && (
-                <div className="text-[10px] text-slate-400">added by {findName(it.addedBy)}</div>
-              )}
+        SHOPPING_SECTION_ORDER.filter((sec) => onListBySection.has(sec)).map((sec) => (
+          <div key={sec} className="mb-3">
+            <div className="flex items-center gap-1.5 mb-1.5 px-1">
+              <span className="text-base leading-none">{SHOPPING_SECTION_EMOJI[sec]}</span>
+              <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500">{sec}</span>
+              <span className="text-[10px] text-slate-300 font-medium">· {onListBySection.get(sec).length}</span>
             </div>
-            <button
-              onClick={() => removeShoppingItem(it.id)}
-              className="text-slate-300 active:scale-90 p-1 shrink-0"
-              aria-label="Remove"
-            >
-              <X size={14} />
-            </button>
+            {onListBySection.get(sec).map((it) => (
+              <div
+                key={it.id}
+                className={`flex items-center gap-2 p-3 mb-1.5 rounded-xl border ${it.checked ? "bg-slate-50 border-slate-100" : "bg-white border-slate-100"}`}
+              >
+                <button
+                  onClick={() => toggleShoppingItem(it.id)}
+                  aria-label={it.checked ? "Uncheck" : "Check"}
+                  className={`w-7 h-7 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${it.checked ? "bg-emerald-500 text-white" : "border-2 border-slate-200"}`}
+                >
+                  {it.checked && <Check size={15} />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  {editingId === it.id ? (
+                    <div>
+                      <input
+                        value={editDraft}
+                        onChange={(e) => setEditDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") finishEdit(); if (e.key === "Escape") { setEditingId(null); setEditDraft(""); setEditBrandDraft(""); setEditSectionDraft(""); } }}
+                        autoFocus
+                        className="w-full border border-indigo-200 rounded-lg px-2 py-1 text-sm font-semibold mb-1"
+                      />
+                      <input
+                        value={editBrandDraft}
+                        onChange={(e) => setEditBrandDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") finishEdit(); if (e.key === "Escape") { setEditingId(null); setEditDraft(""); setEditBrandDraft(""); setEditSectionDraft(""); } }}
+                        placeholder="Brand (optional)"
+                        className="w-full border border-indigo-100 rounded-lg px-2 py-1 text-xs mb-1"
+                      />
+                      <select
+                        value={editSectionDraft}
+                        onChange={(e) => setEditSectionDraft(e.target.value)}
+                        className="w-full border border-indigo-100 rounded-lg px-2 py-1 text-xs bg-white"
+                      >
+                        {SHOPPING_SECTION_ORDER.map((sname) => (
+                          <option key={sname} value={sname}>{SHOPPING_SECTION_EMOJI[sname]} {sname}</option>
+                        ))}
+                      </select>
+                      <div className="flex gap-1.5 mt-1">
+                        <button type="button" onClick={() => { setEditingId(null); setEditDraft(""); setEditBrandDraft(""); setEditSectionDraft(""); }} className="text-[10px] font-bold text-slate-400 px-1.5 py-0.5">Cancel</button>
+                        <div className="flex-1" />
+                        <button type="button" onClick={finishEdit} className="text-[10px] font-bold text-indigo-600 px-1.5 py-0.5">Save</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setEditingId(it.id); setEditDraft(it.title || ""); setEditBrandDraft(it.brand || ""); setEditSectionDraft(it.section || classifyShoppingItem(it.title)); }}
+                      className={`text-left w-full font-semibold text-sm leading-snug ${it.checked ? "line-through text-slate-400" : "text-slate-800"}`}
+                    >
+                      {it.title}
+                    </button>
+                  )}
+                  {editingId !== it.id && it.brand && (
+                    <div className="text-[10px] text-amber-700 font-bold">{it.brand}</div>
+                  )}
+                  {editingId !== it.id && it.checked && it.checkedBy && findName(it.checkedBy) && (
+                    <div className="text-[10px] text-slate-400">✓ by {findName(it.checkedBy)}</div>
+                  )}
+                  {editingId !== it.id && !it.checked && it.addedBy && findName(it.addedBy) && (
+                    <div className="text-[10px] text-slate-400">added by {findName(it.addedBy)}</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => removeShoppingItem(it.id)}
+                  className="text-slate-300 active:scale-90 p-1 shrink-0"
+                  aria-label="Remove"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
           </div>
         ))
       )}
