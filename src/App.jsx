@@ -684,6 +684,13 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // No cap on length — Top 8 is the default expectation but parents
   // can add ad-hoc items in the editor so the board grows when needed.
   const [topPriorities, setTopPriorities] = familySetting("topPriorities", { weekly: {}, daily: {} });
+  // dailyRequiredCount — how many "must-do today" tasks the family
+  // expects per day. Default 8 matches Lynch's historical "Top 8"
+  // framing, but Mike's directive 2026-06-15: "instead of forcing a
+  // top 8 we should have the parent choose how many they want." So
+  // every Top-N copy site reads from this number, and onboarding
+  // exposes an inline picker for empty-state families.
+  const [dailyRequiredCount, setDailyRequiredCount] = familySetting("dailyRequiredCount", 8);
   // taskNaDays: per-ISO-date list of task IDs marked N/A — Reznor was
   // sick, traveling, or the task genuinely doesn't apply. Distinct from
   // priorities (which describe importance) and topPriorities (which
@@ -2210,6 +2217,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
+    dailyRequiredCount, setDailyRequiredCount,
   };
 
   // First-run gate: a freshly-created family has a parent profile (from
@@ -7438,8 +7446,79 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
   );
 }
 
+// StillTodoOnboarding — fills the "Still to do" slot when the family
+// has no Top N curated yet. Mike's bug 2026-06-15: the section was
+// happily declaring "✨ Top 8 complete — treasure ready to open!" on
+// an account with literally zero tasks set up — a false celebration
+// that confuses brand-new parents and breaks trust. Instead this card
+// walks them straight to the two places they need to go (chores,
+// activities) plus lets them set HOW MANY required tasks per day in
+// one tap, so they don't have to leave to find a settings page.
+function StillTodoOnboarding({ tasks = [], activities = [], dailyRequiredCount, setDailyRequiredCount, setTab, setPendingMoreSub }) {
+  const hasTasks = (tasks || []).length > 0;
+  const hasActiveActivities = (activities || []).some((a) => a.status === "active");
+  const go = (subKey) => { setPendingMoreSub?.(subKey); setTab?.("more"); };
+  const countChoices = [3, 5, 7, 8, 10];
+  return (
+    <Card className="p-4 mb-3 bg-gradient-to-br from-amber-50 to-rose-50 border-amber-200">
+      <div className="flex items-start gap-2 mb-2">
+        <span className="text-2xl shrink-0">🌱</span>
+        <div>
+          <div className="font-extrabold text-sm">Let's set up today's to-dos</div>
+          <div className="text-[11px] text-slate-600 leading-snug mt-0.5">
+            Add some chores and activities so your kid has a real list to work through. You can always change these later.
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <button
+          type="button"
+          onClick={() => go("tasks")}
+          className={`text-left rounded-xl px-3 py-2.5 border ${hasTasks ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200"} active:scale-[0.98]`}
+        >
+          <div className="text-lg leading-none mb-1">{hasTasks ? "✅" : "🧹"}</div>
+          <div className="text-[12px] font-extrabold">Add chores &amp; tasks</div>
+          <div className="text-[10px] text-slate-500 leading-snug">Daily missions that earn stars.</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => go("activities")}
+          className={`text-left rounded-xl px-3 py-2.5 border ${hasActiveActivities ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200"} active:scale-[0.98]`}
+        >
+          <div className="text-lg leading-none mb-1">{hasActiveActivities ? "✅" : "🎯"}</div>
+          <div className="text-[12px] font-extrabold">Add activities</div>
+          <div className="text-[10px] text-slate-500 leading-snug">Drums, swim, anything regular.</div>
+        </button>
+      </div>
+      <div className="mt-3 rounded-xl bg-white/70 border border-amber-200 p-2.5">
+        <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1.5">
+          How many to-dos per day?
+        </div>
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {countChoices.map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setDailyRequiredCount?.(n)}
+              className={`text-[12px] font-extrabold px-3 py-1.5 rounded-full ${dailyRequiredCount === n ? "bg-amber-500 text-white" : "bg-white border border-amber-200 text-amber-700"}`}
+            >
+              {n}
+            </button>
+          ))}
+          <span className="text-[10px] text-slate-500 ml-1">
+            (currently {dailyRequiredCount})
+          </span>
+        </div>
+        <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">
+          This is the count we celebrate as "complete." Easy to change anytime — just tap a different number.
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub, dailyCheckins = [] }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub, dailyCheckins = [], dailyRequiredCount = 8, setDailyRequiredCount }) {
   const [showAddPicker, setShowAddPicker] = useState(false);
   // Reorder mode is per-section so flipping it on for Bonus
   // doesn't add nudge buttons to Still-to-do too. Same pattern as
@@ -7767,9 +7846,20 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
               </div>
             )}
             {mustDo.length === 0 ? (
-              <Card className="p-3 mb-2 text-center text-xs text-emerald-700 bg-emerald-50 border-emerald-200 font-bold">
-                {i18nTOf("pt_top8_complete", "✨ Top 8 complete — treasure ready to open!")}
-              </Card>
+              todaysTopEight.length === 0 ? (
+                <StillTodoOnboarding
+                  tasks={tasks}
+                  activities={activities}
+                  dailyRequiredCount={dailyRequiredCount}
+                  setDailyRequiredCount={setDailyRequiredCount}
+                  setTab={setTab}
+                  setPendingMoreSub={setPendingMoreSub}
+                />
+              ) : (
+                <Card className="p-3 mb-2 text-center text-xs text-emerald-700 bg-emerald-50 border-emerald-200 font-bold">
+                  {i18nTOf("pt_top_complete", "✨ Top {n} complete — treasure ready to open!").replaceAll("{n}", dailyRequiredCount)}
+                </Card>
+              )
             ) : (
               reorderMustDo
                 ? mustDo.map((t, idx) => renderEditRow(t, "mustDo", idx, mustDo))
