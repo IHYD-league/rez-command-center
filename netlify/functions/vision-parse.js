@@ -37,6 +37,23 @@ Return ONLY a JSON object in this exact shape, nothing else:
 
 If the image isn't a shopping list (it's a calendar, a flyer, etc.), return { "items": [] } and nothing else.`,
 
+  shopping_product: `You're looking at a photo of a single grocery product, packaging, or empty container. Extract the title and brand so the parent can re-add this exact item to their shopping list.
+
+- title: the generic product (e.g. "Peanut butter", "Cereal", "Pasta sauce") — what a parent would write on a list, NOT the marketing name.
+- brand: the brand on the label (e.g. "Jif", "Honey Nut Cheerios", "Rao's"). Combine sub-brand + variant if both matter ("Honey Nut Cheerios", "Tide Pods Spring Meadow").
+
+If multiple distinct products appear in the photo, return all of them. If you can't make out the title or brand clearly, leave that field as an empty string rather than guessing.
+
+Return ONLY a JSON object in this exact shape, nothing else:
+{
+  "items": [
+    { "title": "Peanut butter", "brand": "Jif" },
+    { "title": "Cereal", "brand": "Honey Nut Cheerios" }
+  ]
+}
+
+If the image isn't a product photo, return { "items": [] } and nothing else.`,
+
   schedule: `You're reading a schedule, sports program, school calendar, or any image listing events at specific dates/times. Extract every distinct event.
 
 For each event, extract:
