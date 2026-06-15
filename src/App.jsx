@@ -11738,6 +11738,102 @@ function LanguagesPage({ displayLangs = ["en"], setDisplayLangs }) {
   );
 }
 
+// Account card on Privacy & Safety — lets a signed-in user SET or
+// CHANGE their password without going through forgot-password email.
+// Critical for anyone who landed via magic link and now wants real
+// password protection (Mike's rule: families upload photos + private
+// info, password is non-negotiable for adults and older kids).
+function SetPasswordCard({ sessionEmail }) {
+  const [open, setOpen] = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [state, setState] = useState("idle"); // idle | saving | saved | error
+  const [error, setError] = useState("");
+
+  const ready = pwd.length >= 8 && pwd === confirm;
+  const submit = async () => {
+    if (!ready || state === "saving") return;
+    setState("saving");
+    setError("");
+    try {
+      const { error } = await supabase.auth.updateUser({ password: pwd });
+      if (error) {
+        setState("error");
+        setError(error.message);
+      } else {
+        setState("saved");
+        setPwd("");
+        setConfirm("");
+        setTimeout(() => { setState("idle"); setOpen(false); }, 2500);
+      }
+    } catch (e) {
+      setState("error");
+      setError(String(e?.message || e));
+    }
+  };
+
+  return (
+    <Card className="p-3 mb-3 bg-amber-50 border-amber-200">
+      <div className="flex items-start gap-2">
+        <span className="text-xl shrink-0">🔐</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-extrabold text-sm">Account password</div>
+          <div className="text-[11px] text-amber-800 leading-snug">
+            Set or change the password for <strong>{sessionEmail || "your account"}</strong>. Required for accounts that uploaded photos or private data. Magic-link users: set a password here so you're not relying on email-only sign-in.
+          </div>
+          {!open ? (
+            <button onClick={() => { setOpen(true); setState("idle"); setError(""); }} className="mt-2 text-[11px] font-bold px-3 py-1.5 rounded-full bg-amber-600 text-white active:scale-95">
+              Set / change password
+            </button>
+          ) : (
+            <div className="mt-2 space-y-1.5">
+              <input
+                type="password"
+                value={pwd}
+                onChange={(e) => setPwd(e.target.value)}
+                placeholder="New password (8+ characters)"
+                autoComplete="new-password"
+                minLength={8}
+                className="w-full border border-amber-200 rounded-lg px-2 py-1.5 text-sm bg-white"
+              />
+              <input
+                type="password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                placeholder="Type it again"
+                autoComplete="new-password"
+                minLength={8}
+                className="w-full border border-amber-200 rounded-lg px-2 py-1.5 text-sm bg-white"
+              />
+              {pwd && confirm && pwd !== confirm && (
+                <div className="text-[10px] text-rose-600">The two don't match yet.</div>
+              )}
+              <div className="flex gap-1.5">
+                <button
+                  onClick={submit}
+                  disabled={!ready || state === "saving"}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold text-white ${ready ? "bg-amber-600" : "bg-slate-300"}`}
+                >
+                  {state === "saving" ? "Saving…" : state === "saved" ? "✓ Saved" : "Save password"}
+                </button>
+                <button onClick={() => { setOpen(false); setPwd(""); setConfirm(""); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-500 border border-slate-200">
+                  Cancel
+                </button>
+              </div>
+              {state === "error" && (
+                <div className="text-[10px] text-rose-600">{error}</div>
+              )}
+              {state === "saved" && (
+                <div className="text-[10px] text-emerald-700">Password updated. You'll use it for your next sign-in.</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function PrivacySafety(props) {
   const { familyId = "", users = [], sessionEmail = "", signOut, completions = [], albumPhotos = [], gifted = [], songPlays = [], setTab, setSub } = props;
   const fid = String(familyId || "");
@@ -11780,6 +11876,7 @@ function PrivacySafety(props) {
   const openGallery = setSub ? () => setSub("gallery") : null;
   return (
     <div className="px-4 pt-4">
+      <SetPasswordCard sessionEmail={sessionEmail} />
       <div className="rounded-3xl p-4 mb-3 text-white bg-gradient-to-br from-indigo-500 to-violet-600">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur grid place-items-center text-2xl">🔒</div>
@@ -14100,8 +14197,40 @@ function InviteTextButton({ user, familyName }) {
   };
 
   return (
-    <div className="mt-2">
-      <div className="flex flex-wrap gap-1.5">
+    <div className="mt-2 rounded-xl bg-slate-50 border border-slate-100 p-2.5">
+      <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">How {user.name} signs in</div>
+
+      {/* OPTION 1 — Password (recommended for adults + kids with private data) */}
+      <div className="rounded-lg bg-white border border-slate-100 p-2 mb-2">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-base">🔒</span>
+          <div className="font-bold text-[12px] flex-1">Password sign-up <span className="text-[10px] font-medium text-emerald-700">· recommended</span></div>
+        </div>
+        <div className="text-[10px] text-slate-500 leading-snug mb-2">
+          They register with their own password. Best for spouses, older kids, and anyone who'll upload photos or personal data — both "something you know" (password) and "something you have" (email).
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <a href={sms} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 active:scale-95">
+            💬 Text invite
+          </a>
+          <a href={mailto} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 active:scale-95">
+            📧 Email invite
+          </a>
+          <button onClick={copy} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+            📋 Copy
+          </button>
+        </div>
+      </div>
+
+      {/* OPTION 2 — Magic link (low friction, weaker for sensitive data) */}
+      <div className="rounded-lg bg-white border border-slate-100 p-2">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-base">✨</span>
+          <div className="font-bold text-[12px] flex-1">Magic link · zero typing</div>
+        </div>
+        <div className="text-[10px] text-slate-500 leading-snug mb-2">
+          They tap one link in their inbox and they're in. Faster, but anyone with access to that inbox can sign in too. Better for grandparents who'd never set up a password.
+        </div>
         <button
           onClick={sendMagicLink}
           disabled={magicState === "sending"}
@@ -14115,31 +14244,17 @@ function InviteTextButton({ user, familyName }) {
           {magicState === "sent"    ? "✓ Magic link sent" :
            magicState === "error"   ? "Try again" :
            magicState === "sending" ? "Sending…" :
-           "✨ Send magic link"}
+           "Send magic link"}
         </button>
-        <a href={sms} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 active:scale-95">
-          💬 Text
-        </a>
-        <a href={mailto} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 active:scale-95">
-          📧 Email
-        </a>
-        <button onClick={copy} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-          📋 Copy
-        </button>
+        {magicState === "sent" && (
+          <div className="text-[10px] text-emerald-700 mt-1.5 leading-snug">
+            Sent to {user.email}. They can set a password after signing in from More → Privacy & Safety → Account.
+          </div>
+        )}
+        {magicState === "error" && (
+          <div className="text-[10px] text-rose-600 mt-1.5 leading-snug">{magicError}</div>
+        )}
       </div>
-      {magicState === "sent" && (
-        <div className="text-[10px] text-emerald-700 mt-1 leading-snug">
-          Tell them to check {user.email} — they tap the link and they're in. No password needed.
-        </div>
-      )}
-      {magicState === "error" && (
-        <div className="text-[10px] text-rose-600 mt-1 leading-snug">{magicError}</div>
-      )}
-      {magicState === "idle" && (
-        <div className="text-[10px] text-slate-400 mt-1 leading-snug">
-          Magic link = zero typing on their end. Text / Email / Copy are backup if their inbox is slow.
-        </div>
-      )}
     </div>
   );
 }
