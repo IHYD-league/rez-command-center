@@ -14051,8 +14051,12 @@ function AccessEditor({ user, onSave }) {
 // instructions verbatim. Only renders when an email is set AND the
 // person hasn't actually signed up yet (auth_user_id null).
 function InviteTextButton({ user, familyName }) {
+  const [magicState, setMagicState] = useState("idle"); // idle | sending | sent | error
+  const [magicError, setMagicError] = useState("");
+
   if (!user?.email) return null;
   if (user.auth_user_id) return null; // already linked = already signed up
+
   const origin = (typeof window !== "undefined" && window.location?.origin) || "https://little-legend-treasures.netlify.app";
   const fam = familyName || "our family";
   const intro = user.role === "kid"
@@ -14066,17 +14070,76 @@ function InviteTextButton({ user, familyName }) {
     try { await navigator.clipboard.writeText(body); }
     catch { /* skip */ }
   };
+
+  // Magic link — zero-friction path. Supabase emails the person a
+  // one-tap sign-in link; on click, they auth + the existing
+  // claim_profile_by_email RPC auto-links them to this pre-staged
+  // profile. No password, no Join tab, no manual instructions.
+  // shouldCreateUser default = true so brand-new auth accounts are
+  // created on the fly.
+  const sendMagicLink = async () => {
+    if (magicState === "sending") return;
+    setMagicState("sending");
+    setMagicError("");
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: user.email,
+        options: { emailRedirectTo: origin },
+      });
+      if (error) {
+        setMagicState("error");
+        setMagicError(error.message);
+      } else {
+        setMagicState("sent");
+        setTimeout(() => setMagicState("idle"), 4000);
+      }
+    } catch (e) {
+      setMagicState("error");
+      setMagicError(String(e?.message || e));
+    }
+  };
+
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      <a href={sms} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 active:scale-95">
-        💬 Text invite
-      </a>
-      <a href={mailto} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 active:scale-95">
-        📧 Email invite
-      </a>
-      <button onClick={copy} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-        📋 Copy
-      </button>
+    <div className="mt-2">
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          onClick={sendMagicLink}
+          disabled={magicState === "sending"}
+          className={`text-[11px] font-extrabold px-3 py-1 rounded-full text-white active:scale-95 ${
+            magicState === "sent"     ? "bg-emerald-500" :
+            magicState === "error"    ? "bg-rose-500"    :
+            magicState === "sending"  ? "bg-slate-400"   :
+            "bg-indigo-600"
+          }`}
+        >
+          {magicState === "sent"    ? "✓ Magic link sent" :
+           magicState === "error"   ? "Try again" :
+           magicState === "sending" ? "Sending…" :
+           "✨ Send magic link"}
+        </button>
+        <a href={sms} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 active:scale-95">
+          💬 Text
+        </a>
+        <a href={mailto} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 active:scale-95">
+          📧 Email
+        </a>
+        <button onClick={copy} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+          📋 Copy
+        </button>
+      </div>
+      {magicState === "sent" && (
+        <div className="text-[10px] text-emerald-700 mt-1 leading-snug">
+          Tell them to check {user.email} — they tap the link and they're in. No password needed.
+        </div>
+      )}
+      {magicState === "error" && (
+        <div className="text-[10px] text-rose-600 mt-1 leading-snug">{magicError}</div>
+      )}
+      {magicState === "idle" && (
+        <div className="text-[10px] text-slate-400 mt-1 leading-snug">
+          Magic link = zero typing on their end. Text / Email / Copy are backup if their inbox is slow.
+        </div>
+      )}
     </div>
   );
 }
