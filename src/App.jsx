@@ -26,6 +26,7 @@ import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { confetti } from "./lib/confetti.js";
 import { milestone } from "./lib/milestone.js";
 import MilestoneCelebrate from "./MilestoneCelebrate.jsx";
+import { nextBirthdayInfo, upcomingBirthdays } from "./lib/birthdays.js";
 import { supabase } from "./lib/supabase.js";
 import { toApp } from "./data/transform.js";
 import { juice } from "./lib/juice.js";
@@ -7350,6 +7351,28 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
 
       <StreakStrip streaks={streaks} activities={activities} />
 
+      {/* Coming up — birthday celebration card. Only renders when at
+          least one family member has a birthday within 7 days, so
+          it never competes with streak data unless it's actually
+          imminent. */}
+      {(() => {
+        const upcoming = upcomingBirthdays(users || [], 7);
+        if (upcoming.length === 0) return null;
+        return (
+          <Card className="p-3 mt-3 bg-gradient-to-br from-amber-50 to-rose-50 border-amber-200">
+            <div className="text-[11px] uppercase tracking-wider font-bold text-amber-700 mb-1.5">🎂 Coming up</div>
+            {upcoming.map(({ profile: p, info }) => (
+              <div key={p.id} className="flex items-center gap-2 py-0.5">
+                <span className="font-bold text-sm flex-1 truncate">{p.name}</span>
+                <span className={`text-[11px] font-bold ${info.isToday ? "text-rose-600" : "text-slate-600"}`}>
+                  {info.isToday ? "🎉 Today!" : `in ${info.daysUntil} day${info.daysUntil === 1 ? "" : "s"}`}
+                </span>
+              </div>
+            ))}
+          </Card>
+        );
+      })()}
+
       {/* Per-kid 7-day mood strip. Renders only when at least one
           check-in exists for the family. Tiny chip-row at a glance —
           tap a kid's chips for the full Insights moods view (future). */}
@@ -13857,6 +13880,7 @@ function People({ users, addUser, updateUser, removeUser, familyId, pendingRegis
               <EmailEditor user={u} onSave={(email) => updateUser(u.id, { email })} />
             )}
             {u.role === "kid" && <GrandparentShareLink kidId={u.id} kidName={u.name} />}
+            <BirthdayEditor user={u} onSave={(birthday) => updateUser(u.id, { birthday })} />
             {!locked(u) && (
               <AccessEditor
                 user={u}
@@ -14008,6 +14032,66 @@ function AccessEditor({ user, onSave }) {
 // /share/<token> URL, or revoke. The shared page (SharedKidView)
 // shows kid name, streaks, this-week stars, and recent wins — no
 // rewards economy, no other family members, no addresses.
+// Inline birthday editor + a tiny "🎂 in N days" badge for People rows.
+// Showing the badge ONLY when ≤ 7 days out so it doesn't compete with
+// the streak data parents care about most. Per Mike's rule: streak
+// importance > birthday distance > everything else on this row.
+function BirthdayEditor({ user, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(user.birthday || "");
+  const info = user.birthday ? nextBirthdayInfo(user.birthday) : null;
+  const within7 = info && info.daysUntil <= 7;
+  const display = info
+    ? (info.isToday ? "🎉 Today!" : `🎂 in ${info.daysUntil} day${info.daysUntil === 1 ? "" : "s"}`)
+    : null;
+  if (!editing) {
+    return (
+      <div className="mt-2 flex items-center gap-2">
+        {within7 ? (
+          <span className="text-[11px] font-bold px-2 py-1 rounded-full bg-amber-100 text-amber-800">{display}</span>
+        ) : (
+          <span className="text-[10px] text-slate-400">
+            {info ? `Birthday: ${new Date(user.birthday + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "Birthday: —"}
+          </span>
+        )}
+        <button onClick={() => { setVal(user.birthday || ""); setEditing(true); }} className="text-[10px] font-bold text-indigo-600">
+          {user.birthday ? "Change" : "Add"}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <input
+        type="date"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        className="border border-slate-200 rounded-lg px-2 py-1 text-xs"
+      />
+      <button
+        onClick={() => { onSave(val || null); setEditing(false); }}
+        className="text-[10px] font-bold px-2 py-1 rounded-full bg-indigo-600 text-white"
+      >
+        Save
+      </button>
+      <button
+        onClick={() => setEditing(false)}
+        className="text-[10px] font-bold text-slate-400"
+      >
+        Cancel
+      </button>
+      {user.birthday && (
+        <button
+          onClick={() => { onSave(null); setEditing(false); }}
+          className="text-[10px] font-bold text-rose-500"
+        >
+          Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
 function GrandparentShareLink({ kidId, kidName }) {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);

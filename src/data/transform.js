@@ -21,6 +21,7 @@ export const toApp = {
     // Free-text grade level for kid profiles (K, 1st, 2nd, …, 12th, or
     // anything the parent types). NULL on non-kids and on un-set kids.
     grade: r.grade ?? null,
+    birthday: r.birthday ?? null,
     // Admin = "can act as any profile" capability. Set on the
     // canonical owner of the family (Mike). Trigger enforce_actor_
     // identity_trg uses the same flag server-side; this client copy
@@ -343,6 +344,7 @@ export const toDb = {
     is_child: o.is_child ?? false,
     kid_meta: o.kid_meta ?? {},
     grade: o.grade ?? null,
+    birthday: o.birthday || null,
   }),
 
   task: (familyId) => (o) => ({
