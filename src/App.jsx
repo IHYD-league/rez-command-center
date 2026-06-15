@@ -2023,6 +2023,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   }, [tasks.length]);
 
   const [hubOpen, setHubOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // Welcome overlay — re-fires on every app open + every profile switch.
   // Was previously gated by currentPrefs.onboarded (one-shot per profile);
@@ -2202,12 +2203,34 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
           height: "100dvh",
         }}
       >
-        <TopBar user={user} mode={mode} onSwitch={() => { setCurrentUserId(null); }} onSignOut={signOut} sessionEmail={sessionEmail} onOpenHub={() => setHubOpen(true)} />
+        <TopBar user={user} mode={mode} onSwitch={() => { setCurrentUserId(null); }} onSignOut={signOut} sessionEmail={sessionEmail} onOpenHub={() => setHubOpen(true)} onOpenSearch={() => setSearchOpen(true)} />
         <div className="flex-1 overflow-y-auto pb-24">
           <Router tab={tab} {...shared} />
         </div>
         <BottomNav user={user} tab={tab} setTab={setTab} langs={langs} />
         <BetaFeedbackChip familyName={user?.familyName} kidName={user?.name} />
+        {searchOpen && (
+          <SearchSheet
+            onClose={() => setSearchOpen(false)}
+            tasks={tasks}
+            activities={activities}
+            books={books}
+            songs={songs}
+            rewards={rewards}
+            events={events}
+            shoppingItems={shoppingItems}
+            completions={completions}
+            users={users}
+            onPickTask={(t) => { setSearchOpen(false); setOpenTask(t); }}
+            onPickCompletion={(c) => { setSearchOpen(false); setOpenCompletionId(c.id); }}
+            onPickEvent={() => { setSearchOpen(false); setTab("calendar"); }}
+            onPickShopping={() => { setSearchOpen(false); setPendingMoreSub("shopping"); setTab("more"); }}
+            onPickReward={() => { setSearchOpen(false); setTab("rewards"); }}
+            onPickActivity={() => { setSearchOpen(false); setPendingMoreSub("activities"); setTab("more"); }}
+            onPickBook={() => { setSearchOpen(false); setPendingMoreSub("library"); setTab("more"); }}
+            onPickSong={() => { setSearchOpen(false); setPendingMoreSub("music_library"); setTab("more"); }}
+          />
+        )}
         {openTask && (
           <TaskSheet
             task={openTask}
@@ -2879,7 +2902,7 @@ function CoachModeRoute(props) {
 }
 
 // ===================== SHARED UI =====================
-function TopBar({ user, mode, onSwitch, onSignOut, sessionEmail, onOpenHub }) {
+function TopBar({ user, mode, onSwitch, onSignOut, sessionEmail, onOpenHub, onOpenSearch }) {
   return (
     <div className="sticky top-0 z-20 bg-white border-b border-slate-100 px-3 py-3 flex items-center justify-between gap-2">
       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -2890,6 +2913,16 @@ function TopBar({ user, mode, onSwitch, onSignOut, sessionEmail, onOpenHub }) {
         </div>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
+        {onOpenSearch && (
+          <button
+            onClick={onOpenSearch}
+            title="Search"
+            aria-label="Search"
+            className="w-7 h-7 rounded-full grid place-items-center text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <Search size={14} />
+          </button>
+        )}
         <span className={`text-[11px] font-semibold px-2 py-1 rounded-full ${mode === "summer" ? "bg-amber-100 text-amber-700" : "bg-sky-100 text-sky-700"}`}>
           {mode === "summer" ? <span className="flex items-center gap-1"><Sun size={12} /> Summer</span> : <span className="flex items-center gap-1"><GraduationCap size={12} /> School</span>}
         </span>
@@ -14903,6 +14936,148 @@ function CareInfo() {
 // stub. We don't auto-attach screenshots — the parent can if they
 // want to. Email destination is a familySetting so Mike can change
 // it later without a redeploy.
+// Global fuzzy search across every entity Mike + Krissie commonly hunt
+// for: tasks, books, songs, activities, rewards, events, shopping
+// items, recent completions. Tap a result → close modal + navigate
+// to the right place via the parent-supplied onPick handlers.
+function SearchSheet({ onClose, tasks = [], activities = [], books = [], songs = [], rewards = [], events = [], shoppingItems = [], completions = [], users = [], onPickTask, onPickCompletion, onPickEvent, onPickShopping, onPickReward, onPickActivity, onPickBook, onPickSong }) {
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const taskById = Object.fromEntries((tasks || []).map((t) => [t.id, t]));
+  const activityById = Object.fromEntries((activities || []).map((a) => [a.id, a]));
+
+  const norm = (s) => (s || "").toLowerCase().trim();
+  const match = (text) => {
+    const txt = norm(text);
+    const nq = norm(q);
+    if (!nq) return null;
+    const m = fuzzyMatch(nq, txt);
+    return m.hit ? m.score : null;
+  };
+
+  const results = useMemo(() => {
+    if (!q.trim()) return null;
+    const buckets = {
+      Tasks:     [],
+      Books:     [],
+      Songs:     [],
+      Activities:[],
+      Rewards:   [],
+      Events:    [],
+      "Shopping list": [],
+      "Recent completions": [],
+    };
+
+    for (const t of tasks) {
+      const s = match(t.title);
+      if (s != null) buckets.Tasks.push({ score: s, label: t.title, sub: t.activityType, color: activityById[t.activityId]?.color, onPick: () => onPickTask && onPickTask(t) });
+    }
+    for (const b of books) {
+      const s = match(b.canonicalTitle || b.title) ?? match(b.canonicalAuthor || b.author);
+      if (s != null) buckets.Books.push({ score: s, label: b.canonicalTitle || b.title, sub: b.canonicalAuthor || b.author || "", color: "#3b82f6", onPick: () => onPickBook && onPickBook(b) });
+    }
+    for (const sg of songs) {
+      const s = match(sg.canonicalTitle || sg.title) ?? match(sg.canonicalArtist || sg.artist);
+      if (s != null) buckets.Songs.push({ score: s, label: sg.canonicalTitle || sg.title, sub: sg.canonicalArtist || sg.artist || "", color: "#7c3aed", onPick: () => onPickSong && onPickSong(sg) });
+    }
+    for (const a of activities) {
+      if (a.status === "archived") continue;
+      const s = match(a.name) ?? match(a.short);
+      if (s != null) buckets.Activities.push({ score: s, label: a.name, sub: a.pillar, color: a.color, onPick: () => onPickActivity && onPickActivity(a) });
+    }
+    for (const r of rewards) {
+      const s = match(r.title);
+      if (s != null) buckets.Rewards.push({ score: s, label: r.title, sub: `${r.starCost || 0} ⭐`, color: "#f59e0b", onPick: () => onPickReward && onPickReward(r) });
+    }
+    for (const e of events) {
+      const s = match(e.title) ?? match(e.notes) ?? match(e.address);
+      if (s != null) buckets.Events.push({ score: s, label: e.title, sub: e.date || (Number.isInteger(e.recurWeekday) ? `every ${WEEKDAY_NAMES_FULL[e.recurWeekday]}` : ""), color: "#10b981", onPick: () => onPickEvent && onPickEvent(e) });
+    }
+    for (const it of shoppingItems) {
+      if (it.checked) continue;
+      const s = match(it.title) ?? match(it.brand);
+      if (s != null) buckets["Shopping list"].push({ score: s, label: it.title, sub: it.listName + (it.brand ? ` · ${it.brand}` : ""), color: "#ec4899", onPick: () => onPickShopping && onPickShopping(it) });
+    }
+    for (const c of (completions || []).slice(-200)) {
+      const t = taskById[c.taskId];
+      if (!t) continue;
+      const s = match(t.title) ?? match(c.notes);
+      if (s != null) buckets["Recent completions"].push({ score: s, label: t.title, sub: c.completionDate + (c.status === "approved" ? " ✓" : c.status === "pending" ? " · pending" : ""), color: activityById[t.activityId]?.color || "#64748b", onPick: () => onPickCompletion && onPickCompletion(c) });
+    }
+
+    for (const k of Object.keys(buckets)) {
+      buckets[k].sort((a, b) => b.score - a.score);
+      buckets[k] = buckets[k].slice(0, 8);
+    }
+    return buckets;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, tasks, books, songs, activities, rewards, events, shoppingItems, completions]);
+
+  const totalHits = results ? Object.values(results).reduce((acc, arr) => acc + arr.length, 0) : 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/50 flex items-start justify-center"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md mx-auto mt-12 mb-12 bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col"
+        style={{ maxHeight: "calc(100vh - 6rem)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 p-3 border-b border-slate-100 shrink-0">
+          <Search size={16} className="text-slate-400 shrink-0" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Find a task, book, song, event, anything…"
+            autoFocus
+            className="flex-1 px-1 py-1 text-base font-semibold outline-none bg-transparent"
+          />
+          <button onClick={onClose} className="text-xs font-bold text-slate-400 px-2 py-1">Close</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {!q.trim() && (
+            <div className="text-[12px] text-slate-400 p-4 leading-snug">
+              Start typing. Search covers tasks, books, songs, activities, rewards, calendar events, shopping items, and recent completions.
+            </div>
+          )}
+          {q.trim() && totalHits === 0 && (
+            <div className="text-[12px] text-slate-400 p-4 text-center">
+              Nothing matching <em>"{q}"</em> across the app.
+            </div>
+          )}
+          {q.trim() && totalHits > 0 && Object.entries(results).map(([group, arr]) => (
+            arr.length === 0 ? null : (
+              <div key={group} className="mb-3">
+                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1.5 px-1">{group} · {arr.length}</div>
+                {arr.map((r, i) => (
+                  <button
+                    key={i}
+                    onClick={r.onPick}
+                    className="w-full flex items-start gap-2 p-2.5 mb-1 rounded-xl border border-slate-100 bg-white active:scale-[0.99] text-left"
+                  >
+                    <div className="w-1.5 self-stretch rounded-full shrink-0" style={{ background: r.color || "#94a3b8", minHeight: "2rem" }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-sm truncate">{r.label}</div>
+                      {r.sub && <div className="text-[11px] text-slate-500 truncate">{r.sub}</div>}
+                    </div>
+                    <ChevronRight size={14} className="text-slate-300 shrink-0 mt-1" />
+                  </button>
+                ))}
+              </div>
+            )
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BetaFeedbackChip({ kidName }) {
   const subject = encodeURIComponent("Family Command Center — beta feedback");
   const body = encodeURIComponent(
