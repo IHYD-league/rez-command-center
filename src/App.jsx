@@ -409,7 +409,7 @@ const ACHIEVEMENTS = [
   { id: "three_today", kind: "day", emoji: "🔥", title: "Triple Play", desc: "3 things done today", test: (c) => c.doneToday >= 3 },
   { id: "four_today", kind: "day", emoji: "⚡", title: "Big Day", desc: "4 things done today", test: (c) => c.doneToday >= 4 },
   { id: "all_today", kind: "day", emoji: "🏆", title: "Clean Sweep", desc: "Finished EVERYTHING today", test: (c) => c.allToday },
-  { id: "drums3", kind: "day", emoji: "🥁", title: "Drum Trifecta", desc: "Melodics + Drumeo + Drumscribe", test: (c) => c.drumsDone },
+  { id: "drums3", kind: "day", emoji: "🥁", title: "Drum Trifecta", desc: "Did all the drum practice ways today", test: (c) => c.drumsDone },
   { id: "photo_today", kind: "day", emoji: "📸", title: "Caught on Camera", desc: "Shared a photo today", test: (c) => c.photoToday },
   { id: "stars100", kind: "trophy", emoji: "⭐", title: "Star Collector", desc: "100 stars banked", test: (c) => c.starBank >= 100, goal: 100, val: (c) => c.starBank },
   { id: "stars250", kind: "trophy", emoji: "🌟", title: "Star Hoarder", desc: "250 stars banked", test: (c) => c.starBank >= 250, goal: 250, val: (c) => c.starBank },
@@ -5023,28 +5023,41 @@ function CompletionDetailSheet({
               }
 
               if (isDrumsRow) {
-                const drumeo = Number(x.drumeo) || 0;
-                const melodics = Number(x.melodics) || 0;
+                // Subtask labels come from the task definition so
+                // other families' drums tasks show THEIR labels here,
+                // not Lynch's Drumeo/Melodics. Values: new generic
+                // extra.subValues first, then legacy extra.<id> per
+                // subtask for back-compat with old completions.
+                const drumSubsRow = Array.isArray(task?.subtasks) ? task.subtasks : [];
+                const numSubs = drumSubsRow.slice(0, 2);
+                const subVals = (x.subValues && typeof x.subValues === "object") ? x.subValues : {};
+                const readSubMin = (id) => {
+                  const v = subVals[id];
+                  if (v != null && v !== "") return Number(v) || 0;
+                  // Legacy fallback: extra.drumeo / extra.melodics keyed by id
+                  const legacy = x[id];
+                  return legacy != null && legacy !== "" ? Number(legacy) || 0 : 0;
+                };
+                const subMinByIdx = numSubs.map((s) => readSubMin(s.id));
+                const subSum = subMinByIdx.reduce((a, b) => a + b, 0);
                 // Pull songs actually played that day from the canonical
                 // song_plays rows (not extra.songList — that's free
                 // text). Then enrich with covers via the album-dedup map.
                 const daysPlays = (songPlays || []).filter((p) => (p.playedOn || p.played_on) === compDate);
                 const byId = Object.fromEntries((songs || []).map((s) => [s.id, s]));
                 const playedSongs = daysPlays.map((p) => byId[p.songId || p.song_id]).filter(Boolean);
-                // Honest minutes: drumeo + melodics + sum(played-song
-                // durations). Songs without a backfilled duration
-                // contribute 0 rather than guessing, so an unenriched
-                // library can't inflate the number.
                 const songMs = playedSongs.reduce((acc, s) => acc + (Number(s?.durationMs) || 0), 0);
                 const songMin = Math.round(songMs / 60000);
-                const total = drumeo + melodics + songMin;
-                // Fallback to the typed songList if no canonical plays
-                // exist (legacy completions, draft sessions where the
-                // parent typed names but never picked from picker).
-                const typedList = (x.songList || "").trim();
+                const total = subSum + songMin;
+                // Fallback to a typed song list when no canonical plays
+                // exist: prefer the 3rd subtask's value, fall back to
+                // legacy extra.songList for older completions.
+                const textSub = drumSubsRow[2];
+                const typedList = ((textSub && subVals[textSub.id]) || x.songList || "").trim();
                 const typedTitles = typedList ? typedList.split(/,\s*/).filter(Boolean) : [];
                 const hasAnything = total > 0 || playedSongs.length > 0 || typedTitles.length > 0;
                 if (!hasAnything) return null;
+                const cols = Math.min(3, numSubs.length + 1);
                 return (
                   <div
                     className="rounded-3xl p-4 mb-2 text-white relative overflow-hidden border-2 border-white/15 shadow-xl"
@@ -5060,15 +5073,13 @@ function CompletionDetailSheet({
                         </span>
                         <span className="text-sm font-bold text-white/70">min total</span>
                       </div>
-                      <div className="grid grid-cols-3 gap-2 mb-3">
-                        <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
-                          <div className="text-xl font-extrabold leading-none">{drumeo}</div>
-                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Drumeo</div>
-                        </div>
-                        <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
-                          <div className="text-xl font-extrabold leading-none">{melodics}</div>
-                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Melodics</div>
-                        </div>
+                      <div className={`grid gap-2 mb-3 ${cols === 1 ? "grid-cols-1" : cols === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+                        {numSubs.map((s, i) => (
+                          <div key={s.id} className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
+                            <div className="text-xl font-extrabold leading-none">{subMinByIdx[i]}</div>
+                            <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">{s.label}</div>
+                          </div>
+                        ))}
                         <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
                           <div className="text-xl font-extrabold leading-none">
                             {songMin > 0 ? songMin : (playedSongs.length || typedTitles.length)}
@@ -5626,13 +5637,46 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
       .slice(0, MAX_PHOTOS);
   });
   const [uploading, setUploading] = useState(false);
-  // Initialise drum subs from a saved draft so reopening picks up
-  // where the parent left off (Drumeo 17 min, then Melodics 37 min,
-  // etc.). Otherwise default to empty so a fresh submission still
-  // shows blank inputs.
-  const [drumeo, setDrumeo] = useState(existing?.extra?.drumeo ? String(existing.extra.drumeo) : "");
-  const [melodics, setMelodics] = useState(existing?.extra?.melodics ? String(existing.extra.melodics) : "");
-  const [songList, setSongList] = useState(existing?.extra?.songList || "");
+  // Drum subtasks are data-driven from task.subtasks so other
+  // families don't see Lynch's Drumeo / Melodics / Drumscribe brand
+  // labels. First two subtasks render as minutes inputs, third+ as
+  // text inputs. Values stored keyed by subtask.id in `subValues`;
+  // legacy extra.drumeo / extra.melodics / extra.songList are read
+  // for back-compat with old completions.
+  const drumSubs = useMemo(
+    () => Array.isArray(task.subtasks) ? task.subtasks : [],
+    [task.subtasks]
+  );
+  const [subValues, setSubValues] = useState(() => {
+    const seed = {};
+    const ex = existing?.extra || {};
+    if (ex.subValues && typeof ex.subValues === "object") {
+      for (const k of Object.keys(ex.subValues)) {
+        const v = ex.subValues[k];
+        if (v != null) seed[k] = String(v);
+      }
+    }
+    // Legacy keys from Lynch's existing completions — only honored
+    // when a subtask with the matching id exists on this task.
+    const legacyMap = { drumeo: "drumeo", melodics: "melodics", drumscribe: "songList" };
+    for (const sid of Object.keys(legacyMap)) {
+      if (seed[sid] !== undefined) continue;
+      const exKey = legacyMap[sid];
+      const has = drumSubs.some((s) => s.id === sid);
+      if (has && ex[exKey] != null && ex[exKey] !== "") {
+        seed[sid] = String(ex[exKey]);
+      }
+    }
+    return seed;
+  });
+  const setSub = (id, v) => setSubValues((prev) => ({ ...prev, [id]: v }));
+  // Legacy aliases for code paths that still read these names by id.
+  // For Lynch's t_drums these resolve correctly because the subtask
+  // IDs match. Other families: empty strings, which is the right
+  // "nothing logged" answer.
+  const drumeo = subValues.drumeo || "";
+  const melodics = subValues.melodics || "";
+  const songList = subValues.drumscribe || "";
   const [title, setTitle] = useState(existing?.extra?.title || "");
   // Reading picker — bookIds is the list of books logged in this one
   // session (Mike: Reznor read 3 books today, one completion). Stored
@@ -5860,7 +5904,31 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     const extra = {};
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
-    if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    if (isDrums) {
+      // Write generic extra.subValues keyed by subtask.id so other
+      // families' drum tasks persist their own labels' data. Total
+      // minutes derived from the first two subtasks (the "minutes"
+      // slots). Legacy keys (drumeo / melodics / songList) are still
+      // written when the matching subtask IDs exist on this task,
+      // so older display paths and Lynch's existing data stay valid.
+      const sv = {};
+      let totalMin = 0;
+      drumSubs.slice(0, 2).forEach((s, i) => {
+        const v = (subValues[s.id] || "").trim();
+        if (v) {
+          sv[s.id] = v;
+          totalMin += Number(v) || 0;
+        }
+      });
+      drumSubs.slice(2).forEach((s) => {
+        const v = (subValues[s.id] || "").trim();
+        if (v) sv[s.id] = v;
+      });
+      Object.assign(extra, { subValues: sv, totalMin });
+      if (sv.drumeo != null) extra.drumeo = sv.drumeo;
+      if (sv.melodics != null) extra.melodics = sv.melodics;
+      if (sv.drumscribe != null) extra.songList = sv.drumscribe;
+    }
     if (useSchemaFields) Object.assign(extra, schemaExtra());
     onSaveDraft(task.id, { notes, proof, extra });
   };
@@ -5909,7 +5977,10 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   if (uploading) { ready = false; gateMsg = i18nTOf("ts_gate_uploading", "Photo still uploading…"); }
   if (isReading && pickedBooks.length === 0 && !bookTitle.trim()) { ready = false; gateMsg = i18nTOf("ts_gate_book_title", "Pick at least one book or type a title to submit."); }
   if (isPhoto && photos.length === 0) { ready = false; gateMsg = i18nTOf("ts_gate_photo", "Add a photo of your work to submit."); }
-  if (isDrums && (!drumeo && !melodics && !songList)) { ready = false; gateMsg = i18nTOf("ts_gate_drums", "Log at least one of Drumeo / Melodics / songs."); }
+  if (isDrums) {
+    const anySub = drumSubs.some((s) => (subValues[s.id] || "").trim() !== "");
+    if (!anySub) { ready = false; gateMsg = i18nTOf("ts_gate_drums_subs", "Log time on at least one practice item or note a song."); }
+  }
 
   const doSubmit = () => {
     // Strip any legacy preview URL from the stored proof item.
@@ -5917,7 +5988,31 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     const extra = {};
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
-    if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    if (isDrums) {
+      // Write generic extra.subValues keyed by subtask.id so other
+      // families' drum tasks persist their own labels' data. Total
+      // minutes derived from the first two subtasks (the "minutes"
+      // slots). Legacy keys (drumeo / melodics / songList) are still
+      // written when the matching subtask IDs exist on this task,
+      // so older display paths and Lynch's existing data stay valid.
+      const sv = {};
+      let totalMin = 0;
+      drumSubs.slice(0, 2).forEach((s, i) => {
+        const v = (subValues[s.id] || "").trim();
+        if (v) {
+          sv[s.id] = v;
+          totalMin += Number(v) || 0;
+        }
+      });
+      drumSubs.slice(2).forEach((s) => {
+        const v = (subValues[s.id] || "").trim();
+        if (v) sv[s.id] = v;
+      });
+      Object.assign(extra, { subValues: sv, totalMin });
+      if (sv.drumeo != null) extra.drumeo = sv.drumeo;
+      if (sv.melodics != null) extra.melodics = sv.melodics;
+      if (sv.drumscribe != null) extra.songList = sv.drumscribe;
+    }
     if (useSchemaFields) Object.assign(extra, schemaExtra());
 
     // Reading-side writes — keep the catalog in sync with what just got
@@ -6013,7 +6108,31 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     const extra = {};
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
-    if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    if (isDrums) {
+      // Write generic extra.subValues keyed by subtask.id so other
+      // families' drum tasks persist their own labels' data. Total
+      // minutes derived from the first two subtasks (the "minutes"
+      // slots). Legacy keys (drumeo / melodics / songList) are still
+      // written when the matching subtask IDs exist on this task,
+      // so older display paths and Lynch's existing data stay valid.
+      const sv = {};
+      let totalMin = 0;
+      drumSubs.slice(0, 2).forEach((s, i) => {
+        const v = (subValues[s.id] || "").trim();
+        if (v) {
+          sv[s.id] = v;
+          totalMin += Number(v) || 0;
+        }
+      });
+      drumSubs.slice(2).forEach((s) => {
+        const v = (subValues[s.id] || "").trim();
+        if (v) sv[s.id] = v;
+      });
+      Object.assign(extra, { subValues: sv, totalMin });
+      if (sv.drumeo != null) extra.drumeo = sv.drumeo;
+      if (sv.melodics != null) extra.melodics = sv.melodics;
+      if (sv.drumscribe != null) extra.songList = sv.drumscribe;
+    }
     if (useSchemaFields) Object.assign(extra, schemaExtra());
     onSaveDraft?.(task.id, { notes, proof, extra });
   };
@@ -6431,9 +6550,22 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     return s ? (s.canonicalTitle || s.title || "(unknown)") : "(unknown)";
                   });
                   // Total session minutes derived from current input
-                  // state so the card always matches what's typed.
-                  const totalMin = (Number(drumeo) || 0) + (Number(melodics) || 0);
-                  const missing = titles.filter((t) => !songList.toLowerCase().includes(t.toLowerCase()));
+                  // state across the practice subtasks (first two
+                  // subs by convention — minutes slots).
+                  const numSubs = drumSubs.slice(0, 2);
+                  const totalMin = numSubs.reduce((acc, s) => acc + (Number(subValues[s.id]) || 0), 0);
+                  // Songs-played text input is the 3rd+ subtask. Use
+                  // the first one as the "song list" string for the
+                  // missing-songs check below.
+                  const textSub = drumSubs[2];
+                  const songListNow = textSub ? (subValues[textSub.id] || "") : "";
+                  const missing = titles.filter((t) => !songListNow.toLowerCase().includes(t.toLowerCase()));
+                  // Render pills dynamically — first 2 subs get a
+                  // value tile, plus a "Songs" tile derived from the
+                  // count of song_plays today. Other families with
+                  // fewer subtasks see fewer tiles; with none, just
+                  // the songs tile.
+                  const cols = Math.min(3, numSubs.length + 1);
                   return (
                     <div className="rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 p-3 shadow-sm">
                       <div className="flex items-center justify-between mb-2">
@@ -6444,15 +6576,13 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                           {totalMin} min · {todaysPlays.length} {todaysPlays.length === 1 ? "play" : "plays"}
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-2 mb-2">
-                        <div className="rounded-xl bg-white/60 backdrop-blur p-2 text-center">
-                          <div className="text-lg font-extrabold text-amber-700 leading-none">{Number(drumeo) || 0}</div>
-                          <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">Drumeo</div>
-                        </div>
-                        <div className="rounded-xl bg-white/60 backdrop-blur p-2 text-center">
-                          <div className="text-lg font-extrabold text-amber-700 leading-none">{Number(melodics) || 0}</div>
-                          <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">Melodics</div>
-                        </div>
+                      <div className={`grid gap-2 mb-2 ${cols === 1 ? "grid-cols-1" : cols === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+                        {numSubs.map((s) => (
+                          <div key={s.id} className="rounded-xl bg-white/60 backdrop-blur p-2 text-center">
+                            <div className="text-lg font-extrabold text-amber-700 leading-none">{Number(subValues[s.id]) || 0}</div>
+                            <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">{s.label}</div>
+                          </div>
+                        ))}
                         <div className="rounded-xl bg-white/60 backdrop-blur p-2 text-center">
                           <div className="text-lg font-extrabold text-amber-700 leading-none">{todaysPlays.length}</div>
                           <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">Songs</div>
@@ -6465,12 +6595,13 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                           </span>
                         ))}
                       </div>
-                      {missing.length > 0 && (
+                      {missing.length > 0 && textSub && (
                         <button
                           type="button"
                           onClick={() => {
                             const append = missing.join(", ");
-                            setSongList((prev) => prev.trim() ? `${prev.trim()}, ${append}` : append);
+                            const cur = (subValues[textSub.id] || "").trim();
+                            setSub(textSub.id, cur ? `${cur}, ${append}` : append);
                           }}
                           className="w-full text-[11px] font-bold py-1.5 rounded-lg bg-white text-amber-700 border border-amber-300 active:scale-[0.99]"
                         >
@@ -6481,11 +6612,43 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                   );
                 })()}
 
-                <div className="grid grid-cols-2 gap-2">
-                  <Field label={i18nTOf("field_drumeo_min", "Drumeo min")}><input type="number" value={drumeo} onChange={(e) => setDrumeo(e.target.value)} className="input" /></Field>
-                  <Field label={i18nTOf("field_melodics_min", "Melodics min")}><input type="number" value={melodics} onChange={(e) => setMelodics(e.target.value)} className="input" /></Field>
-                </div>
-                <Field label={i18nTOf("field_drumscribe_songs", "Drumscribe / YouTube songs")}><input value={songList} onChange={(e) => setSongList(e.target.value)} placeholder={i18nTOf("field_drumscribe_placeholder", "Song 1, Song 2…")} className="input" /></Field>
+                {/* Per-subtask inputs. First two render as minutes
+                    fields in a grid; subsequent subtasks render as
+                    text inputs (free-form song list). Labels come
+                    from task.subtasks so other families see their
+                    own labels instead of Lynch's brands. */}
+                {(() => {
+                  const numericSubs = drumSubs.slice(0, 2);
+                  const textSubs = drumSubs.slice(2);
+                  return (
+                    <>
+                      {numericSubs.length > 0 && (
+                        <div className={`grid gap-2 ${numericSubs.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+                          {numericSubs.map((s) => (
+                            <Field key={s.id} label={`${s.label} ${i18nTOf("field_min_short", "min")}`}>
+                              <input
+                                type="number"
+                                value={subValues[s.id] || ""}
+                                onChange={(e) => setSub(s.id, e.target.value)}
+                                className="input"
+                              />
+                            </Field>
+                          ))}
+                        </div>
+                      )}
+                      {textSubs.map((s) => (
+                        <Field key={s.id} label={s.label}>
+                          <input
+                            value={subValues[s.id] || ""}
+                            onChange={(e) => setSub(s.id, e.target.value)}
+                            placeholder={i18nTOf("field_song_list_placeholder", "Song 1, Song 2…")}
+                            className="input"
+                          />
+                        </Field>
+                      ))}
+                    </>
+                  );
+                })()}
                 {addSongPlay && (
                   <SongLogger
                     songs={songs || []}
@@ -6495,15 +6658,15 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     fuzzyMatch={fuzzyMatch}
                     todayIso={TODAY_ISO}
                     onSongLogged={(title) => {
-                      // Auto-sync the picker into the typed-songList
-                      // field so the parent doesn't have to remember to
-                      // type what they just tapped. Idempotent — already-
-                      // present titles aren't re-appended.
-                      setSongList((prev) => {
-                        const t = (prev || "").trim();
-                        if (t.toLowerCase().includes(title.toLowerCase())) return prev;
-                        return t ? `${t}, ${title}` : title;
-                      });
+                      // Auto-sync the picker into the first free-form
+                      // text subtask so the parent doesn't have to
+                      // remember to type what they just tapped.
+                      // Idempotent — present titles aren't re-appended.
+                      const textSub = drumSubs.slice(2)[0];
+                      if (!textSub) return;
+                      const cur = (subValues[textSub.id] || "").trim();
+                      if (cur.toLowerCase().includes(title.toLowerCase())) return;
+                      setSub(textSub.id, cur ? `${cur}, ${title}` : title);
                     }}
                   />
                 )}
@@ -15625,6 +15788,8 @@ function TaskEditRow({ t, activities, updateTask, removeTask }) {
 
             <StatTemplatePicker t={t} updateTask={updateTask} />
 
+            <SubtasksEditor t={t} updateTask={updateTask} />
+
             <div className="flex gap-2 mt-2">
               <button onClick={() => updateTask(t.id, { active: t.active === false })} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">{t.active === false ? i18nTOf("manage_act_un_pause", "Un-pause") : i18nTOf("manage_act_pause", "Pause")}</button>
               <button onClick={() => removeTask(t.id)} className="px-3 py-2 rounded-xl bg-rose-100 text-rose-600 text-xs font-bold flex items-center gap-1"><X size={14} /> {i18nTOf("act_remove", "Remove")}</button>
@@ -15709,6 +15874,142 @@ function StatTemplatePicker({ t, updateTask }) {
       {currentId && !open && (
         <div className="text-[10px] text-slate-400 mt-1.5 leading-snug">
           Adds the template's practice (and game-day) fields to the submit sheet, and renders them on the stats hero card.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// SubtasksEditor — per-task "ways of practicing" list. Mike's quote
+// when authorising this: "if they want to add their different ways of
+// learning that should be allowed." First 2 subtasks render as
+// minutes inputs in the submit sheet; subsequent subtasks render as
+// text inputs (free-form song / book / notes). One row per subtask
+// here with a tap-to-edit label and a remove X. Hides entirely for
+// tasks with no proofType or for tasks whose schema-driven path is
+// already covering practice fields — keeps the editor scoped to
+// tasks where subtasks actually matter (drums-style).
+function SubtasksEditor({ t, updateTask }) {
+  const [open, setOpen] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
+  // Slug an id from the label so saved values key off something
+  // stable across renames. Falls back to a timestamp suffix if the
+  // slug collides with an existing id on the same task.
+  const slug = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 24);
+  const idFor = (label) => {
+    let base = slug(label) || ("sub_" + Date.now().toString(36));
+    if (!subs.some((s) => s.id === base)) return base;
+    let n = 2;
+    while (subs.some((s) => s.id === `${base}_${n}`)) n += 1;
+    return `${base}_${n}`;
+  };
+  const setSubs = (next) => updateTask(t.id, { subtasks: next });
+  const addSub = () => {
+    const label = newLabel.trim();
+    if (!label) return;
+    setSubs([...subs, { id: idFor(label), label }]);
+    setNewLabel("");
+  };
+  const removeSubAt = (idx) => {
+    const next = subs.filter((_, i) => i !== idx);
+    setSubs(next);
+  };
+  const renameSubAt = (idx, label) => {
+    const next = subs.map((s, i) => i === idx ? { ...s, label } : s);
+    setSubs(next);
+  };
+  const moveSub = (idx, delta) => {
+    const j = idx + delta;
+    if (j < 0 || j >= subs.length) return;
+    const next = [...subs];
+    [next[idx], next[j]] = [next[j], next[idx]];
+    setSubs(next);
+  };
+  return (
+    <div className="mt-2 bg-slate-50 rounded-xl p-2.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <div>
+          <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            Ways of practicing <span className="font-normal text-slate-400 normal-case">(optional)</span>
+          </div>
+          <div className="text-[12px] font-bold text-slate-700 mt-0.5">
+            {subs.length === 0
+              ? "None — just a single minutes input"
+              : subs.map((s) => s.label).join(" · ")}
+          </div>
+        </div>
+        <ChevronLeft
+          size={14}
+          className={`text-slate-400 transition-transform ${open ? "-rotate-90" : "rotate-180"}`}
+        />
+      </button>
+      {open && (
+        <div className="mt-2">
+          {subs.length > 0 && (
+            <div className="space-y-1.5 mb-2">
+              {subs.map((s, i) => (
+                <div key={s.id} className="flex items-center gap-1.5 bg-white rounded-lg border border-slate-200 p-1.5">
+                  <span className="text-[10px] text-slate-400 w-4 text-center font-bold">{i + 1}</span>
+                  <input
+                    value={s.label}
+                    onChange={(e) => renameSubAt(i, e.target.value)}
+                    className="flex-1 min-w-0 border border-slate-100 rounded px-2 py-1 text-[12px]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => moveSub(i, -1)}
+                    disabled={i === 0}
+                    className={`p-1 ${i === 0 ? "text-slate-200" : "text-slate-400 active:scale-90"}`}
+                    aria-label="Move up"
+                  >
+                    <ChevronLeft size={12} className="rotate-90" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveSub(i, 1)}
+                    disabled={i === subs.length - 1}
+                    className={`p-1 ${i === subs.length - 1 ? "text-slate-200" : "text-slate-400 active:scale-90"}`}
+                    aria-label="Move down"
+                  >
+                    <ChevronLeft size={12} className="-rotate-90" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { if (confirm(`Remove "${s.label}"? Past completions keep their data.`)) removeSubAt(i); }}
+                    className="p-1 text-rose-400 active:scale-90"
+                    aria-label="Remove"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-1.5">
+            <input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSub(); } }}
+              placeholder="Add a way (e.g. Warm-up, Scales, Songs)"
+              className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1.5 text-[12px] bg-white"
+            />
+            <button
+              type="button"
+              onClick={addSub}
+              disabled={!newLabel.trim()}
+              className={`text-[11px] font-bold px-3 rounded-lg ${newLabel.trim() ? "bg-indigo-600 text-white active:scale-95" : "bg-slate-200 text-slate-400"}`}
+            >
+              Add
+            </button>
+          </div>
+          <div className="text-[10px] text-slate-400 mt-1.5 leading-snug">
+            First 2 ways become minutes inputs on the submit sheet; 3rd+ become free-text song/notes inputs. Renaming is safe — past completions keep their stored values by id.
+          </div>
         </div>
       )}
     </div>
