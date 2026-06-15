@@ -23,6 +23,9 @@ import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } 
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
+import { confetti } from "./lib/confetti.js";
+import { milestone } from "./lib/milestone.js";
+import MilestoneCelebrate from "./MilestoneCelebrate.jsx";
 import { supabase } from "./lib/supabase.js";
 import { toApp } from "./data/transform.js";
 import { juice } from "./lib/juice.js";
@@ -1936,6 +1939,54 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     _seenLevelRef.current = lvl;
   }, [starBank]);
 
+  // Streak milestone confetti. Watches every streak and fires when
+  // current crosses a milestone (7, 14, 30, 50, 100, 200, 300, 365,
+  // 500, 1000) or sets a NEW personal best beyond 30 days. The first
+  // render seeds the ref with whatever's already there so a session
+  // reload doesn't re-fire historical milestones.
+  const _seenStreakRef = React.useRef(null);
+  useEffect(() => {
+    const STREAK_MILESTONES = [7, 14, 30, 50, 100, 200, 300, 365, 500, 730, 1000];
+    const snap = {};
+    for (const [aid, s] of Object.entries(streaks || {})) {
+      snap[aid] = { current: Number(s?.current) || 0, longest: Number(s?.longest) || 0 };
+    }
+    if (_seenStreakRef.current === null) {
+      _seenStreakRef.current = snap;
+      return;
+    }
+    const prev = _seenStreakRef.current;
+    let fired = false;
+    for (const aid of Object.keys(snap)) {
+      const before = prev[aid]?.current || 0;
+      const after  = snap[aid].current;
+      if (after <= before) continue;
+      const crossed = STREAK_MILESTONES.find((m) => after >= m && before < m);
+      const newBest = snap[aid].longest > (prev[aid]?.longest || 0) && snap[aid].longest >= 30 && !crossed;
+      if (!crossed && !newBest) continue;
+      if (fired) continue;
+      try { juice.burst("success", "levelUp"); } catch (_) { /* skip */ }
+      const actName = (activities || []).find((a) => a.id === aid)?.name || aid;
+      if (crossed) {
+        milestone.show({
+          title: `${crossed} day ${actName} streak!`,
+          subtitle: "Treasure unlocked — keep going.",
+          kind: "streak",
+        });
+      } else {
+        // New personal best — smaller treasure cinematic but still
+        // chest-worthy past 30 days.
+        milestone.show({
+          title: `New best · ${snap[aid].current} days`,
+          subtitle: `${actName} · personal record`,
+          kind: "personal-best",
+        });
+      }
+      fired = true;
+    }
+    _seenStreakRef.current = snap;
+  }, [streaks]);
+
   // One-shot duration backfill — pre-2026-06-14 songs were enriched
   // before we captured trackTimeMillis, so their durationMs is null.
   // Walk once per session, re-hit iTunes for each missing one, patch
@@ -2330,6 +2381,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       </div>
       <StarBurstLayer />
       <LevelUpLayer />
+      <MilestoneCelebrate />
       <PhotoLightboxOverlay />
       <ToastLayer />
       <EditGiftSheet
