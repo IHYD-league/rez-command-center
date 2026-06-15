@@ -138,26 +138,54 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
     let cancelled = false;
     (async () => {
       try {
+        // "New family" handoff — if the user signed up via the New family
+        // tab and the session attached on the SAME page load, Login.jsx
+        // calls create_family directly. But if email confirmation is on,
+        // they confirm + return + sign in, and we lose that intent. The
+        // localStorage flag below carries it across the handoff. We
+        // attempt create_family first (idempotent — returns the
+        // existing family if they already have one); on success we
+        // clear the flag and skip the join queue.
+        let claimedNewFamily = false;
+        try {
+          const raw = window.localStorage.getItem("lyf_new_family_intent");
+          if (raw) {
+            const intent = JSON.parse(raw);
+            const { error: cfErr } = await supabase.rpc("create_family", {
+              p_parent_name: intent.parentName || "Parent",
+              p_family_name: intent.familyName || null,
+            });
+            window.localStorage.removeItem("lyf_new_family_intent");
+            if (!cfErr) claimedNewFamily = true;
+          }
+        } catch (_) { /* malformed JSON or storage error — fall through */ }
+
         // Auto-link: if a parent typed this user's email into a profile
         // before they signed in, claim_profile_by_email() stamps
         // auth_user_id now so my_family_id()/RLS resolves below.
         // Errors here are non-fatal — fall through to the normal lookup.
-        try { await supabase.rpc("claim_profile_by_email"); } catch (_) {}
+        if (!claimedNewFamily) {
+          try { await supabase.rpc("claim_profile_by_email"); } catch (_) {}
+        }
 
         // Self-registered users land here with no profile yet. If a
         // pending_registrations row exists for them, the next call
         // returns it (RLS lets them see their own row); otherwise this
         // is a fresh signup we haven't queued yet — try to enqueue.
-        try {
-          const { data: pendingMine } = await supabase
-            .from("pending_registrations")
-            .select("auth_user_id")
-            .maybeSingle();
-          if (!pendingMine) {
-            // Idempotent: no-op if a profile already exists.
-            await supabase.rpc("request_to_join", { p_display_name: null });
-          }
-        } catch (_) {}
+        // Skipped after create_family — the new founder already has a
+        // profile, request_to_join would just no-op.
+        if (!claimedNewFamily) {
+          try {
+            const { data: pendingMine } = await supabase
+              .from("pending_registrations")
+              .select("auth_user_id")
+              .maybeSingle();
+            if (!pendingMine) {
+              // Idempotent: no-op if a profile already exists.
+              await supabase.rpc("request_to_join", { p_display_name: null });
+            }
+          } catch (_) {}
+        }
 
         const fid = await loadFamilyId();
         if (cancelled) return;
