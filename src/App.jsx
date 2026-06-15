@@ -9227,9 +9227,117 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
     setEditingEvent(null);
   };
 
+  // Schedule-scan state — sibling shape to the Shopping List scan.
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState("");
+  const [scanResults, setScanResults] = useState(null);
+  const onScanFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setScanError("");
+    setScanResults(null);
+    setScanning(true);
+    try {
+      const { scanImage } = await import("./lib/visionScan.js");
+      const j = await scanImage({ file, kind: "schedule" });
+      if (j.status === "vision_not_configured") {
+        setScanError("Vision isn't set up yet — paste ANTHROPIC_API_KEY into Netlify env vars first.");
+      } else if (j.status !== "ok") {
+        setScanError("Couldn't read that one — try a sharper photo or a screenshot.");
+      } else if (!j.data?.events?.length) {
+        setScanResults({ events: [] });
+      } else {
+        setScanResults({ events: j.data.events.map((ev) => ({ ...ev, picked: true })) });
+      }
+    } catch (err) {
+      setScanError(String(err?.message || err));
+    } finally {
+      setScanning(false);
+    }
+  };
+  const toggleScanPicked = (i) => setScanResults((s) => ({ ...s, events: s.events.map((ev, idx) => idx === i ? { ...ev, picked: !ev.picked } : ev) }));
+  const commitScannedEvents = () => {
+    const picked = (scanResults?.events || []).filter((ev) => ev.picked);
+    for (const ev of picked) {
+      addEvent && addEvent({
+        title: ev.title || "Event",
+        date: ev.date || null,
+        time: ev.time || null,
+        durationMinutes: Number.isFinite(ev.durationMinutes) ? ev.durationMinutes : null,
+        recurWeekday: null,
+        address: ev.address || null,
+        notes: ev.notes || null,
+        category: "Activity",
+      });
+    }
+    setScanResults(null);
+  };
+
   return (
     <div className="px-4 pt-4">
       <h2 className="font-extrabold text-lg px-1">{i18nTOf("cal_heading", "Calendar")}</h2>
+
+      <label className="block mt-2">
+        <input type="file" accept="image/*" onChange={onScanFile} className="hidden" />
+        <span className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-bold text-xs cursor-pointer active:scale-[0.99]">
+          📷 Scan a schedule / program / screenshot
+        </span>
+      </label>
+
+      {scanning && (
+        <Card className="p-3 mt-2 bg-slate-50 text-center">
+          <div className="text-[12px] text-slate-500">Reading the schedule…</div>
+        </Card>
+      )}
+      {scanError && !scanResults && (
+        <Card className="p-3 mt-2 bg-rose-50 border-rose-200">
+          <div className="text-[12px] text-rose-700">{scanError}</div>
+        </Card>
+      )}
+      {scanResults && scanResults.events.length === 0 && (
+        <Card className="p-3 mt-2 bg-slate-50 border-slate-200">
+          <div className="text-[12px] text-slate-600">Didn't find any events. Try a sharper photo or a screenshot.</div>
+          <button onClick={() => setScanResults(null)} className="mt-2 text-[11px] font-bold text-slate-500">Dismiss</button>
+        </Card>
+      )}
+      {scanResults && scanResults.events.length > 0 && (
+        <Card className="p-3 mt-2 bg-amber-50 border-amber-200">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[11px] uppercase tracking-wider font-bold text-amber-700">Found {scanResults.events.length} event{scanResults.events.length === 1 ? "" : "s"}</div>
+            <button onClick={() => setScanResults(null)} className="text-[11px] font-bold text-slate-500">Cancel</button>
+          </div>
+          <div className="text-[11px] text-amber-700 mb-2">Tap to uncheck any you don't want. You can edit details after adding.</div>
+          {scanResults.events.map((ev, i) => (
+            <div key={i} className="flex items-start gap-2 mb-2 last:mb-0 bg-white border border-slate-200 rounded-xl p-2">
+              <button
+                onClick={() => toggleScanPicked(i)}
+                className={`w-6 h-6 rounded-full grid place-items-center shrink-0 transition active:scale-90 mt-0.5 ${ev.picked ? "bg-emerald-500 text-white" : "border-2 border-slate-200"}`}
+              >
+                {ev.picked && <Check size={13} />}
+              </button>
+              <div className={`flex-1 min-w-0 ${ev.picked ? "" : "opacity-50"}`}>
+                <div className="font-bold text-sm truncate">{ev.title || "Event"}</div>
+                <div className="text-[11px] text-slate-500 leading-snug">
+                  {ev.date && <>{new Date(ev.date + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</>}
+                  {ev.date && ev.time && <> · </>}
+                  {ev.time && fmt12(ev.time)}
+                  {Number.isFinite(ev.durationMinutes) && <> · {ev.durationMinutes}m</>}
+                </div>
+                {ev.address && <div className="text-[10px] text-slate-400 leading-snug mt-0.5">📍 {ev.address}</div>}
+                {ev.notes && <div className="text-[10px] text-slate-500 leading-snug mt-0.5">{ev.notes}</div>}
+              </div>
+            </div>
+          ))}
+          <button
+            onClick={commitScannedEvents}
+            disabled={scanResults.events.filter((ev) => ev.picked).length === 0}
+            className={`w-full mt-2 py-2.5 rounded-xl font-bold text-sm text-white ${scanResults.events.filter((ev) => ev.picked).length === 0 ? "bg-slate-300" : "bg-indigo-600 active:scale-95"}`}
+          >
+            Add {scanResults.events.filter((ev) => ev.picked).length} to calendar
+          </button>
+        </Card>
+      )}
 
       {/* Week navigation strip */}
       <div className="flex items-center justify-between mt-3 mb-2">
@@ -12277,6 +12385,42 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [draft, setDraft] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
+  // Scan-a-list state
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState("");
+  const [scanResults, setScanResults] = useState(null); // { items: [{ title, picked: true }] } or null
+  const onScanFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow same-file re-pick
+    if (!file) return;
+    setScanError("");
+    setScanResults(null);
+    setScanning(true);
+    try {
+      const { scanImage } = await import("./lib/visionScan.js");
+      const j = await scanImage({ file, kind: "shopping_list" });
+      if (j.status === "vision_not_configured") {
+        setScanError("Vision isn't set up yet — paste ANTHROPIC_API_KEY into Netlify env vars first.");
+      } else if (j.status !== "ok") {
+        setScanError("Couldn't read that one — try a sharper photo or better light.");
+      } else if (!j.data?.items?.length) {
+        setScanError("Didn't find any items. If the list is in the photo, try snapping it again with the writing clearer.");
+      } else {
+        setScanResults({ items: j.data.items.map((it) => ({ title: it.title, picked: true })) });
+      }
+    } catch (e) {
+      setScanError(String(e?.message || e));
+    } finally {
+      setScanning(false);
+    }
+  };
+  const togglePicked = (i) => setScanResults((s) => ({ ...s, items: s.items.map((it, idx) => idx === i ? { ...it, picked: !it.picked } : it) }));
+  const renameScan = (i, v) => setScanResults((s) => ({ ...s, items: s.items.map((it, idx) => idx === i ? { ...it, title: v } : it) }));
+  const commitScan = () => {
+    const picked = (scanResults?.items || []).filter((it) => it.picked);
+    for (const it of picked) addShoppingItem(it.title);
+    setScanResults(null);
+  };
   const sorted = (shoppingItems || []).slice().sort((a, b) => {
     if (a.checked !== b.checked) return a.checked ? 1 : -1;
     return (a.createdAt || "").localeCompare(b.createdAt || "");
@@ -12296,7 +12440,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const findName = (pid) => users.find((u) => u.id === pid)?.name;
   return (
     <>
-      <form onSubmit={submit} className="flex gap-2 mb-3">
+      <form onSubmit={submit} className="flex gap-2 mb-2">
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -12308,6 +12452,55 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
           Add
         </button>
       </form>
+
+      <label className="block mb-3">
+        <input type="file" accept="image/*" onChange={onScanFile} className="hidden" />
+        <span className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-bold text-xs cursor-pointer active:scale-[0.99]">
+          📷 Scan a written list
+        </span>
+      </label>
+
+      {scanning && (
+        <Card className="p-3 mb-3 bg-slate-50 text-center">
+          <div className="text-[12px] text-slate-500">Reading the list…</div>
+        </Card>
+      )}
+      {scanError && !scanResults && (
+        <Card className="p-3 mb-3 bg-rose-50 border-rose-200">
+          <div className="text-[12px] text-rose-700">{scanError}</div>
+        </Card>
+      )}
+      {scanResults && (
+        <Card className="p-3 mb-3 bg-amber-50 border-amber-200">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[11px] uppercase tracking-wider font-bold text-amber-700">Found {scanResults.items.length} item{scanResults.items.length === 1 ? "" : "s"}</div>
+            <button onClick={() => setScanResults(null)} className="text-[11px] font-bold text-slate-500">Cancel</button>
+          </div>
+          <div className="text-[11px] text-amber-700 mb-2">Tap to uncheck anything you don't want, or edit a name inline.</div>
+          {scanResults.items.map((it, i) => (
+            <div key={i} className="flex items-center gap-2 mb-1.5 last:mb-0">
+              <button
+                onClick={() => togglePicked(i)}
+                className={`w-6 h-6 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${it.picked ? "bg-emerald-500 text-white" : "border-2 border-slate-200 bg-white"}`}
+              >
+                {it.picked && <Check size={13} />}
+              </button>
+              <input
+                value={it.title}
+                onChange={(e) => renameScan(i, e.target.value)}
+                className={`flex-1 border border-slate-200 rounded-lg px-2 py-1 text-sm bg-white ${it.picked ? "text-slate-800" : "text-slate-400 line-through"}`}
+              />
+            </div>
+          ))}
+          <button
+            onClick={commitScan}
+            disabled={scanResults.items.filter((it) => it.picked).length === 0}
+            className={`w-full mt-2 py-2.5 rounded-xl font-bold text-sm text-white ${scanResults.items.filter((it) => it.picked).length === 0 ? "bg-slate-300" : "bg-indigo-600 active:scale-95"}`}
+          >
+            Add {scanResults.items.filter((it) => it.picked).length} to list
+          </button>
+        </Card>
+      )}
 
       {sorted.length > 0 && (
         <div className="flex items-center justify-between mb-2 px-1">
