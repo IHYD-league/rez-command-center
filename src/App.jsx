@@ -771,6 +771,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
 
   const [currentUserId, setCurrentUserId] = useState(currentProfileId || null);
   const [tab, setTab] = useState("today");
+  // Deep-link target so the Today empty-state QuickStart card can
+  // route a tap directly to More → Activities / Tasks / Rewards
+  // without forcing the parent to navigate twice. MoreParent reads
+  // this on mount and clears it. NULL = no deep link, render the
+  // normal More menu.
+  const [pendingMoreSub, setPendingMoreSub] = useState(null);
   const [openTask, _setOpenTask] = useState(null);
   // Wrap the openTask setter so every site that opens a TaskSheet
   // (kid home, parent today, helper checklist, etc.) shares the same
@@ -1995,6 +2001,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     weekOverrides, setWeekOverrides,
     nextRewardTitle, nextRewardCost,
     bigRewardTitle, bigRewardCost,
+    pendingMoreSub, setPendingMoreSub,
   };
 
   // First-run gate: a freshly-created family has a parent profile (from
@@ -2054,6 +2061,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
           <Router tab={tab} {...shared} />
         </div>
         <BottomNav user={user} tab={tab} setTab={setTab} langs={langs} />
+        <BetaFeedbackChip familyName={user?.familyName} kidName={user?.name} />
         {openTask && (
           <TaskSheet
             task={openTask}
@@ -6973,7 +6981,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0 }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub }) {
   const [showAddPicker, setShowAddPicker] = useState(false);
   // Reorder mode is per-section so flipping it on for Bonus
   // doesn't add nudge buttons to Still-to-do too. Same pattern as
@@ -7018,12 +7026,57 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
   const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix", "draft"].includes(compByTask[t.id]?.status));
   const todo = sortByLevel(todoRaw, mode, priorities);
+  // QuickStart guide for brand-new families. Shows until the parent
+  // has logged their first completion. Each row deep-links to the
+  // matching More sub-page via pendingMoreSub + setTab so it's a
+  // single tap from "what do I do" to "I'm doing it."
+  const hasCompletions = (completions || []).length > 0;
+  const hasActiveActivities = (activities || []).some((a) => a.status === "active");
+  const hasTasks = (tasks || []).length > 0;
+  const hasRewards = (rewards || []).filter((r) => r.active !== false).length > 0;
+  const hasCalendarEntries = (events || []).length > 0;
+  const allDone = hasActiveActivities && hasTasks && hasRewards && hasCalendarEntries;
+  const showQuickStart = !hasCompletions && !allDone && setTab && setPendingMoreSub;
+  const go = (subKey) => { setPendingMoreSub(subKey); setTab("more"); };
+
   return (
     <div className="px-4 pt-4">
       <div className="flex items-center justify-between px-1">
         <div className="text-xs text-slate-400">{fmtDate(today)}</div>
         {onEasy && <button onClick={onEasy} className="text-[11px] font-bold text-amber-600 bg-amber-50 rounded-full px-2.5 py-1 flex items-center gap-1">{i18nTOf("pt_easy_mode", "😴 Easy mode")}</button>}
       </div>
+
+      {showQuickStart && (
+        <Card className="p-4 mt-3 bg-gradient-to-br from-indigo-50 to-violet-50 border-indigo-100">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xl">👋</span>
+            <div className="font-extrabold text-sm">Welcome — let's set up {user?.name || "your kid"}</div>
+          </div>
+          <div className="text-[11px] text-slate-500 mb-3 leading-snug">Four quick steps. Tap each to jump straight there. This card disappears as soon as your kid logs their first completion.</div>
+          <div className="space-y-1.5">
+            {[
+              { sub: "activities", icon: "🎯", title: "Add activities",  done: hasActiveActivities, hint: "From presets or Custom — drums, jujitsu, reading, anything." },
+              { sub: "tasks",      icon: "🧹", title: "Add tasks + chores", done: hasTasks,        hint: "Daily missions and household chores that earn stars." },
+              { sub: "rewards",    icon: "🎁", title: "Set a reward",     done: hasRewards,         hint: "What's the kid working toward? Movie, toy, day-out." },
+              { sub: "calendar",   icon: "📅", title: "Drop the weekly schedule", done: hasCalendarEntries, hint: "Recurring practices, lessons, school stuff.", tab: "calendar" },
+            ].map((r) => (
+              <button
+                key={r.sub}
+                onClick={() => r.tab ? setTab(r.tab) : go(r.sub)}
+                className={`w-full text-left flex items-start gap-2 rounded-xl px-3 py-2 ${r.done ? "bg-emerald-50 border border-emerald-200" : "bg-white border border-slate-100"}`}
+              >
+                <span className="text-lg shrink-0">{r.done ? "✅" : r.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold">{r.title}</div>
+                  <div className="text-[10px] text-slate-500 leading-snug">{r.hint}</div>
+                </div>
+                <span className="text-slate-300 shrink-0 text-sm">›</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 gap-2 mt-2">
         <SummaryStat label={i18nTOf("stat_stars_available", "Stars available today")} value={availableToday} tone="slate" onClick={() => setStatDetailId?.("available")} />
         <SummaryStat label={i18nTOf("stat_earned_today", "Earned today")} value={earnedToday} tone="emerald" onClick={() => setStatDetailId?.("earned")} />
@@ -11171,7 +11224,16 @@ function PrivacySafety(props) {
 }
 
 function MoreParent(props) {
-  const [sub, setSub] = useState("menu");
+  const [sub, setSub] = useState(props.pendingMoreSub || "menu");
+  // Consume the deep-link target once on mount so re-entering More
+  // shows the menu by default (not the same sub forever). Calling
+  // setPendingMoreSub(null) clears the app-level state.
+  useEffect(() => {
+    if (props.pendingMoreSub) {
+      props.setPendingMoreSub?.(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   if (sub === "privacy") return <BackWrap title={i18nTOf("more_privacy", "Privacy & Safety")} onBack={() => setSub("menu")}><PrivacySafety {...props} setSub={setSub} /></BackWrap>;
   if (sub === "audit") return <BackWrap title={i18nTOf("more_audit", "Data audit")} onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
@@ -13103,6 +13165,31 @@ function CareInfo() {
 }
 
 // ===================== BOTTOM NAV =====================
+// Beta feedback chip — pinned bottom-right above the nav so any
+// confused parent on any screen can fire off a note. Mailto link so it
+// works on every device with no install, prefills subject + a body
+// stub. We don't auto-attach screenshots — the parent can if they
+// want to. Email destination is a familySetting so Mike can change
+// it later without a redeploy.
+function BetaFeedbackChip({ kidName }) {
+  const subject = encodeURIComponent("Family Command Center — beta feedback");
+  const body = encodeURIComponent(
+    `\n\n—\nKid: ${kidName || "(unknown)"}\nPage: (paste a screenshot here if helpful)\nWhat went wrong / what could be better:\n`
+  );
+  const href = `mailto:lyncho14@gmail.com?subject=${subject}&body=${body}`;
+  return (
+    <a
+      href={href}
+      className="fixed right-3 flex items-center gap-1 bg-amber-500 text-white text-[10px] font-extrabold px-2 py-1 rounded-full shadow-lg active:scale-95"
+      style={{ zIndex: 55, bottom: "calc(env(safe-area-inset-bottom) + 4.5rem)" }}
+      title="Send Mike a note about this app"
+    >
+      <span aria-hidden>💬</span>
+      <span>Beta · feedback</span>
+    </a>
+  );
+}
+
 function BottomNav({ user, tab, setTab, langs = ["en"] }) {
   // Bilingual labels — when the parent enables "Both" or "Spanish",
   // tab labels render as "Today / Hoy" etc. Brand-ish labels (Coach,
