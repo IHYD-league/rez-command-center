@@ -133,16 +133,19 @@ const SEED_EVENTS = [
   { id: "ev5", title: "School starts 🎒", date: "2026-09-01", category: "School", notes: "Summer Mode ends ~Sept 1" },
 ];
 
-// Reznor's recurring weekly activities (pulled from his summer schedule)
-// Fixed weekly schedule is derived from the activities list (see SEED_ACTIVITIES schedules).
-// Taekwondo is available any day EXCEPT Sunday, at different times. Aim for ~2/week.
+// Generic weekday slots for the flexible weekly-schedule picker.
+// Each family's TIMES live in familySettings.weeklyActivityTimes (per
+// activity, per day) so no Reznor-specific defaults leak. Sunday is
+// omitted by convention — flexible-schedule activities default to
+// "any day except Sunday"; parents can include Sunday by adding it
+// via the per-day picker in Manage Activities if needed.
 const TKD_SLOTS = [
-  { day: "Monday", time: "7:00–7:45 PM" },
-  { day: "Tuesday", time: "" },
-  { day: "Wednesday", time: "7:00–7:45 PM" },
-  { day: "Thursday", time: "" },
-  { day: "Friday", time: "7:00–7:45 PM" },
-  { day: "Saturday", time: "12:00–12:45 PM" },
+  { day: "Monday",    time: "" },
+  { day: "Tuesday",   time: "" },
+  { day: "Wednesday", time: "" },
+  { day: "Thursday",  time: "" },
+  { day: "Friday",    time: "" },
+  { day: "Saturday",  time: "" },
 ];
 const TKD_TARGET = 2;
 
@@ -717,11 +720,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // Reznor's view still defaults to English because his profile has no
   // setting — confusing and what was happening before. Default ["en"].
   const [displayLangs, setDisplayLangs] = familySetting("displayLangs", ["en"]);
-  const [tkdDays, setTkdDays] = familySetting("tkdDays", ["Monday"]);
-  const [tkdTimes, setTkdTimes] = familySetting(
-    "tkdTimes",
-    Object.fromEntries(TKD_SLOTS.map((s) => [s.day, s.time]))
-  );
+  // tkdDays/tkdTimes default empty so brand-new families don't see
+  // Reznor's "Monday" pre-pick or hardcoded time blocks. Lynch's
+  // existing saved values still win because familySetting reads from
+  // jsonb when present (these have been actively set for months).
+  const [tkdDays, setTkdDays] = familySetting("tkdDays", []);
+  const [tkdTimes, setTkdTimes] = familySetting("tkdTimes", {});
   // Generic weekly schedules — any activity that opts in (via
   // a.weeklySchedule === true) gets a per-week day picker on the
   // Calendar. Mike's framing: "When Basketball does come back in
