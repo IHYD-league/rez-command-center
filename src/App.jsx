@@ -2093,6 +2093,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     pendingMoreSub, setPendingMoreSub,
     practiceSessions, addPracticeSession, removePracticeSession,
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem,
+    familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
   };
 
   // First-run gate: a freshly-created family has a parent profile (from
@@ -11331,6 +11332,7 @@ function MoreParent(props) {
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
   if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} users={props.users} /></BackWrap>;
+  if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
   if (sub === "handoff") return <BackWrap title={i18nTOf("more_handoff", "Handoff Notes")} onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
@@ -11374,6 +11376,7 @@ function MoreParent(props) {
     { k: "siri",         icon: <Music size={18} />,          label: "Siri Shortcuts",                                        sub: "Hey Siri, mark Drums done — one tap per task" },
     { k: "practice",     icon: <Play size={18} />,           label: "Practice Timer",                                        sub: "Time a session · record a 30s clip · listen back later" },
     { k: "shopping",     icon: <ClipboardList size={18} />,  label: "Shopping List",                                         sub: "Shared family list · add at the store · check off at home" },
+    { k: "email",        icon: <Share2 size={18} />,         label: "Email Setup",                                           sub: "Friday digest · pick who gets it · test send" },
   ];
   // Apply per-parent saved order. Items not in the saved list slot in
   // at the end so a new menu entry shows up automatically. The setting
@@ -11922,6 +11925,212 @@ const SKILL_STARTER_AREAS = [
   "Art",
   "PE",
 ];
+
+// Email Setup — parent opt-in for the Friday digest + a Send Test
+// button that exercises the entire pipeline (build digest → fetch
+// /api/send-email → Resend → inbox). Status banner up top reflects
+// whether RESEND_API_KEY is set on Netlify (probed via a zero-recipient
+// request; the function returns "email_not_configured" gracefully).
+function EmailSetup(props) {
+  const {
+    users = [], familyId, sessionEmail,
+    familySetting,
+    // digest data sources:
+    completions = [], tasks = [], activities = [], streaks = {},
+    books = [], songPlays = [], gifted = [], practiceSessions = [], events = [],
+  } = props;
+
+  const parents = users.filter((u) => (u.role === "parent" || u.role === "helper" || u.role === "grandparent") && u.email);
+  const kid = users.find((u) => u.role === "kid");
+
+  // Recipients live in familySettings.digestRecipients — array of
+  // profile ids opted in. Default empty so nothing fires until a
+  // parent explicitly opts in.
+  const [digestRecipients, setDigestRecipients] = familySetting
+    ? familySetting("digestRecipients", [])
+    : [[], () => {}];
+  const isOpted = (pid) => (digestRecipients || []).includes(pid);
+  const toggleOpted = (pid) => setDigestRecipients((prev = []) =>
+    prev.includes(pid) ? prev.filter((x) => x !== pid) : [...prev, pid]
+  );
+
+  const [serviceStatus, setServiceStatus] = useState("unknown"); // unknown | configured | not_configured | checking
+  const [sending, setSending] = useState(false);
+  const [lastResult, setLastResult] = useState(null);
+
+  const probe = async () => {
+    setServiceStatus("checking");
+    try {
+      // Intentional bad payload — the function rejects on missing
+      // fields BEFORE checking the key, EXCEPT we want the key check.
+      // So instead we send a well-formed test with a clearly-internal
+      // recipient + subject = "ping". The function reports back
+      // status="email_not_configured" if key is missing, "send_failed"
+      // or "ok" otherwise. We treat anything other than
+      // "email_not_configured" as "configured" for this probe.
+      const r = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: ["probe@invalid.example"], subject: "probe", text: "probe" }),
+      });
+      const j = await r.json();
+      setServiceStatus(j.status === "email_not_configured" ? "not_configured" : "configured");
+    } catch {
+      setServiceStatus("unknown");
+    }
+  };
+
+  useEffect(() => { probe(); /* eslint-disable-next-line */ }, []);
+
+  const sendTest = async () => {
+    if (!sessionEmail) {
+      setLastResult({ ok: false, msg: "Sign in first so we know where to send the test." });
+      return;
+    }
+    setSending(true);
+    setLastResult(null);
+    try {
+      const { buildDigestData, renderDigestHtml, renderDigestText } = await import("./lib/digestBuilder.js");
+      const data = buildDigestData({
+        kid, completions, tasks, activities, streaks, books, songPlays, gifted, practiceSessions, events,
+      });
+      const html = renderDigestHtml(data, { appUrl: window.location.origin });
+      const text = renderDigestText(data);
+      const subject = `Friday recap · ${data.kidName}`;
+      const r = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: [sessionEmail], subject, html, text }),
+      });
+      const j = await r.json();
+      if (j.status === "ok") {
+        setLastResult({ ok: true, msg: `Sent to ${sessionEmail}. Check your inbox (and spam folder the first time).` });
+      } else if (j.status === "email_not_configured") {
+        setLastResult({ ok: false, msg: "Email service isn't set up yet — paste RESEND_API_KEY into Netlify env vars first." });
+      } else {
+        setLastResult({ ok: false, msg: `Resend rejected the send: ${JSON.stringify(j.detail || j).slice(0, 200)}` });
+      }
+    } catch (e) {
+      setLastResult({ ok: false, msg: String(e?.message || e) });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendNow = async () => {
+    const opted = parents.filter((p) => isOpted(p.id) && p.email);
+    if (opted.length === 0) {
+      setLastResult({ ok: false, msg: "Nobody opted in yet — check at least one parent below." });
+      return;
+    }
+    setSending(true);
+    setLastResult(null);
+    try {
+      const { buildDigestData, renderDigestHtml, renderDigestText } = await import("./lib/digestBuilder.js");
+      const data = buildDigestData({
+        kid, completions, tasks, activities, streaks, books, songPlays, gifted, practiceSessions, events,
+      });
+      const html = renderDigestHtml(data, { appUrl: window.location.origin });
+      const text = renderDigestText(data);
+      const subject = `Friday recap · ${data.kidName}`;
+      const r = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: opted.map((p) => p.email), subject, html, text }),
+      });
+      const j = await r.json();
+      if (j.status === "ok") {
+        setLastResult({ ok: true, msg: `Sent to ${opted.length} recipient${opted.length === 1 ? "" : "s"}.` });
+      } else if (j.status === "email_not_configured") {
+        setLastResult({ ok: false, msg: "Email service isn't set up yet — paste RESEND_API_KEY into Netlify env vars first." });
+      } else {
+        setLastResult({ ok: false, msg: `Resend rejected: ${JSON.stringify(j.detail || j).slice(0, 200)}` });
+      }
+    } catch (e) {
+      setLastResult({ ok: false, msg: String(e?.message || e) });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Status banner */}
+      {serviceStatus === "not_configured" && (
+        <Card className="p-3 mb-3 bg-amber-50 border border-amber-200">
+          <div className="text-[11px] uppercase tracking-wider font-bold text-amber-700 mb-1">Email service isn't set up yet</div>
+          <div className="text-[12px] text-amber-800 leading-snug">
+            Tomorrow at the computer: paste <strong>RESEND_API_KEY</strong> into Netlify → Site settings → Environment variables, then trigger a redeploy. Until then, the digest can be previewed but not sent.
+          </div>
+        </Card>
+      )}
+      {serviceStatus === "configured" && (
+        <Card className="p-3 mb-3 bg-emerald-50 border border-emerald-200">
+          <div className="text-[11px] uppercase tracking-wider font-bold text-emerald-700">Email service is ready</div>
+          <div className="text-[12px] text-emerald-800">Send a test below to confirm domain verification.</div>
+        </Card>
+      )}
+      {serviceStatus === "checking" && (
+        <Card className="p-3 mb-3 bg-slate-50">
+          <div className="text-[12px] text-slate-500">Checking…</div>
+        </Card>
+      )}
+
+      <h3 className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-2 px-1">Who gets the Friday digest</h3>
+      {parents.length === 0 && (
+        <Card className="p-3 mb-2 text-[12px] text-slate-500">No parents/helpers with emails yet. Add one under More → Family &amp; Helpers.</Card>
+      )}
+      {parents.map((p) => (
+        <Card key={p.id} className="p-3 mb-2 flex items-center gap-3">
+          <button
+            onClick={() => toggleOpted(p.id)}
+            className={`w-7 h-7 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${isOpted(p.id) ? "bg-emerald-500 text-white" : "border-2 border-slate-200"}`}
+          >
+            {isOpted(p.id) && <Check size={15} />}
+          </button>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm truncate">{p.name}</div>
+            <div className="text-[11px] text-slate-400 truncate">{p.email}</div>
+          </div>
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 capitalize shrink-0">{p.role}</span>
+        </Card>
+      ))}
+
+      <div className="flex gap-2 mt-4">
+        <button
+          onClick={sendTest}
+          disabled={sending}
+          className="flex-1 py-3 rounded-2xl bg-slate-200 text-slate-700 font-bold text-sm"
+        >
+          {sending ? "Sending…" : `📬 Send test to ${sessionEmail || "me"}`}
+        </button>
+        <button
+          onClick={sendNow}
+          disabled={sending || parents.filter((p) => isOpted(p.id)).length === 0}
+          className={`flex-1 py-3 rounded-2xl font-bold text-sm text-white ${(sending || parents.filter((p) => isOpted(p.id)).length === 0) ? "bg-slate-300" : "bg-indigo-600 active:scale-95"}`}
+        >
+          📤 Send digest now
+        </button>
+      </div>
+
+      {lastResult && (
+        <Card className={`p-3 mt-3 ${lastResult.ok ? "bg-emerald-50 border-emerald-200" : "bg-rose-50 border-rose-200"}`}>
+          <div className={`text-[12px] ${lastResult.ok ? "text-emerald-700" : "text-rose-700"}`}>{lastResult.msg}</div>
+        </Card>
+      )}
+
+      <Card className="p-3 mt-4 bg-slate-50">
+        <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-2">Heads up</div>
+        <ul className="text-[12px] text-slate-600 leading-snug space-y-1.5 list-disc pl-4">
+          <li>Until Resend's domain verification is done, sends only work to addresses on your own Resend account (sandbox mode). Test send to your own email works because that's where you signed up.</li>
+          <li>The digest covers the last 7 days. Run it any day; the data wraps automatically.</li>
+          <li>Weekly automation (every Friday morning) lands as a follow-up — for now you tap "Send digest now" when you want it out.</li>
+          <li>Recipients can reply STOP to be removed (manual for now — paste their address into Resend's suppression list).</li>
+        </ul>
+      </Card>
+    </>
+  );
+}
 
 // Shared family shopping list. Krissie-first design: opens fast, the
 // input is autofocused, Enter adds the item, tap a row to check off,
