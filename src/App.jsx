@@ -13957,7 +13957,7 @@ function Skills({ learningGoals = [], setLearningGoals, kids = [], updateUser })
 }
 
 // ===================== PARENT: PEOPLE / ACCESS =====================
-function People({ users, addUser, updateUser, removeUser, familyId, pendingRegistrations, approveRegistration, denyRegistration, currentProfileId }) {
+function People({ user, users, addUser, updateUser, removeUser, familyId, pendingRegistrations, approveRegistration, denyRegistration, currentProfileId }) {
   const [adding, setAdding] = useState(false);
   const isExpired = (u) => u.accessType === "temporary" && u.accessExpires && new Date(u.accessExpires + "T23:59:59") < today;
   const order = { parent: 0, kid: 1, grandparent: 2, helper: 3, guest: 4 };
