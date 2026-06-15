@@ -190,6 +190,18 @@ export const toApp = {
     deletedBy: r.deleted_by ?? null,
   }),
 
+  practiceSession: (r) => ({
+    id: r.id,
+    activityId: r.activity_id || null,
+    profileId: r.profile_id || null,
+    startedAt: r.started_at,
+    endedAt: r.ended_at,
+    durationSeconds: Number(r.duration_seconds) || 0,
+    audioPath: r.audio_path || "",
+    notes: r.notes || "",
+    createdAt: r.created_at,
+  }),
+
   activity: (r) => ({
     id: r.id,
     name: r.name,
@@ -466,6 +478,18 @@ export const toDb = {
     // happens to be in the same batch as an active one.
     deleted_at: o.deletedAt ?? null,
     deleted_by: o.deletedBy ?? null,
+  }),
+
+  practiceSession: (familyId) => (o) => ({
+    id: o.id,
+    family_id: familyId,
+    activity_id: o.activityId || null,
+    profile_id: o.profileId || null,
+    started_at: o.startedAt || new Date().toISOString(),
+    ended_at: o.endedAt || null,
+    duration_seconds: Number(o.durationSeconds) || 0,
+    audio_path: o.audioPath || null,
+    notes: o.notes || null,
   }),
 
   activity: (familyId) => (o) => ({

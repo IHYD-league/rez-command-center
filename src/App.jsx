@@ -17,7 +17,7 @@ import { useSummerQuestProgress } from "./summerQuest/useSummerQuestProgress.js"
 import SongLogger from "./SongLogger.jsx";
 import BoardGame, { BOARD_THEMES, DEFAULT_BOARD_THEME } from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
-import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
+import { uploadFamilyPhoto, useSignedUrl, uploadFamilyAudio } from "./lib/storage.js";
 import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
@@ -797,6 +797,22 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // 20260614220000_activities_per_family.sql.
   const [activities, _setActivities] = useState(() => initial?.activities ?? []);
   const setActivities = makeSyncedSetter(_setActivities, "activities", sync);
+  // Free-form practice sessions (Modacity-style) with optional 30s
+  // audio clip. Independent of completions and song_plays — see the
+  // schema comment in 20260615091800_practice_sessions.sql.
+  const [practiceSessions, _setPracticeSessions] = useState(() => initial?.practiceSessions ?? []);
+  const setPracticeSessions = makeSyncedSetter(_setPracticeSessions, "practiceSessions", sync);
+  const addPracticeSession = (s) => setPracticeSessions((prev) => [...prev, { ...s, id: s.id || ("ps_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6)) }]);
+  const removePracticeSession = (id) => setPracticeSessions((prev) => {
+    const target = prev.find((s) => s.id === id);
+    const next = prev.filter((s) => s.id !== id);
+    if (target?.audioPath) {
+      maybeDeleteUnusedPaths([target.audioPath], {
+        completions, books, songs, gifted: giftedRaw, albumPhotos, users, awards,
+      });
+    }
+    return next;
+  });
   const [celebrate, setCelebrate] = useState(null);
   // Tap a DONE task anywhere → CompletionDetailSheet opens against
   // this completion id. Krissie's retro-photo flow + Reznor's "what
@@ -2043,6 +2059,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     nextRewardTitle, nextRewardCost,
     bigRewardTitle, bigRewardCost,
     pendingMoreSub, setPendingMoreSub,
+    practiceSessions, addPracticeSession, removePracticeSession,
   };
 
   // First-run gate: a freshly-created family has a parent profile (from
@@ -11279,6 +11296,7 @@ function MoreParent(props) {
   if (sub === "audit") return <BackWrap title={i18nTOf("more_audit", "Data audit")} onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
+  if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
   if (sub === "handoff") return <BackWrap title={i18nTOf("more_handoff", "Handoff Notes")} onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
@@ -11320,6 +11338,7 @@ function MoreParent(props) {
     { k: "privacy",      icon: <Lock size={18} />,           label: i18nTOf("more_privacy", "Privacy & Safety"),             sub: i18nTOf("more_privacy_sub", "Family isolation · what's stored · own your data") },
     { k: "languages",    icon: <GraduationCap size={18} />,  label: i18nTOf("more_languages", "Languages"),                  sub: i18nTOf("more_languages_sub", "English / Spanish / Both — for the whole family") },
     { k: "siri",         icon: <Music size={18} />,          label: "Siri Shortcuts",                                        sub: "Hey Siri, mark Drums done — one tap per task" },
+    { k: "practice",     icon: <Play size={18} />,           label: "Practice Timer",                                        sub: "Time a session · record a 30s clip · listen back later" },
   ];
   // Apply per-parent saved order. Items not in the saved list slot in
   // at the end so a new menu entry shows up automatically. The setting
@@ -11868,6 +11887,271 @@ const SKILL_STARTER_AREAS = [
   "Art",
   "PE",
 ];
+
+// Practice Timer — Modacity-style. Pick an activity, tap Start, the
+// timer counts up. Optionally tap "Record 30s" to capture a clip
+// (browser MediaRecorder + Supabase upload). Tap Stop to save the
+// session. Past sessions list below; tap a clip to listen back.
+function PracticeSessionRow({ s, activities, removePracticeSession }) {
+  const a = (activities || []).find((x) => x.id === s.activityId);
+  const audio = useSignedUrl(s.audioPath);
+  const date = new Date(s.startedAt || s.createdAt);
+  const dateLabel = date.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " · " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const mins = Math.floor((s.durationSeconds || 0) / 60);
+  const secs = (s.durationSeconds || 0) % 60;
+  return (
+    <Card className="p-3 mb-2">
+      <div className="flex items-start gap-2">
+        <div className="w-1.5 self-stretch rounded-full shrink-0" style={{ background: a?.color || "#6366f1", minHeight: "2rem" }} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <div className="font-bold text-sm flex-1 truncate">{a?.name || "Practice"}</div>
+            <div className="text-[11px] font-bold text-slate-600 shrink-0 tabular-nums">{mins}m {String(secs).padStart(2, "0")}s</div>
+          </div>
+          <div className="text-[11px] text-slate-400">{dateLabel}</div>
+          {s.notes && <div className="text-[11px] text-slate-500 mt-1 leading-snug">{s.notes}</div>}
+          {s.audioPath && audio.url && (
+            <audio controls preload="none" src={audio.url} className="w-full mt-2" />
+          )}
+          {s.audioPath && !audio.url && (
+            <div className="text-[10px] text-slate-300 mt-1">loading clip…</div>
+          )}
+        </div>
+        <button onClick={() => { if (confirm("Remove this session?")) removePracticeSession(s.id); }} className="text-slate-300 active:scale-95 shrink-0 p-1">
+          <X size={14} />
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+function PracticeTimer({ activities = [], practiceSessions = [], addPracticeSession, removePracticeSession, familyId, currentProfileId, users = [] }) {
+  // Pre-select drums when Lynch lands here; fall back to first active.
+  const drums = activities.find((a) => /drum/i.test(a.name) && a.status === "active");
+  const firstActive = activities.find((a) => a.status === "active");
+  const [activityId, setActivityId] = useState((drums || firstActive)?.id || "");
+  const [running, setRunning] = useState(false);
+  const [startedAt, setStartedAt] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [notes, setNotes] = useState("");
+  const [recState, setRecState] = useState("idle"); // idle | recording | uploading | done | error
+  const [recError, setRecError] = useState("");
+  const [recBlob, setRecBlob] = useState(null);
+  const [recAudioUrl, setRecAudioUrl] = useState(null);
+  const [recElapsed, setRecElapsed] = useState(0);
+  const recorderRef = useRef(null);
+  const recStopperRef = useRef(null);
+
+  // Tick the elapsed counter every second while running. Cleaning on
+  // unmount or stop prevents background drift.
+  useEffect(() => {
+    if (!running || !startedAt) return;
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [running, startedAt]);
+
+  const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+  const start = () => {
+    setStartedAt(Date.now());
+    setElapsed(0);
+    setRunning(true);
+  };
+
+  const stop = async () => {
+    if (!running) return;
+    const dur = Math.floor((Date.now() - startedAt) / 1000);
+    setRunning(false);
+    let audioPath = "";
+    if (recBlob && familyId) {
+      try {
+        setRecState("uploading");
+        const { path } = await uploadFamilyAudio({ blob: recBlob, familyId, kind: "practice" });
+        audioPath = path;
+        setRecState("done");
+      } catch (e) {
+        setRecState("error");
+        setRecError(e?.message || String(e));
+      }
+    }
+    addPracticeSession({
+      activityId,
+      profileId: (users.find((u) => u.role === "kid")?.id) || currentProfileId || null,
+      startedAt: new Date(startedAt).toISOString(),
+      endedAt: new Date().toISOString(),
+      durationSeconds: dur,
+      audioPath,
+      notes: notes.trim(),
+    });
+    // Reset for the next session
+    setStartedAt(null);
+    setElapsed(0);
+    setNotes("");
+    setRecBlob(null);
+    if (recAudioUrl) { URL.revokeObjectURL(recAudioUrl); setRecAudioUrl(null); }
+    setRecElapsed(0);
+    setRecState("idle");
+  };
+
+  const startRecording = async () => {
+    if (recState === "recording") return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setRecState("error");
+      setRecError("Audio recording isn't supported in this browser.");
+      return;
+    }
+    setRecError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Try a sensible default; some browsers (Safari) reject webm/opus.
+      // Letting MediaRecorder pick when no mimeType is supported is
+      // the safest fallback.
+      let mr;
+      const preferred = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+      const supported = preferred.find((m) => MediaRecorder.isTypeSupported?.(m));
+      try {
+        mr = supported ? new MediaRecorder(stream, { mimeType: supported }) : new MediaRecorder(stream);
+      } catch {
+        mr = new MediaRecorder(stream);
+      }
+      const chunks = [];
+      mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunks, { type: chunks[0]?.type || "audio/webm" });
+        setRecBlob(blob);
+        if (recAudioUrl) URL.revokeObjectURL(recAudioUrl);
+        setRecAudioUrl(URL.createObjectURL(blob));
+        setRecState("done");
+      };
+      recorderRef.current = mr;
+      mr.start();
+      setRecState("recording");
+      setRecElapsed(0);
+      const startMs = Date.now();
+      const tick = setInterval(() => {
+        const e = Math.floor((Date.now() - startMs) / 1000);
+        setRecElapsed(e);
+        if (e >= 30) {
+          clearInterval(tick);
+          try { mr.state === "recording" && mr.stop(); } catch (_) {}
+        }
+      }, 250);
+      recStopperRef.current = tick;
+    } catch (e) {
+      setRecState("error");
+      setRecError(e?.message || "Couldn't access the microphone.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (recState !== "recording") return;
+    try { recorderRef.current?.stop(); } catch (_) {}
+    if (recStopperRef.current) { clearInterval(recStopperRef.current); recStopperRef.current = null; }
+  };
+
+  const discardRecording = () => {
+    setRecBlob(null);
+    if (recAudioUrl) { URL.revokeObjectURL(recAudioUrl); setRecAudioUrl(null); }
+    setRecState("idle");
+    setRecError("");
+    setRecElapsed(0);
+  };
+
+  // Cleanup on unmount.
+  useEffect(() => () => {
+    if (recStopperRef.current) clearInterval(recStopperRef.current);
+    try { recorderRef.current?.state === "recording" && recorderRef.current.stop(); } catch (_) {}
+    if (recAudioUrl) URL.revokeObjectURL(recAudioUrl);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const activeActivities = activities.filter((a) => a.status === "active");
+  const myActivity = activities.find((a) => a.id === activityId);
+  const history = (practiceSessions || []).slice().sort((a, b) => (b.startedAt || b.createdAt || "").localeCompare(a.startedAt || a.createdAt || ""));
+
+  return (
+    <>
+      <Card className="p-4 mb-3 bg-gradient-to-br from-violet-50 to-fuchsia-50 border-violet-100">
+        <div className="text-[11px] uppercase tracking-wider font-bold text-violet-700 mb-2">Activity</div>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {activeActivities.length === 0 ? (
+            <div className="text-[12px] text-slate-500">No active activities yet — add some under More → Activities first.</div>
+          ) : activeActivities.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              disabled={running}
+              onClick={() => setActivityId(a.id)}
+              className={`px-2.5 py-1.5 rounded-full text-[12px] font-bold transition ${a.id === activityId ? "text-white" : "bg-white border border-slate-200 text-slate-700"} ${running ? "opacity-60" : "active:scale-95"}`}
+              style={a.id === activityId ? { background: a.color || "#7c3aed" } : undefined}
+            >
+              {a.name}
+            </button>
+          ))}
+        </div>
+
+        <div className="text-center my-4">
+          <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">{running ? "Running" : "Ready"}</div>
+          <div className="text-6xl font-extrabold tabular-nums tracking-tight text-slate-800">{fmt(elapsed)}</div>
+          {myActivity && <div className="text-[11px] text-slate-500 mt-1">{myActivity.name} session</div>}
+        </div>
+
+        <div className="flex gap-2">
+          {!running ? (
+            <button disabled={!activityId} onClick={start} className={`flex-1 py-3 rounded-2xl font-extrabold text-sm text-white ${activityId ? "bg-violet-600 active:scale-[0.98]" : "bg-slate-300"}`}>
+              ▶ Start practice
+            </button>
+          ) : (
+            <button onClick={stop} className="flex-1 py-3 rounded-2xl font-extrabold text-sm text-white bg-rose-600 active:scale-[0.98]">
+              ■ Stop & save
+            </button>
+          )}
+        </div>
+      </Card>
+
+      {running && (
+        <Card className="p-3 mb-3">
+          <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-2">Optional 30s clip</div>
+          {recState === "idle" && (
+            <button onClick={startRecording} className="w-full py-2.5 rounded-xl bg-amber-500 text-white font-bold text-sm">🎙️ Record 30s</button>
+          )}
+          {recState === "recording" && (
+            <div className="flex items-center gap-2">
+              <button onClick={stopRecording} className="flex-1 py-2.5 rounded-xl bg-rose-500 text-white font-bold text-sm">■ Stop recording ({30 - recElapsed}s)</button>
+            </div>
+          )}
+          {recState === "done" && recAudioUrl && (
+            <div>
+              <audio controls src={recAudioUrl} className="w-full mb-2" />
+              <div className="flex gap-2">
+                <button onClick={discardRecording} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs">Discard</button>
+                <button onClick={startRecording} className="flex-1 py-2 rounded-xl bg-amber-100 text-amber-700 font-bold text-xs">Re-record</button>
+              </div>
+              <div className="text-[10px] text-slate-400 mt-2">Saved when you tap Stop & save above.</div>
+            </div>
+          )}
+          {recState === "uploading" && <div className="text-[12px] text-slate-500">Uploading clip…</div>}
+          {recState === "error" && <div className="text-[12px] text-rose-600">{recError}</div>}
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notes (what you worked on, what was hard, etc.)"
+            rows={2}
+            className="w-full mt-2 border border-slate-200 rounded-lg px-2 py-1.5 text-xs resize-none"
+          />
+        </Card>
+      )}
+
+      <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-2 px-1">Past sessions</div>
+      {history.length === 0 ? (
+        <Card className="p-4 text-sm text-slate-400 text-center">No sessions yet. Start one above.</Card>
+      ) : (
+        history.map((s) => <PracticeSessionRow key={s.id} s={s} activities={activities} removePracticeSession={removePracticeSession} />)
+      )}
+    </>
+  );
+}
 
 // Siri Shortcuts page — one row per active task with a copyable URL
 // that hits ?qc=<slug>. Parents make an iOS Shortcut → "Open URL" →
