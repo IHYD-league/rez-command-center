@@ -71,19 +71,11 @@ const SEED_USERS = [
 // rewards table; starBankBase fixed to 0 (every star is now an
 // actual completion or gift).
 
-const CONTACTS = [
-  { label: "Dad (Mike)", value: "Call / text Mike" },
-  { label: "Mom (Krissie)", value: "Call / text Krissie" },
-  { label: "Emergency", value: "911" },
-  { label: "Pediatrician", value: "—" },
-];
-
-const CARE_NOTES = [
-  "Allergies: none on file",
-  "Drums can be split into two short sessions if he's tired.",
-  "Screen time only counts toward Duolingo / Melodics if it's the actual app.",
-  "Spanish exposure counts — music, shows, or talking all help.",
-];
+// Contacts + care notes were previously hardcoded with Lynch-specific
+// values (Mike / Krissie / Reznor's drum notes) and leaked into every
+// other family's helper/grandparent view. CareInfo now derives contacts
+// from the current family's parents in `users`; care notes are an empty
+// stub until parent-editable family settings land.
 
 // ---------- SEED: TASKS ----------
 // proofType: 'photo' | 'reading' | 'drums' | 'spanish' | null
@@ -4868,7 +4860,7 @@ function CompletionDetailSheet({
           <div>
             {photos.length === 0 && (
               <div className="text-center py-6 text-sm text-slate-400">
-                No photos yet. Add one if Reznor forgot 📸
+                {(() => { const k = (users || []).find((u) => u.role === "kid"); return k?.name ? `No photos yet. Add one if ${k.name} forgot 📸` : "No photos yet. Add one if it was missed 📸"; })()}
               </div>
             )}
             {photos.length > 0 && (
@@ -5410,7 +5402,7 @@ function DreamPlan({ rewards, starBank, rewardRequests, addRewardRequest, remove
       {!wishOpen && <button onClick={() => setWishOpen(true)} className="w-full py-3 rounded-2xl bg-violet-600 text-white font-bold text-sm flex items-center justify-center gap-1"><Plus size={15} /> Make a wish</button>}
       {wishOpen && (
         <Card className="p-4">
-          <input value={wish} onChange={(e) => setWish(e.target.value)} placeholder="e.g. Go fishing, visit Alexander in NorCal" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
+          <input value={wish} onChange={(e) => setWish(e.target.value)} placeholder="e.g. Go fishing, theme park day, sleepover" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
           <input value={wishNote} onChange={(e) => setWishNote(e.target.value)} placeholder="Why? (optional)" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
           <div className="flex gap-2">
             <button onClick={() => { setWishOpen(false); setWish(""); setWishNote(""); }} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">Cancel</button>
@@ -9302,7 +9294,7 @@ function WeekOverrideCard({ weekStartIso, weekEndIso, overrides = [], setWeekOve
         <input
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder="e.g. Visiting Xander, Disney day…"
+          placeholder="e.g. Family trip, theme park day…"
           autoFocus
           className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm mb-2"
         />
@@ -10947,15 +10939,28 @@ function AddBacklogBookForm({ onAdd, onCancel }) {
 }
 
 // ===================== PARENT: GRADE GOALS =====================
-function GradeGoals() {
-  const [g, setG] = useState(2); // default to where he's testing
+// Maps a kid's grade string (from OnboardingWizard) into the numeric
+// grade key STANDARDS is keyed by. "Pre-K"/"K" → 1 (we don't have
+// pre-1st standards yet, so first grade is the closest baseline).
+const GRADE_STRING_TO_NUM = {
+  "Pre-K": 1, "K": 1, "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5,
+  "6th": 6, "7th": 7, "8th": 8, "9th": 8, "10th": 8, "11th": 8, "12th": 8,
+};
+function GradeGoals({ users = [] }) {
+  const kid = users.find((u) => u.role === "kid");
+  const kidGradeNum = kid?.grade ? GRADE_STRING_TO_NUM[kid.grade] : null;
+  const [g, setG] = useState(kidGradeNum || 2);
   const subjects = STANDARDS[g] || {};
   const SUBJ_COLOR = { Reading: "#2563eb", Writing: "#ea580c", Math: "#d97706", Language: "#e11d48", Science: "#059669" };
   return (
     <>
       <Card className="p-3 mb-3 bg-indigo-50 border-indigo-100">
-        <div className="text-sm font-bold text-indigo-900">Reznor finishes Kindergarten now → 1st grade in Sept 2026.</div>
-        <div className="text-[12px] text-indigo-700 mt-1">He's testing ~2 grades above, so peek at 2nd–3rd to keep challenging him. These are high-level summaries — verify against official CA / Common Core docs.</div>
+        <div className="text-sm font-bold text-indigo-900">
+          {kid?.grade
+            ? `${kid.name}'s grade-level goals — currently ${kid.grade}.`
+            : "Grade-level learning goals. Set your kid's grade in their profile to tailor this view."}
+        </div>
+        <div className="text-[12px] text-indigo-700 mt-1">Tap a grade below to see typical milestones. These are high-level summaries — verify against official CA / Common Core docs.</div>
       </Card>
 
       <div className="flex gap-1.5 mb-3 flex-wrap">
@@ -11082,7 +11087,9 @@ function AddAwardForm({ activities, onAdd, onCancel, familyId }) {
 
 // ===================== PARENT: RECAP, EXPORT & MEMORIES =====================
 function ParentRecap(props) {
-  const { completions, activities, streaks, books, gifted, albumPhotos = [] } = props;
+  const { completions, activities, streaks, books, gifted, albumPhotos = [], users = [] } = props;
+  const recapKid = users.find((u) => u.role === "kid");
+  const recapKidName = recapKid?.name || "Recap";
   const [period, setPeriod] = useState("week");
   // Year picker — defaults to current year, but the parent can flip
   // back to prior years once data accumulates. Mike: "I plan to keep
@@ -11171,7 +11178,7 @@ function ParentRecap(props) {
     : period === "year" ? yearPick
     : "All-time";
   const buildText = () => [
-    `Reznor — ${periodLabel} Recap`, ``,
+    `${recapKidName} — ${periodLabel} Recap`, ``,
     `⭐ Stars earned: ${starsEarned}`,
     `✅ Activities completed: ${approved.length}`,
     `📚 Books finished: ${booksDone.length}`,
@@ -11999,7 +12006,7 @@ function MoreParent(props) {
   if (sub === "activities") return <BackWrap title={i18nTOf("more_activities", "Activities & Status")} onBack={() => setSub("menu")}><ManageActivities {...props} /></BackWrap>;
   if (sub === "tasks") return <BackWrap title={i18nTOf("more_tasks", "Tasks & Chores")} onBack={() => setSub("menu")}><ManageTasks {...props} /></BackWrap>;
   if (sub === "library") return <BackWrap title={i18nTOf("more_library", "Reading Library")} onBack={() => setSub("menu")}><ReadingLibrary {...props} /></BackWrap>;
-  if (sub === "grades") return <BackWrap title={i18nTOf("more_grades", "Grade Goals")} onBack={() => setSub("menu")}><GradeGoals /></BackWrap>;
+  if (sub === "grades") return <BackWrap title={i18nTOf("more_grades", "Grade Goals")} onBack={() => setSub("menu")}><GradeGoals users={props.users} /></BackWrap>;
   if (sub === "recap") return <BackWrap title={i18nTOf("more_recap", "Recap & Memories")} onBack={() => setSub("menu")}><ParentRecap {...props} /></BackWrap>;
   if (sub === "awards") return <BackWrap title={i18nTOf("more_awards", "Accomplishments")} onBack={() => setSub("menu")}><Accomplishments {...props} /></BackWrap>;
   if (sub === "board_theme") return <BackWrap title={i18nTOf("more_board_theme", "Adventure Board")} onBack={() => setSub("menu")}><AdventureBoardSettings {...props} /></BackWrap>;
@@ -12345,7 +12352,7 @@ function BoardThemePicker({ boardTheme, setBoardTheme, users, setCurrentUserId, 
           onClick={jumpToBoard}
           className="w-full mt-2 py-3 rounded-2xl bg-indigo-600 text-white font-extrabold text-sm active:scale-95 flex items-center justify-center gap-2"
         >
-          🎮 Go to Reznor's game board
+          🎮 Go to {kid?.name ? `${kid.name}'s` : "your kid's"} game board
         </button>
       )}
     </div>
@@ -13755,12 +13762,16 @@ function SiriShortcuts({ tasks = [], users = [] }) {
   const origin = (typeof window !== "undefined" && window.location?.origin) || "https://little-legend-treasures.netlify.app";
   const active = (tasks || []).filter((t) => t.active !== false);
   const slug = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  // Pull the example task name from this family's actual first active
+  // task so the spoken example is real for them, not Lynch-specific.
+  const exampleTaskName = (active[0]?.title || "their task").toLowerCase();
+  const exampleKidName = kid?.name || "your kid";
   return (
     <>
       <Card className="p-4 mb-3 bg-gradient-to-br from-indigo-50 to-violet-50 border-indigo-100">
         <div className="text-sm font-extrabold mb-1">Say "Hey Siri" instead of opening the app</div>
         <p className="text-[12px] text-slate-600 leading-snug">
-          One iPhone trick that takes 90 seconds. Once set up, you say <em>"Hey Siri, {kid?.name || "kid"} did drums"</em> and the app marks today's drums task done.
+          One iPhone trick that takes 90 seconds. Once set up, you say <em>"Hey Siri, {exampleKidName} did {exampleTaskName}"</em> and the app marks today's task done.
         </p>
       </Card>
 
@@ -13770,9 +13781,9 @@ function SiriShortcuts({ tasks = [], users = [] }) {
           <li>Open the <strong>Shortcuts</strong> app (already on every iPhone).</li>
           <li>Tap <strong>+</strong> top right → <strong>Add Action</strong> → search "Open URL" → tap it.</li>
           <li>Tap the URL field → paste the URL for the task you want from the list below.</li>
-          <li>Tap the shortcut name at the top → rename it to what you'd say out loud (e.g. "Reznor did drums").</li>
+          <li>Tap the shortcut name at the top → rename it to what you'd say out loud (e.g. <em>"{exampleKidName} did {exampleTaskName}"</em>).</li>
           <li>Tap the share icon → <strong>Add to Siri</strong> if it asks. Done.</li>
-          <li>Now say <em>"Hey Siri, Reznor did drums"</em> any time today and the app logs it.</li>
+          <li>Now say <em>"Hey Siri, {exampleKidName} did {exampleTaskName}"</em> any time today and the app logs it.</li>
         </ol>
       </Card>
 
@@ -13946,7 +13957,7 @@ function Skills({ learningGoals = [], setLearningGoals, kids = [], updateUser })
 }
 
 // ===================== PARENT: PEOPLE / ACCESS =====================
-function People({ users, addUser, updateUser, removeUser, familyId, pendingRegistrations, approveRegistration, denyRegistration, currentProfileId }) {
+function People({ user, users, addUser, updateUser, removeUser, familyId, pendingRegistrations, approveRegistration, denyRegistration, currentProfileId }) {
   const [adding, setAdding] = useState(false);
   const isExpired = (u) => u.accessType === "temporary" && u.accessExpires && new Date(u.accessExpires + "T23:59:59") < today;
   const order = { parent: 0, kid: 1, grandparent: 2, helper: 3, guest: 4 };
@@ -15282,7 +15293,7 @@ function ParentTodayHome(props) {
 }
 
 // Big, calm, must-dos-only view for a tired grandma babysitting.
-function EasyChecklist({ todaysTasks, todaysTopEight = [], compByTask, submitTask, undoTask, user, mode, priorities, activities, onFull, familyId }) {
+function EasyChecklist({ todaysTasks, todaysTopEight = [], compByTask, submitTask, undoTask, user, users = [], mode, priorities, activities, onFull, familyId }) {
   const onPhoto = async (t, file) => {
     if (!file) return;
     try {
@@ -15318,7 +15329,7 @@ function EasyChecklist({ todaysTasks, todaysTopEight = [], compByTask, submitTas
       </div>
 
       {allDone ? (
-        <div className="text-center py-12"><div className="text-6xl mb-3">🎉</div><div className="text-xl font-extrabold text-slate-700">All done!</div><div className="text-slate-400 mt-1 px-6">Reznor's must-dos are finished. Put your feet up — you've got this.</div></div>
+        <div className="text-center py-12"><div className="text-6xl mb-3">🎉</div><div className="text-xl font-extrabold text-slate-700">All done!</div><div className="text-slate-400 mt-1 px-6">{(() => { const kid = users.find((u) => u.role === "kid"); return kid?.name ? `${kid.name}'s must-dos are finished.` : "The must-dos are finished."; })()} Put your feet up — you've got this.</div></div>
       ) : (
         <div className="mt-4 space-y-3">
           {ordered.map((t) => {
@@ -15345,14 +15356,25 @@ function EasyChecklist({ todaysTasks, todaysTopEight = [], compByTask, submitTas
         </div>
       )}
 
-      <div className="mt-7">
-        <div className="text-xs font-bold text-slate-400 text-center mb-2">Need a grown-up?</div>
-        <div className="grid grid-cols-2 gap-2">
-          {CONTACTS.filter((c) => /mom|dad|mike|krissie/i.test(c.label)).slice(0, 2).map((c) => (
-            <button key={c.label} className="py-4 rounded-2xl bg-rose-500 text-white text-center font-extrabold flex items-center justify-center gap-2 active:scale-95"><Phone size={20} /> {c.label.replace(/\s*\(.*\)/, "")}</button>
-          ))}
-        </div>
-      </div>
+      {(() => {
+        const parents = users.filter((u) => u.role === "parent" && u.active !== false).slice(0, 2);
+        if (parents.length === 0) return null;
+        return (
+          <div className="mt-7">
+            <div className="text-xs font-bold text-slate-400 text-center mb-2">Need a grown-up?</div>
+            <div className={`grid gap-2 ${parents.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+              {parents.map((p) => {
+                const href = p.email ? `mailto:${encodeURIComponent(p.email)}` : "#";
+                return (
+                  <a key={p.id} href={href} className="py-4 rounded-2xl bg-rose-500 text-white text-center font-extrabold flex items-center justify-center gap-2 active:scale-95">
+                    <Phone size={20} /> {p.relationship || p.name}
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
       {onFull
         ? <button onClick={onFull} className="w-full mt-4 py-3 rounded-2xl bg-slate-100 text-slate-500 font-bold text-sm">Show everything</button>
         : <div className="w-full mt-4 py-3 rounded-2xl bg-slate-50 text-slate-300 font-bold text-sm text-center flex items-center justify-center gap-1"><Lock size={13} /> Easy mode (set by parents)</div>}
@@ -15428,14 +15450,34 @@ function HelperNotes({ handoff, users, addHandoff }) {
   return <div className="px-4 pt-4"><h2 className="font-extrabold text-lg px-1 mb-2">Notes & Handoff</h2><HandoffFull handoff={handoff} users={users} addHandoff={addHandoff} /></div>;
 }
 
-function CareInfo() {
+function CareInfo({ users = [] }) {
+  // Build contacts from this family's actual parents — no hardcoded
+  // names. Email is the contact channel (we don't collect phones yet).
+  // Emergency + Pediatrician are generic and the same for every family.
+  const parents = (users || []).filter((u) => u.role === "parent" && u.active !== false);
+  const contacts = [
+    ...parents.map((p) => ({
+      label: p.relationship ? `${p.relationship} (${p.name})` : p.name,
+      value: p.email || "—",
+    })),
+    { label: "Emergency", value: "911" },
+    { label: "Pediatrician", value: "—" },
+  ];
   return (
     <div className="px-4 pt-4">
       <h2 className="font-extrabold text-lg px-1 mb-2">Care & Contacts</h2>
       <SectionTitle icon={<Phone size={16} className="text-rose-500" />}>{i18nTOf("sec_contacts", "Contacts")}</SectionTitle>
-      {CONTACTS.map((c) => <Card key={c.label} className="p-3 mb-2 flex items-center justify-between"><span className="text-sm font-semibold">{c.label}</span><span className="text-sm text-slate-500">{c.value}</span></Card>)}
+      {contacts.map((c) => (
+        <Card key={c.label} className="p-3 mb-2 flex items-center justify-between gap-3">
+          <span className="text-sm font-semibold shrink-0">{c.label}</span>
+          <span className="text-sm text-slate-500 truncate">{c.value}</span>
+        </Card>
+      ))}
       <SectionTitle icon={<Heart size={16} className="text-rose-500" />}>{i18nTOf("sec_care_notes", "Care notes")}</SectionTitle>
-      {CARE_NOTES.map((n, i) => <Card key={i} className="p-3 mb-2 text-sm text-slate-600">{n}</Card>)}
+      <Card className="p-3 mb-2 text-sm text-slate-400 italic">
+        No care notes yet. Parents can add allergies, routines, and other helper
+        notes from the Profile screen later.
+      </Card>
     </div>
   );
 }

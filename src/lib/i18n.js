@@ -249,7 +249,7 @@ const STRINGS = {
   lang_both_hint:            { en: "Task names and labels render together — \"Make Bed / Hacer la cama\". Lets a learner read in Spanish without getting lost.", es: "Los nombres y etiquetas aparecen juntos — \"Make Bed / Hacer la cama\". Permite leer en español sin perderse." },
   lang_es_only:              { en: "🇪🇸 Spanish only",                       es: "🇪🇸 Solo español" },
   lang_es_only_sub:          { en: "Sólo en español.",                       es: "Sólo en español." },
-  lang_es_only_hint:         { en: "Full immersion. A few brand names (Duolingo, Drumeo) stay as they are.", es: "Inmersión total. Algunas marcas (Duolingo, Drumeo) se quedan como están." },
+  lang_es_only_hint:         { en: "Full immersion. Brand names stay as they are.", es: "Inmersión total. Las marcas se quedan como están." },
   lang_custom_hint:          { en: "Custom tasks you've added show up in whatever language you typed them in — open the task editor to add a Spanish name.", es: "Las tareas que has añadido salen en el idioma en que las escribiste — abre el editor de tareas para añadir un nombre en español." },
 
   // MoreMenu reorder UI

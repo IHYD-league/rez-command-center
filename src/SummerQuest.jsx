@@ -145,8 +145,8 @@ export default function SummerQuest({ child = "", initialMode, initialDone, onSa
             </div>
             <div className="sq-mode-help">
               {mode === "car"
-                ? <>🚗 <b>Road mode is on.</b> Every quest is now a car-friendly version — perfect for the drive up to NorCal to see Xander.</>
-                : <>Heading up to NorCal to hang with Xander? Flip to <b>On the Road</b> for fun car versions of every quest.</>}
+                ? <>🚗 <b>Road mode is on.</b> Every quest is now a car-friendly version — perfect for road trips and long drives.</>
+                : <>Heading out on a road trip? Flip to <b>On the Road</b> for fun car versions of every quest.</>}
             </div>
           </div>
 

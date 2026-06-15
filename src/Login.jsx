@@ -171,7 +171,7 @@ export default function Login() {
               type="text"
               value={familyName}
               onChange={(e) => setFamilyName(e.target.value)}
-              placeholder="e.g. The Magnetta Family"
+              placeholder="Your family name"
               className="w-full rounded-2xl bg-white/15 border border-white/15 px-3 py-2 mb-4 text-white placeholder-white/40 focus:outline-none focus:bg-white/20"
             />
           </>

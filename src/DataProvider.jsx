@@ -444,9 +444,9 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
         <h1 style={{ fontSize: 22, marginBottom: 8 }}>No family yet</h1>
         <p style={{ marginBottom: 8 }}>
           {sessionEmail ? <>Signed in as <strong>{sessionEmail}</strong>. This account </> : "Your account "}
-          isn't linked to a family. Run the Phase 2 SQL script
-          (<code>supabase/schema.sql</code>) in the Supabase SQL Editor — it
-          creates the Lynch family and links you by email.
+          isn't linked to a family yet. Head back to the home screen and tap
+          <strong> Start a new family</strong> to create one, or ask whoever
+          invited you to re-send the invite to this email address.
         </p>
         {signOut && (
           <button
