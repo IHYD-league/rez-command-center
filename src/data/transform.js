@@ -203,6 +203,8 @@ export const toApp = {
     decidedAt: r.decided_at || null,
     declineReason: r.decline_reason || "",
     brand: r.brand || "",
+    section: r.section || "",
+    listName: r.list_name || "Grocery",
     createdAt: r.created_at,
   }),
 
@@ -511,6 +513,8 @@ export const toDb = {
     decided_at: o.decidedAt || null,
     decline_reason: o.declineReason || null,
     brand: o.brand || null,
+    section: o.section || null,
+    list_name: o.listName || null,
   }),
 
   practiceSession: (familyId) => (o) => ({
