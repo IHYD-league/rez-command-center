@@ -24,6 +24,7 @@ import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { searchOpenLibrary } from "./lib/enrichBook.js";
 import { searchGoogleBooks } from "./lib/enrichBookGoogle.js";
+import { searchITunesBooks } from "./lib/enrichBookITunes.js";
 import { useBookWebSearch } from "./lib/useBookWebSearch.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { confetti } from "./lib/confetti.js";
@@ -10756,6 +10757,59 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId, onFindCov
     }
   };
   const onClearCustomCover = () => updateBook?.(b.id, { customCoverPath: "" });
+
+  // Cover chooser — Mike's "Try another cover" path. When Google's
+  // first hit looks bad (e.g. an interior photo, foreign edition,
+  // wrong book entirely), tap "Try other covers" to fan out to all
+  // three sources in parallel and pick the right one by sight.
+  // Sources with zero results are silently hidden, so a low-coverage
+  // source like iTunes Books on a picture book doesn't show as an
+  // empty section.
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [chooserLoading, setChooserLoading] = useState(false);
+  const [chooserResults, setChooserResults] = useState({ google: [], itunes: [], openLibrary: [] });
+  const [chooserError, setChooserError] = useState("");
+  const openCoverChooser = async () => {
+    setChooserOpen(true);
+    setChooserError("");
+    setChooserLoading(true);
+    const q = b.canonicalTitle || b.title || "";
+    const a = b.canonicalAuthor || "";
+    try {
+      const [gb, it, ol] = await Promise.allSettled([
+        searchGoogleBooks(q, a, 6),
+        searchITunesBooks(q, a, 6),
+        searchOpenLibrary(q, a, 6),
+      ]);
+      const pick = (settled) => settled.status === "fulfilled" && Array.isArray(settled.value) ? settled.value : [];
+      const results = {
+        google: pick(gb).filter((r) => r.coverThumbUrl || r.coverUrl),
+        itunes: pick(it).filter((r) => r.coverThumbUrl || r.coverUrl),
+        openLibrary: pick(ol).filter((r) => r.coverThumbUrl || r.coverUrl),
+      };
+      setChooserResults(results);
+      const total = results.google.length + results.itunes.length + results.openLibrary.length;
+      if (total === 0) setChooserError(i18nTOf("br_chooser_no_results", "No alternative covers found. Tap the camera to use your own photo."));
+    } catch (e) {
+      setChooserError(i18nTOf("br_chooser_fail", "Couldn't reach the book services. Try again in a moment."));
+    } finally {
+      setChooserLoading(false);
+    }
+  };
+  const applyChosenCover = (r) => {
+    if (!r || !r.coverUrl) return;
+    updateBook?.(b.id, {
+      coverUrl: r.coverUrl,
+      canonicalTitle: r.title || b.canonicalTitle || b.title,
+      canonicalAuthor: r.author || b.canonicalAuthor || "",
+      externalSource: r.externalSource || b.externalSource || "",
+      externalId: r.externalId || b.externalId || "",
+      enrichedAt: new Date().toISOString(),
+      matchStatus: "confirmed",
+    });
+    toast.success?.(i18nTOf("br_cover_applied", "Cover updated!"));
+    setChooserOpen(false);
+  };
   // Backlog-only: era_label with preset pills + custom freeform.
   const presetMatch = isBacklog && (ERA_PRESETS.includes(b.eraLabel) ? b.eraLabel : (b.eraLabel ? "Custom" : ERA_PRESETS[0]));
   const [eraChoice, setEraChoice] = useState(presetMatch || ERA_PRESETS[0]);
@@ -10874,6 +10928,16 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId, onFindCov
                   <Search size={12} /> {finding ? i18nTOf("br_finding_cover", "Searching…") : (b.coverUrl ? i18nTOf("br_recheck_cover", "Re-check cover") : i18nTOf("br_find_cover", "Find cover online"))}
                 </button>
               )}
+              {!b.customCoverPath && (
+                <button
+                  type="button"
+                  onClick={openCoverChooser}
+                  disabled={chooserLoading}
+                  className={`text-[11px] font-bold px-2 py-1.5 rounded-lg flex items-center gap-1 ${chooserLoading ? "bg-slate-100 text-slate-400" : "bg-violet-50 border border-violet-200 text-violet-700 active:scale-95"}`}
+                >
+                  {chooserLoading ? i18nTOf("br_finding_cover", "Searching…") : i18nTOf("br_try_other_covers", "Try other covers")}
+                </button>
+              )}
               {b.customCoverPath && (
                 <button
                   type="button"
@@ -10886,6 +10950,81 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId, onFindCov
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {chooserOpen && (
+        <div className="mb-3 rounded-2xl border border-violet-200 bg-violet-50/60 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-violet-700">
+              {i18nTOf("br_chooser_title", "Other covers from the web")}
+            </div>
+            <button
+              type="button"
+              onClick={() => setChooserOpen(false)}
+              className="text-[10px] font-bold text-slate-400 active:scale-95"
+              aria-label={i18nTOf("br_chooser_close", "Close cover chooser")}
+            >
+              {i18nTOf("br_chooser_close_label", "Close")}
+            </button>
+          </div>
+          {chooserLoading && (
+            <div className="text-[11px] text-slate-500 px-1 py-2">
+              {i18nTOf("br_chooser_loading", "Checking Google · iTunes Books · Open Library…")}
+            </div>
+          )}
+          {!chooserLoading && chooserError && (
+            <div className="text-[11px] text-slate-600 px-1 py-2 leading-snug">
+              {chooserError}
+            </div>
+          )}
+          {!chooserLoading && !chooserError && (
+            <>
+              {[
+                { key: "google", label: i18nTOf("br_chooser_src_google", "Google Books"), color: "bg-emerald-100 text-emerald-700" },
+                { key: "itunes", label: i18nTOf("br_chooser_src_itunes", "iTunes Books"), color: "bg-sky-100 text-sky-700" },
+                { key: "openLibrary", label: i18nTOf("br_chooser_src_ol", "Open Library"), color: "bg-amber-100 text-amber-700" },
+              ].map((src) => {
+                const list = chooserResults[src.key];
+                if (!Array.isArray(list) || list.length === 0) return null;
+                return (
+                  <div key={src.key} className="mb-3 last:mb-0">
+                    <div className="flex items-center gap-1.5 mb-1.5 px-0.5">
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${src.color}`}>{src.label}</span>
+                      <span className="text-[10px] text-slate-400">{list.length} {list.length === 1 ? "option" : "options"}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {list.map((r, i) => (
+                        <button
+                          key={`${src.key}-${i}`}
+                          type="button"
+                          onClick={() => applyChosenCover(r)}
+                          className="flex flex-col items-stretch text-left active:scale-[0.97] transition"
+                          title={r.title}
+                        >
+                          <div className="aspect-[3/4] rounded-lg overflow-hidden border border-slate-200 bg-slate-100 mb-1 relative">
+                            <div className="absolute inset-0 grid place-items-center text-slate-300"><BookOpen size={20} /></div>
+                            {r.coverThumbUrl && (
+                              <img
+                                src={r.coverThumbUrl}
+                                alt=""
+                                className="absolute inset-0 w-full h-full object-cover"
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                              />
+                            )}
+                          </div>
+                          <div className="text-[10px] font-bold text-slate-700 line-clamp-2 leading-tight">{r.title}</div>
+                          {r.author && <div className="text-[9px] text-slate-400 truncate">{r.author}{r.year ? ` · ${r.year}` : ""}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
       )}
 
