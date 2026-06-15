@@ -22,6 +22,10 @@ import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
+import { searchOpenLibrary } from "./lib/enrichBook.js";
+import { searchGoogleBooks } from "./lib/enrichBookGoogle.js";
+import { searchITunesBooks } from "./lib/enrichBookITunes.js";
+import { useBookWebSearch } from "./lib/useBookWebSearch.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { confetti } from "./lib/confetti.js";
 import { milestone } from "./lib/milestone.js";
@@ -3172,7 +3176,10 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
   // gave up instead of trying the title fallback. Now bookTitle is
   // always tried as a backup if the id miss happens.
   const meta = completion?.extra || gift?.extra || {};
-  const bookId = meta.bookId;
+  // Multi-book reading completions store extra.bookIds[]; the FIRST
+  // picked book represents the row visually. Legacy single bookId
+  // still works as a fallback for completions saved before multi-book.
+  const bookId = (Array.isArray(meta.bookIds) && meta.bookIds[0]) || meta.bookId;
   const bookTitle = meta.bookTitle;
   let book = null;
   if (bookId) book = books.find((b) => b.id === bookId);
@@ -5095,7 +5102,21 @@ function CompletionDetailSheet({
                 );
               }
               if (isReadingRow) {
-                const bookTitle = x.bookTitle || (x.bookId ? (books.find((b) => b.id === x.bookId)?.canonicalTitle || books.find((b) => b.id === x.bookId)?.title) : "") || "—";
+                // Multi-book session support — prefer bookIds[], fall
+                // back to single bookId (legacy completions), then
+                // bookTitle as last-ditch.
+                const idsArr = Array.isArray(x.bookIds) && x.bookIds.length > 0
+                  ? x.bookIds
+                  : (x.bookId ? [x.bookId] : []);
+                const titles = idsArr
+                  .map((id) => {
+                    const b = books.find((bk) => bk.id === id);
+                    return b ? (b.canonicalTitle || b.title) : "";
+                  })
+                  .filter(Boolean);
+                const titleText = titles.length > 0
+                  ? titles.join(" · ")
+                  : (x.bookTitle || "—");
                 const lang = x.lang || "—";
                 const minutes = Number(x.minutes) || 0;
                 const finished = !!x.markFinished;
@@ -5106,9 +5127,9 @@ function CompletionDetailSheet({
                   >
                     <div className="relative">
                       <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-extrabold flex items-center gap-1.5 mb-2">
-                        📚 What he read
+                        📚 {titles.length > 1 ? `What he read · ${titles.length} books` : "What he read"}
                       </div>
-                      <div className="text-xl font-extrabold leading-tight mb-3 truncate">{bookTitle}</div>
+                      <div className="text-base font-extrabold leading-tight mb-3 line-clamp-2 break-words">{titleText}</div>
                       <div className="grid grid-cols-3 gap-2">
                         <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
                           <div className="text-xl font-extrabold leading-none">{minutes}</div>
@@ -5613,13 +5634,25 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   const [melodics, setMelodics] = useState(existing?.extra?.melodics ? String(existing.extra.melodics) : "");
   const [songList, setSongList] = useState(existing?.extra?.songList || "");
   const [title, setTitle] = useState(existing?.extra?.title || "");
-  // Reading picker — bookId is set when an existing book is selected;
-  // markFinished is the "I finished this book today" checkbox that
-  // flips the book's status to finished on submit. Both flow into
-  // extra.bookId / extra.markFinished so future analytics can read them.
-  const [bookId, setBookId] = useState(existing?.extra?.bookId || null);
+  // Reading picker — bookIds is the list of books logged in this one
+  // session (Mike: Reznor read 3 books today, one completion). Stored
+  // as extra.bookIds[]; for back-compat the legacy single extra.bookId
+  // is also written (= bookIds[0]) so older read sites keep resolving
+  // a cover. markFinished is the "I finished this book today" check —
+  // it applies to ALL picked books, so a Library session that wraps
+  // up multiple books works in one tap.
+  const [bookIds, setBookIds] = useState(() => {
+    const arr = existing?.extra?.bookIds;
+    if (Array.isArray(arr) && arr.length > 0) return arr.filter(Boolean);
+    const one = existing?.extra?.bookId;
+    return one ? [one] : [];
+  });
   const [markFinished, setMarkFinished] = useState(false);
   const [bookSearch, setBookSearch] = useState("");
+  // Web-search state driven by the shared useBookWebSearch hook. The
+  // hook handles debounce + Google → OL fallback + retry. `skip` gates
+  // the call so we don't fetch when local library already has enough
+  // matches for the query.
   // "Also use this photo as the book cover" — visible whenever the
   // picked book has no cover yet OR a brand new book is about to be
   // created from a typed title. Mike: the proof photo and the official
@@ -5730,21 +5763,77 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
       .slice(0, 20);
   }, [books, bookSearch, isReading]);
 
-  const pickedBook = bookId ? (books || []).find((b) => b.id === bookId) : null;
+  // pickedBooks: dereferenced from bookIds against the live books prop.
+  // filter(Boolean) handles a transient race where addBook (web result
+  // path) hasn't yet propagated through the sync layer — the chip
+  // re-appears on the next render once the row lands.
+  const pickedBooks = useMemo(
+    () => bookIds.map((id) => (books || []).find((b) => b.id === id)).filter(Boolean),
+    [bookIds, books]
+  );
+  // Legacy single-book reference for code paths inside doSubmit that
+  // still target one book (cover stamping, etc.). When there are 2+
+  // picked books, those single-book operations apply to the FIRST
+  // picked book — the parent's first explicit choice.
+  const pickedBook = pickedBooks[0] || null;
 
-  // Tap a book in the picker — fills the title/lang fields so the
-  // existing form gates still pass, and pins bookId so doSubmit knows
-  // to update that row on the books side.
+  // Tap a result → ADD to bookIds (Mike's multi-book ask). Pre-fills
+  // title/lang from this book so the gate + free-typed title field
+  // reflect what the parent most recently picked. Won't double-add.
   const pickBook = (b) => {
-    setBookId(b.id);
-    setBookTitle(b._display || b.title || "");
+    setBookIds((prev) => prev.includes(b.id) ? prev : [...prev, b.id]);
+    setBookTitle(b._display || b.canonicalTitle || b.title || "");
     if (b.lang) setLang(b.lang);
     setBookSearch("");
+    setWebResults([]);
   };
-  const clearPick = () => {
-    setBookId(null);
-    // Keep bookTitle so the user can edit it as free text from there.
+  const removePickedBook = (id) => {
+    setBookIds((prev) => prev.filter((x) => x !== id));
   };
+  const clearAllPicks = () => {
+    setBookIds([]);
+  };
+
+  // Add a result from the web search (Open Library) → create a new
+  // book row in the family's catalog + add it to this session. The
+  // book lands with auto-match status so the catalog enrichment
+  // pipeline doesn't try to re-fetch it later.
+  const addWebBook = (r) => {
+    if (!r || !r.title || !addBook) return;
+    const newId = "b_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+    const todayIso = new Date().toISOString().slice(0, 10);
+    addBook({
+      id: newId,
+      title: r.title,
+      lang: lang || "English",
+      status: "reading",
+      started: todayIso,
+      finished: "",
+      level: "",
+      rating: 0,
+      notes: "",
+      preTracking: false,
+      eraLabel: "",
+      readCount: 1,
+      coverUrl: r.coverUrl || "",
+      canonicalTitle: r.title || "",
+      canonicalAuthor: r.author || "",
+      customCoverPath: "",
+      externalSource: r.externalSource || "open_library",
+      externalId: r.externalId || "",
+      enrichedAt: new Date().toISOString(),
+      matchStatus: "auto",
+    });
+    setBookIds((prev) => prev.includes(newId) ? prev : [...prev, newId]);
+    setBookTitle(r.title);
+    setBookSearch("");
+    setWebResults([]);
+  };
+
+  const { results: webResults, searching: webSearching, error: webError, retry: retryWebSearch } = useBookWebSearch(bookSearch, {
+    enabled: isReading,
+    skip: pickerBooks.length >= 5,
+  });
 
   // Upload the file to family-photos under <familyId>/proof/ and store
   // the returned path on the photo object. The legacy `url` field is
@@ -5769,7 +5858,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     if (!onSaveDraft) return;
     const proof = (nextPhotos || []).map((p) => ({ type: "photo", name: p.name, path: p.path }));
     const extra = {};
-    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
+    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
     if (useSchemaFields) Object.assign(extra, schemaExtra());
@@ -5818,7 +5907,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   let ready = true;
   let gateMsg = "";
   if (uploading) { ready = false; gateMsg = i18nTOf("ts_gate_uploading", "Photo still uploading…"); }
-  if (isReading && !bookTitle.trim()) { ready = false; gateMsg = i18nTOf("ts_gate_book_title", "Enter the book title to submit."); }
+  if (isReading && pickedBooks.length === 0 && !bookTitle.trim()) { ready = false; gateMsg = i18nTOf("ts_gate_book_title", "Pick at least one book or type a title to submit."); }
   if (isPhoto && photos.length === 0) { ready = false; gateMsg = i18nTOf("ts_gate_photo", "Add a photo of your work to submit."); }
   if (isDrums && (!drumeo && !melodics && !songList)) { ready = false; gateMsg = i18nTOf("ts_gate_drums", "Log at least one of Drumeo / Melodics / songs."); }
 
@@ -5826,7 +5915,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     // Strip any legacy preview URL from the stored proof item.
     const proof = photos.map((p) => ({ type: "photo", name: p.name, path: p.path }));
     const extra = {};
-    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
+    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
     if (useSchemaFields) Object.assign(extra, schemaExtra());
@@ -5838,37 +5927,42 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     // pre-tracking historical marker intact.
     if (isReading) {
       const todayIso = new Date().toISOString().slice(0, 10);
-      if (pickedBook && updateBook) {
-        const patch = {};
-        const wasRereadCandidate =
-          pickedBook.status === "finished" ||
-          pickedBook.status === "dropped" ||
-          pickedBook.preTracking;
-        if (markFinished) {
-          patch.status = "finished";
-          patch.finished = todayIso;
-          if (!pickedBook.started) patch.started = todayIso;
-          if (wasRereadCandidate) {
-            patch.readCount = (pickedBook.readCount || 1) + 1;
+      // Multi-book submit: every picked book gets the same status
+      // patch (finished/reading), and re-read candidates increment
+      // readCount. The "use this photo as the cover" stamp only
+      // applies to the FIRST picked book — one proof photo can't
+      // logically be the cover of multiple titles.
+      if (pickedBooks.length > 0 && updateBook) {
+        pickedBooks.forEach((pb, idx) => {
+          const patch = {};
+          const wasRereadCandidate =
+            pb.status === "finished" ||
+            pb.status === "dropped" ||
+            pb.preTracking;
+          if (markFinished) {
+            patch.status = "finished";
+            patch.finished = todayIso;
+            if (!pb.started) patch.started = todayIso;
+            if (wasRereadCandidate) {
+              patch.readCount = (pb.readCount || 1) + 1;
+            }
+          } else if (pb.status !== "reading") {
+            patch.status = "reading";
+            patch.finished = "";
+            patch.started = todayIso;
+            if (wasRereadCandidate) {
+              patch.readCount = (pb.readCount || 1) + 1;
+            }
           }
-        } else if (pickedBook.status !== "reading") {
-          patch.status = "reading";
-          patch.finished = "";
-          patch.started = todayIso;
-          if (wasRereadCandidate) {
-            patch.readCount = (pickedBook.readCount || 1) + 1;
+          // "Also use as cover" applies only to the first picked
+          // book + when that book has no cover yet — keeps the photo
+          // = cover declaration unambiguous for multi-book sessions.
+          if (idx === 0 && useAsBookCover && photo?.path && !pb.customCoverPath) {
+            patch.customCoverPath = photo.path;
           }
-        }
-        // Photo declared as the book cover → stamp it onto the book
-        // row's customCoverPath so the Reading Library + every
-        // book-thumbnail surface picks it up. The same file path
-        // also stays in completion.proof (already handled above) so
-        // the Done area / Stars still show it as proof.
-        if (useAsBookCover && photo?.path && !pickedBook.customCoverPath) {
-          patch.customCoverPath = photo.path;
-        }
-        if (Object.keys(patch).length > 0) updateBook(pickedBook.id, patch);
-      } else if (!pickedBook && bookTitle.trim() && addBook) {
+          if (Object.keys(patch).length > 0) updateBook(pb.id, patch);
+        });
+      } else if (pickedBooks.length === 0 && bookTitle.trim() && addBook) {
         // Free-typed title with no existing match — create a new book
         // row so the next session can pick it instead of re-typing.
         addBook({
@@ -5917,7 +6011,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   const doSaveDraft = () => {
     const proof = photos.map((p) => ({ type: "photo", name: p.name, path: p.path }));
     const extra = {};
-    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
+    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
     if (useSchemaFields) Object.assign(extra, schemaExtra());
@@ -6095,12 +6189,54 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
 
             {isReading && (
               <>
-                {/* Book picker — search existing books to avoid duplicates.
-                    Tap a result to pin it; the title input + lang fill
-                    automatically. Type a new title in the field below
-                    when nothing matches. */}
+                {/* Book picker — search the family's library AND the web.
+                    Reznor read 3 books today? Tap each one and the chips
+                    below the search box show what's logged for this
+                    session. Local matches always come first; if a book
+                    isn't in the library yet, an Open Library search runs
+                    automatically so the parent can add it in one tap. */}
                 <div>
-                  <div className="text-xs font-semibold text-slate-500 mb-1">{i18nTOf("field_book_pick_or_type", "Pick from library, or type a new one below")}</div>
+                  <div className="text-xs font-semibold text-slate-500 mb-1">
+                    {pickedBooks.length > 0
+                      ? i18nTOf("field_book_pick_more", "Add more books, or keep going")
+                      : i18nTOf("field_book_pick_or_type", "Pick from library, or type a new one below")}
+                  </div>
+                  {pickedBooks.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                      {pickedBooks.map((pb) => {
+                        const title = pb.canonicalTitle || pb.title || i18nTOf("ts_book_untitled", "(untitled)");
+                        const isRereadCandidate = pb.preTracking || pb.status === "finished" || pb.status === "dropped";
+                        const round = isRereadCandidate ? ` · R${(pb.readCount || 1) + 1}` : "";
+                        const coverSrc = pb.coverUrl || "";
+                        return (
+                          <span key={pb.id} className="inline-flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full pl-1 pr-1 py-0.5 text-[12px] font-bold max-w-full">
+                            <span className="w-6 h-8 rounded bg-emerald-100 grid place-items-center shrink-0 relative overflow-hidden">
+                              <Check size={12} className="text-emerald-600" />
+                              {coverSrc && (
+                                <img
+                                  src={coverSrc}
+                                  alt=""
+                                  className="absolute inset-0 w-full h-full object-cover"
+                                  loading="lazy"
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                />
+                              )}
+                            </span>
+                            <span className="truncate max-w-[160px] py-1">{title}{round}</span>
+                            <button onClick={() => removePickedBook(pb.id)} className="text-emerald-600 p-0.5 active:scale-95" aria-label={i18nTOf("ts_picked_remove", "Remove this book")}>
+                              <X size={12} />
+                            </button>
+                          </span>
+                        );
+                      })}
+                      {pickedBooks.length > 1 && (
+                        <button onClick={clearAllPicks} className="text-[11px] text-slate-400 font-bold underline px-1">
+                          {i18nTOf("ts_picked_clear_all", "Clear all")}
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <input
                     value={bookSearch}
                     onChange={(e) => setBookSearch(e.target.value)}
@@ -6109,70 +6245,119 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                   />
                   {bookSearch.trim() && pickerBooks.length > 0 && (
                     <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
-                      {pickerBooks.map((b) => {
-                        const statusLabel =
-                          b.preTracking ? i18nTOf("ts_book_archive", "Archive · {era}").replaceAll("{era}", b.eraLabel || i18nTOf("ts_book_era_unset", "era unset"))
-                          : b.status === "finished" ? i18nTOf("ts_book_status_finished", "Finished")
-                          : b.status === "wishlist" ? i18nTOf("ts_book_status_wishlist", "Wishlist")
-                          : b.status === "dropped" ? i18nTOf("ts_book_status_dropped", "Dropped")
-                          : i18nTOf("ts_book_status_reading", "Reading");
-                        const statusColor =
-                          b.preTracking ? "bg-amber-100 text-amber-800"
-                          : b.status === "finished" ? "bg-emerald-100 text-emerald-700"
-                          : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
-                          : b.status === "dropped" ? "bg-slate-200 text-slate-500"
-                          : "bg-sky-100 text-sky-700";
-                        const isRereadCandidate = b.preTracking || b.status === "finished" || b.status === "dropped";
-                        return (
-                          <button
-                            key={b.id}
-                            type="button"
-                            onClick={() => pickBook(b)}
-                            className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-bold text-slate-800 truncate">{b._display || i18nTOf("ts_book_untitled", "(untitled)")}</div>
-                              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${statusColor}`}>{statusLabel}</span>
-                                {b.lang && <span className="text-[10px] text-slate-500">{b.lang}</span>}
-                                {(b.readCount || 1) > 1 && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                                    {i18nTOf("ts_read_count", "Read {n}×").replaceAll("{n}", b.readCount)}
-                                  </span>
-                                )}
-                                {isRereadCandidate && (
-                                  <span className="text-[10px] text-amber-600 font-bold">{i18nTOf("ts_round_hint", "round {n}?").replaceAll("{n}", (b.readCount || 1) + 1)}</span>
-                                )}
+                      {pickerBooks
+                        .filter((b) => !bookIds.includes(b.id))
+                        .map((b) => {
+                          const statusLabel =
+                            b.preTracking ? i18nTOf("ts_book_archive", "Archive · {era}").replaceAll("{era}", b.eraLabel || i18nTOf("ts_book_era_unset", "era unset"))
+                            : b.status === "finished" ? i18nTOf("ts_book_status_finished", "Finished")
+                            : b.status === "wishlist" ? i18nTOf("ts_book_status_wishlist", "Wishlist")
+                            : b.status === "dropped" ? i18nTOf("ts_book_status_dropped", "Dropped")
+                            : i18nTOf("ts_book_status_reading", "Reading");
+                          const statusColor =
+                            b.preTracking ? "bg-amber-100 text-amber-800"
+                            : b.status === "finished" ? "bg-emerald-100 text-emerald-700"
+                            : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
+                            : b.status === "dropped" ? "bg-slate-200 text-slate-500"
+                            : "bg-sky-100 text-sky-700";
+                          const isRereadCandidate = b.preTracking || b.status === "finished" || b.status === "dropped";
+                          return (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => pickBook(b)}
+                              className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-bold text-slate-800 truncate">{b._display || i18nTOf("ts_book_untitled", "(untitled)")}</div>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${statusColor}`}>{statusLabel}</span>
+                                  {b.lang && <span className="text-[10px] text-slate-500">{b.lang}</span>}
+                                  {(b.readCount || 1) > 1 && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                                      {i18nTOf("ts_read_count", "Read {n}×").replaceAll("{n}", b.readCount)}
+                                    </span>
+                                  )}
+                                  {isRereadCandidate && (
+                                    <span className="text-[10px] text-amber-600 font-bold">{i18nTOf("ts_round_hint", "round {n}?").replaceAll("{n}", (b.readCount || 1) + 1)}</span>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          </button>
-                        );
-                      })}
+                            </button>
+                          );
+                        })}
                     </div>
                   )}
-                  {pickedBook && (
-                    <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-2">
-                      <Check size={14} className="text-emerald-600 shrink-0" />
-                      <div className="flex-1 text-[12px] text-emerald-800 font-bold truncate">
-                        {i18nTOf("field_picked", "Picked")}: {pickedBook.canonicalTitle || pickedBook.title || i18nTOf("ts_book_untitled", "(untitled)")}
-                        {(pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped") && (
-                          <span className="text-[10px] text-amber-700 ml-1">{i18nTOf("ts_round_inline", "(this will be Round {n})").replaceAll("{n}", (pickedBook.readCount || 1) + 1)}</span>
-                        )}
+                  {/* Web search — fires automatically when the local
+                      library has nothing for the query. Open Library
+                      returns cover thumb + title + author + year so
+                      a one-tap add gives the new book a real cover
+                      out of the gate. */}
+                  {bookSearch.trim().length >= 3 && (webSearching || webResults.length > 0 || webError) && (
+                    <div className="mt-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-2">
+                      <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-700 mb-1 px-1">
+                        {webSearching ? i18nTOf("ts_web_searching", "Searching the web…") : i18nTOf("ts_web_results", "From the web (tap to add)")}
                       </div>
-                      <button onClick={clearPick} className="text-emerald-600 p-1" aria-label={i18nTOf("ts_picked_clear", "Clear picked book")}>
-                        <X size={14} />
-                      </button>
+                      {webError && !webSearching && (
+                        <div className="bg-white rounded-xl p-2 flex items-center gap-2">
+                          <div className="flex-1 text-[11px] text-slate-600 leading-snug">
+                            {i18nTOf("ts_web_error_msg", "Couldn't reach the book service. Could be a hiccup.")}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => retryWebSearch()}
+                            className="text-[11px] font-bold text-white bg-indigo-600 rounded-lg px-3 py-1.5 active:scale-95 shrink-0"
+                          >
+                            {i18nTOf("ts_web_retry", "Try again")}
+                          </button>
+                        </div>
+                      )}
+                      {webResults.length > 0 && (
+                        <div className="bg-white rounded-xl divide-y divide-slate-100 overflow-hidden">
+                          {webResults.map((r, i) => (
+                            <button
+                              key={`web-${i}`}
+                              type="button"
+                              onClick={() => addWebBook(r)}
+                              className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
+                            >
+                              <div className="w-10 h-14 rounded bg-slate-100 grid place-items-center shrink-0 relative overflow-hidden">
+                                <BookOpen size={14} className="text-slate-300" />
+                                {r.coverThumbUrl && (
+                                  <img
+                                    src={r.coverThumbUrl}
+                                    alt=""
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer"
+                                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                  />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-bold text-slate-800 truncate">{r.title || i18nTOf("ts_book_untitled", "(untitled)")}</div>
+                                <div className="text-[11px] text-slate-500 truncate">
+                                  {r.author || i18nTOf("ts_web_author_unknown", "Author unknown")}{r.year ? ` · ${r.year}` : ""}
+                                </div>
+                              </div>
+                              <Plus size={16} className="text-indigo-500 shrink-0" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-                <Field label={pickedBook ? i18nTOf("field_book_title_synced", "Title (synced from pick)") : i18nTOf("field_book_title_required", "Book title *")}>
-                  <input
-                    value={bookTitle}
-                    onChange={(e) => { setBookTitle(e.target.value); if (pickedBook) setBookId(null); }}
-                    placeholder={i18nTOf("ts_book_title_ph", "e.g. Dog Man")}
-                    className="input"
-                  />
-                </Field>
+                {pickedBooks.length === 0 && (
+                  <Field label={i18nTOf("field_book_title_required", "Book title *")}>
+                    <input
+                      value={bookTitle}
+                      onChange={(e) => setBookTitle(e.target.value)}
+                      placeholder={i18nTOf("ts_book_title_ph", "e.g. Dog Man")}
+                      className="input"
+                    />
+                  </Field>
+                )}
                 <div className="flex gap-2">
                   <button onClick={() => setLang("English")} className={`flex-1 py-2 rounded-2xl text-sm font-semibold ${lang === "English" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{i18nTOf("ts_lang_english", "English")}</button>
                   <button onClick={() => setLang("Spanish")} className={`flex-1 py-2 rounded-2xl text-sm font-semibold ${lang === "Spanish" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{i18nTOf("ts_lang_spanish", "Spanish 🇪🇸")}</button>
@@ -6186,7 +6371,9 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     className="w-4 h-4"
                   />
                   <span className="text-sm text-slate-700">
-                    {i18nTOf("ts_finished_today", "✅ He finished this book today")}
+                    {pickedBooks.length > 1
+                      ? i18nTOf("ts_finished_today_many", "✅ He finished these books today")
+                      : i18nTOf("ts_finished_today", "✅ He finished this book today")}
                     {pickedBook && (pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped")
                       ? i18nTOf("ts_round_suffix", " (Round {n})").replaceAll("{n}", (pickedBook.readCount || 1) + 1)
                       : ""}
@@ -7862,7 +8049,9 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   const isReadingRow = pt === "reading" || /read|book/.test(at);
   const isDrumsRow = pt === "drums" || /drum/.test(at);
   const meta = comp?.extra || {};
-  const bookId = meta.bookId;
+  // Multi-book completions store extra.bookIds[]; the FIRST picked
+  // book provides the row's hero cover. Legacy bookId still works.
+  const bookId = (Array.isArray(meta.bookIds) && meta.bookIds[0]) || meta.bookId;
   const bookTitle = meta.bookTitle;
   // Same robust id-then-title fallback as ProofThumb. The id-only
   // lookup before this could miss when the id lookup returned undef
@@ -10378,6 +10567,7 @@ function ReadingLibrary({ books, addBook, updateBook, removeBook, familyId, libr
 function BookRow({ b, updateBook, removeBook, familyId }) {
   const [edit, setEdit] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [finding, setFinding] = useState(false);
   const fileRef = useRef(null);
   const pace = daysBetween(b.started, b.finished);
   // Custom cover takes precedence over OL. Mirrors EnrichedBookRow's
@@ -10398,6 +10588,48 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  // Search the web for a cover for an existing book. Google primary,
+  // OL fallback. If neither has one, surfaces an honest "no cover
+  // available — upload one with the camera" message; the camera path
+  // already exists right next to this button.
+  const findCover = async () => {
+    if (!updateBook || finding) return;
+    setFinding(true);
+    const title = b.canonicalTitle || b.title || "";
+    const author = b.canonicalAuthor || "";
+    try {
+      let match = null;
+      try {
+        const gb = await searchGoogleBooks(title, author, 1);
+        match = (gb && gb[0]) || null;
+      } catch { /* fall through to OL */ }
+      if (!match || !match.coverUrl) {
+        try {
+          const ol = await searchOpenLibrary(title, author, 1);
+          match = (ol && ol[0]) || match || null;
+        } catch { /* swallow */ }
+      }
+      if (!match || !match.coverUrl) {
+        toast.error?.(i18nTOf("br_no_cover_found", "No cover found online. Tap the camera to use your own photo."));
+        return;
+      }
+      updateBook(b.id, {
+        coverUrl: match.coverUrl,
+        canonicalTitle: match.title || b.canonicalTitle || b.title,
+        canonicalAuthor: match.author || b.canonicalAuthor || "",
+        externalSource: match.externalSource || b.externalSource || "",
+        externalId: match.externalId || b.externalId || "",
+        enrichedAt: new Date().toISOString(),
+        matchStatus: "auto",
+      });
+      toast.success?.(i18nTOf("br_cover_found", "Cover added!"));
+    } catch (err) {
+      toast.error?.(i18nTOf("br_cover_search_fail", "Couldn't reach the book service. Try again in a moment."));
+    } finally {
+      setFinding(false);
     }
   };
 
@@ -10448,6 +10680,17 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
               className="hidden"
               aria-label={i18nTOf("br_upload_cover_aria", "Upload book cover")}
             />
+            {!displayCover && (
+              <button
+                onClick={findCover}
+                disabled={finding}
+                className={`p-1 ${finding ? "text-slate-300" : "text-indigo-500 active:scale-90"}`}
+                aria-label={i18nTOf("br_find_cover_aria", "Find cover online")}
+                title={finding ? i18nTOf("br_finding_cover", "Searching…") : i18nTOf("br_find_cover", "Find cover online")}
+              >
+                <Search size={15} />
+              </button>
+            )}
             <button
               onClick={() => fileRef.current?.click()}
               disabled={uploading}
@@ -10461,7 +10704,7 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
         )}
         <button onClick={() => setEdit((v) => !v)} className="p-1 text-slate-400" aria-label={i18nTOf("br_edit_aria", "Edit")}><Pencil size={15} /></button>
       </div>
-      {edit && <BookEditPanel b={b} updateBook={updateBook} removeBook={removeBook} onClose={() => setEdit(false)} familyId={familyId} />}
+      {edit && <BookEditPanel b={b} updateBook={updateBook} removeBook={removeBook} onClose={() => setEdit(false)} familyId={familyId} onFindCover={findCover} finding={finding} />}
     </Card>
   );
 }
@@ -10475,7 +10718,7 @@ function BookRow({ b, updateBook, removeBook, familyId }) {
 // Per the recon: no tracked ↔ backlog toggle in this panel. If the
 // parent realizes a book is in the wrong bucket, they remove and
 // re-add via the right button. Keeps the data honest.
-function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
+function BookEditPanel({ b, updateBook, removeBook, onClose, familyId, onFindCover, finding = false }) {
   const isBacklog = !!b.preTracking;
   const [title, setTitle]   = useState(b.title || "");
   const [lang, setLang]     = useState(b.lang || "English");
@@ -10514,6 +10757,59 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
     }
   };
   const onClearCustomCover = () => updateBook?.(b.id, { customCoverPath: "" });
+
+  // Cover chooser — Mike's "Try another cover" path. When Google's
+  // first hit looks bad (e.g. an interior photo, foreign edition,
+  // wrong book entirely), tap "Try other covers" to fan out to all
+  // three sources in parallel and pick the right one by sight.
+  // Sources with zero results are silently hidden, so a low-coverage
+  // source like iTunes Books on a picture book doesn't show as an
+  // empty section.
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [chooserLoading, setChooserLoading] = useState(false);
+  const [chooserResults, setChooserResults] = useState({ google: [], itunes: [], openLibrary: [] });
+  const [chooserError, setChooserError] = useState("");
+  const openCoverChooser = async () => {
+    setChooserOpen(true);
+    setChooserError("");
+    setChooserLoading(true);
+    const q = b.canonicalTitle || b.title || "";
+    const a = b.canonicalAuthor || "";
+    try {
+      const [gb, it, ol] = await Promise.allSettled([
+        searchGoogleBooks(q, a, 6),
+        searchITunesBooks(q, a, 6),
+        searchOpenLibrary(q, a, 6),
+      ]);
+      const pick = (settled) => settled.status === "fulfilled" && Array.isArray(settled.value) ? settled.value : [];
+      const results = {
+        google: pick(gb).filter((r) => r.coverThumbUrl || r.coverUrl),
+        itunes: pick(it).filter((r) => r.coverThumbUrl || r.coverUrl),
+        openLibrary: pick(ol).filter((r) => r.coverThumbUrl || r.coverUrl),
+      };
+      setChooserResults(results);
+      const total = results.google.length + results.itunes.length + results.openLibrary.length;
+      if (total === 0) setChooserError(i18nTOf("br_chooser_no_results", "No alternative covers found. Tap the camera to use your own photo."));
+    } catch (e) {
+      setChooserError(i18nTOf("br_chooser_fail", "Couldn't reach the book services. Try again in a moment."));
+    } finally {
+      setChooserLoading(false);
+    }
+  };
+  const applyChosenCover = (r) => {
+    if (!r || !r.coverUrl) return;
+    updateBook?.(b.id, {
+      coverUrl: r.coverUrl,
+      canonicalTitle: r.title || b.canonicalTitle || b.title,
+      canonicalAuthor: r.author || b.canonicalAuthor || "",
+      externalSource: r.externalSource || b.externalSource || "",
+      externalId: r.externalId || b.externalId || "",
+      enrichedAt: new Date().toISOString(),
+      matchStatus: "confirmed",
+    });
+    toast.success?.(i18nTOf("br_cover_applied", "Cover updated!"));
+    setChooserOpen(false);
+  };
   // Backlog-only: era_label with preset pills + custom freeform.
   const presetMatch = isBacklog && (ERA_PRESETS.includes(b.eraLabel) ? b.eraLabel : (b.eraLabel ? "Custom" : ERA_PRESETS[0]));
   const [eraChoice, setEraChoice] = useState(presetMatch || ERA_PRESETS[0]);
@@ -10610,17 +10906,38 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
               className="hidden"
               aria-label={i18nTOf("br_upload_cover_aria", "Upload book cover")}
             />
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               <button
                 type="button"
                 onClick={() => coverFileRef.current?.click()}
                 disabled={uploading}
-                className={`flex-1 text-[11px] font-bold px-2 py-1.5 rounded-lg flex items-center justify-center gap-1 ${
+                className={`flex-1 min-w-[120px] text-[11px] font-bold px-2 py-1.5 rounded-lg flex items-center justify-center gap-1 ${
                   uploading ? "bg-slate-200 text-slate-400" : "bg-white border border-slate-200 text-slate-600 active:scale-95"
                 }`}
               >
                 <Camera size={12} /> {uploading ? i18nTOf("br_uploading", "Uploading…") : b.customCoverPath ? i18nTOf("br_replace_cover", "Replace cover") : i18nTOf("br_use_my_cover", "Use my cover")}
               </button>
+              {onFindCover && !b.customCoverPath && (
+                <button
+                  type="button"
+                  onClick={onFindCover}
+                  disabled={finding}
+                  className={`text-[11px] font-bold px-2 py-1.5 rounded-lg flex items-center gap-1 ${finding ? "bg-slate-100 text-slate-400" : "bg-indigo-50 border border-indigo-200 text-indigo-700 active:scale-95"}`}
+                  aria-label={i18nTOf("br_find_cover_aria", "Find cover online")}
+                >
+                  <Search size={12} /> {finding ? i18nTOf("br_finding_cover", "Searching…") : (b.coverUrl ? i18nTOf("br_recheck_cover", "Re-check cover") : i18nTOf("br_find_cover", "Find cover online"))}
+                </button>
+              )}
+              {!b.customCoverPath && (
+                <button
+                  type="button"
+                  onClick={openCoverChooser}
+                  disabled={chooserLoading}
+                  className={`text-[11px] font-bold px-2 py-1.5 rounded-lg flex items-center gap-1 ${chooserLoading ? "bg-slate-100 text-slate-400" : "bg-violet-50 border border-violet-200 text-violet-700 active:scale-95"}`}
+                >
+                  {chooserLoading ? i18nTOf("br_finding_cover", "Searching…") : i18nTOf("br_try_other_covers", "Try other covers")}
+                </button>
+              )}
               {b.customCoverPath && (
                 <button
                   type="button"
@@ -10633,6 +10950,81 @@ function BookEditPanel({ b, updateBook, removeBook, onClose, familyId }) {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {chooserOpen && (
+        <div className="mb-3 rounded-2xl border border-violet-200 bg-violet-50/60 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-violet-700">
+              {i18nTOf("br_chooser_title", "Other covers from the web")}
+            </div>
+            <button
+              type="button"
+              onClick={() => setChooserOpen(false)}
+              className="text-[10px] font-bold text-slate-400 active:scale-95"
+              aria-label={i18nTOf("br_chooser_close", "Close cover chooser")}
+            >
+              {i18nTOf("br_chooser_close_label", "Close")}
+            </button>
+          </div>
+          {chooserLoading && (
+            <div className="text-[11px] text-slate-500 px-1 py-2">
+              {i18nTOf("br_chooser_loading", "Checking Google · iTunes Books · Open Library…")}
+            </div>
+          )}
+          {!chooserLoading && chooserError && (
+            <div className="text-[11px] text-slate-600 px-1 py-2 leading-snug">
+              {chooserError}
+            </div>
+          )}
+          {!chooserLoading && !chooserError && (
+            <>
+              {[
+                { key: "google", label: i18nTOf("br_chooser_src_google", "Google Books"), color: "bg-emerald-100 text-emerald-700" },
+                { key: "itunes", label: i18nTOf("br_chooser_src_itunes", "iTunes Books"), color: "bg-sky-100 text-sky-700" },
+                { key: "openLibrary", label: i18nTOf("br_chooser_src_ol", "Open Library"), color: "bg-amber-100 text-amber-700" },
+              ].map((src) => {
+                const list = chooserResults[src.key];
+                if (!Array.isArray(list) || list.length === 0) return null;
+                return (
+                  <div key={src.key} className="mb-3 last:mb-0">
+                    <div className="flex items-center gap-1.5 mb-1.5 px-0.5">
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${src.color}`}>{src.label}</span>
+                      <span className="text-[10px] text-slate-400">{list.length} {list.length === 1 ? "option" : "options"}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {list.map((r, i) => (
+                        <button
+                          key={`${src.key}-${i}`}
+                          type="button"
+                          onClick={() => applyChosenCover(r)}
+                          className="flex flex-col items-stretch text-left active:scale-[0.97] transition"
+                          title={r.title}
+                        >
+                          <div className="aspect-[3/4] rounded-lg overflow-hidden border border-slate-200 bg-slate-100 mb-1 relative">
+                            <div className="absolute inset-0 grid place-items-center text-slate-300"><BookOpen size={20} /></div>
+                            {r.coverThumbUrl && (
+                              <img
+                                src={r.coverThumbUrl}
+                                alt=""
+                                className="absolute inset-0 w-full h-full object-cover"
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                              />
+                            )}
+                          </div>
+                          <div className="text-[10px] font-bold text-slate-700 line-clamp-2 leading-tight">{r.title}</div>
+                          {r.author && <div className="text-[9px] text-slate-400 truncate">{r.author}{r.year ? ` · ${r.year}` : ""}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
       )}
 
@@ -10839,15 +11231,110 @@ function AddBookForm({ onAdd, onCancel }) {
   const [lang, setLang] = useState("English");
   const [level, setLevel] = useState("");
   const [started, setStarted] = useState(TODAY_ISO);
+  const { results: webResults, searching: webSearching, error: webError, retry: retryWebSearch } = useBookWebSearch(title);
+
+  // Tap a web result → emit a complete book object with canonical
+  // title, author, and a real cover URL. Mike's "fuzzy search to work
+  // when I add a book" — one tap, the book lands in the library with
+  // a proper cover instead of needing manual title-only typing.
+  const addFromWeb = (r) => {
+    if (!r || !r.title) return;
+    onAdd({
+      id: "b_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+      title: r.title,
+      lang,
+      status: "reading",
+      started,
+      finished: "",
+      level: level.trim(),
+      rating: 0,
+      notes: "",
+      preTracking: false,
+      eraLabel: "",
+      readCount: 1,
+      coverUrl: r.coverUrl || "",
+      canonicalTitle: r.title || "",
+      canonicalAuthor: r.author || "",
+      customCoverPath: "",
+      externalSource: r.externalSource || "",
+      externalId: r.externalId || "",
+      enrichedAt: new Date().toISOString(),
+      matchStatus: "auto",
+    });
+  };
+
   return (
     <Card className="p-4 mb-3">
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={i18nTOf("br_book_title_ph", "Book title")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder={i18nTOf("br_book_title_ph", "Book title — start typing to search the web")}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2"
+      />
+      {/* Web results — same shape as the completion picker. */}
+      {title.trim().length >= 3 && (webSearching || webResults.length > 0 || webError) && (
+        <div className="mb-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-2">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-700 mb-1 px-1">
+            {webSearching ? i18nTOf("ts_web_searching", "Searching the web…") : i18nTOf("ts_web_results", "From the web (tap to add)")}
+          </div>
+          {webError && !webSearching && (
+            <div className="bg-white rounded-xl p-2 flex items-center gap-2">
+              <div className="flex-1 text-[11px] text-slate-600 leading-snug">
+                {i18nTOf("ts_web_error_msg", "Couldn't reach the book service. Could be a hiccup.")}
+              </div>
+              <button
+                type="button"
+                onClick={() => retryWebSearch()}
+                className="text-[11px] font-bold text-white bg-indigo-600 rounded-lg px-3 py-1.5 active:scale-95 shrink-0"
+              >
+                {i18nTOf("ts_web_retry", "Try again")}
+              </button>
+            </div>
+          )}
+          {webResults.length > 0 && (
+            <div className="bg-white rounded-xl divide-y divide-slate-100 overflow-hidden">
+              {webResults.map((r, i) => (
+                <button
+                  key={`web-${i}`}
+                  type="button"
+                  onClick={() => addFromWeb(r)}
+                  className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
+                >
+                  <div className="w-10 h-14 rounded bg-slate-100 grid place-items-center shrink-0 relative overflow-hidden">
+                    <BookOpen size={14} className="text-slate-300" />
+                    {r.coverThumbUrl && (
+                      <img
+                        src={r.coverThumbUrl}
+                        alt=""
+                        className="absolute inset-0 w-full h-full object-cover"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                      />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold text-slate-800 truncate">{r.title || i18nTOf("ts_book_untitled", "(untitled)")}</div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      {r.author || i18nTOf("ts_web_author_unknown", "Author unknown")}{r.year ? ` · ${r.year}` : ""}
+                    </div>
+                  </div>
+                  <Plus size={16} className="text-indigo-500 shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex gap-1.5 mb-2">{[["English", i18nTOf("br_lang_english", "English")], ["Spanish", i18nTOf("br_lang_spanish", "Spanish")]].map(([key, label]) => <button key={key} onClick={() => setLang(key)} className={`text-[11px] font-semibold px-3 py-1 rounded-full ${lang === key ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{label}</button>)}</div>
       <input value={level} onChange={(e) => setLevel(e.target.value)} placeholder={i18nTOf("br_reading_level_ph", "Reading level (e.g. ~2nd grade)")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
       <label className="text-[11px] font-semibold text-slate-500 block mb-2">{i18nTOf("br_started_label", "Started")}<input type="date" value={started} onChange={(e) => setStarted(e.target.value)} className="w-full mt-0.5 border border-slate-200 rounded-xl px-3 py-2 text-sm" /></label>
       <div className="flex gap-2">
         <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">{i18nTOf("br_cancel", "Cancel")}</button>
         <button disabled={!title.trim()} onClick={() => onAdd({ id: "b_" + Date.now(), title: title.trim(), lang, status: "reading", started, finished: "", level: level.trim(), rating: 0, notes: "" })} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${title.trim() ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>{i18nTOf("br_add_book", "Add book")}</button>
+      </div>
+      <div className="text-[10px] text-slate-400 text-center mt-2 leading-snug">
+        {i18nTOf("br_add_book_hint", "Pick from the web above for a real cover, or hit Add book to save the title only.")}
       </div>
     </Card>
   );

@@ -23,6 +23,16 @@
   status = 200
 
 [[redirects]]
+  from = "/api/google-books"
+  to = "/.netlify/functions/google-books"
+  status = 200
+
+[[redirects]]
+  from = "/api/open-library"
+  to = "/.netlify/functions/open-library"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
