@@ -5,6 +5,7 @@ import {
   Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map as MapIcon, Settings, TrendingUp, Download, Play
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
+import OnboardingWizard from "./OnboardingWizard.jsx";
 import SummerQuest from "./SummerQuest.jsx";
 import PhotoGallery from "./PhotoGallery.jsx";
 import Insights from "./Insights.jsx";
@@ -578,12 +579,18 @@ function makeSyncedSetter(rawSetter, key, sync) {
 }
 
 export default function App({ initial, currentProfileId, sync, familyId, signOut, sessionEmail } = {}) {
-  // Each persistent entity hydrates from `initial` (Supabase) when present,
-  // otherwise falls back to the in-file seed.
-  const [users, _setUsers] = useState(() => (initial?.profiles?.length ? initial.profiles : SEED_USERS));
-  const [tasks, _setTasks] = useState(() => (initial?.tasks?.length ? initial.tasks : SEED_TASKS));
-  const [rewards, _setRewards] = useState(() => (initial?.rewards?.length ? initial.rewards : SEED_REWARDS));
-  const [completions, _setCompletions] = useState(() => initial?.completions ?? SEED_COMPLETIONS);
+  // Each persistent entity hydrates from `initial` (Supabase). Empty
+  // means a brand-new family — the OnboardingWizard renders below before
+  // any of this matters. We no longer fall back to in-file SEEDs at
+  // runtime because that ghost-wrote Lynch family data (u_reznor, the
+  // 317-day drum streak, Krissie's handoff note, cmp_drums_20260606)
+  // into other families' DBs the moment their state mutated. The seeds
+  // remain in this file only as Lynch-family historical reference and
+  // are NEVER used as a runtime fallback in code below.
+  const [users, _setUsers] = useState(() => initial?.profiles ?? []);
+  const [tasks, _setTasks] = useState(() => initial?.tasks ?? []);
+  const [rewards, _setRewards] = useState(() => initial?.rewards ?? []);
+  const [completions, _setCompletions] = useState(() => initial?.completions ?? []);
   const [redemptions, _setRedemptions] = useState(() => initial?.redemptions ?? []);
   const [giftedRaw, _setGifted] = useState(() => initial?.gifted ?? []);
   // Hide soft-deleted gifts from every read site. The raw array
@@ -591,9 +598,9 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // and the sync layer pushes them so they persist; this view is
   // the one rendered.
   const gifted = useMemo(() => (giftedRaw || []).filter((g) => !g.deletedAt), [giftedRaw]);
-  const [streaks, _setStreaks] = useState(() => (initial?.streaks && Object.keys(initial.streaks).length ? initial.streaks : SEED_STREAKS));
-  const [books, _setBooks] = useState(() => initial?.books ?? SEED_BOOKS);
-  const [awards, _setAwards] = useState(() => initial?.awards ?? SEED_AWARDS);
+  const [streaks, _setStreaks] = useState(() => initial?.streaks ?? {});
+  const [books, _setBooks] = useState(() => initial?.books ?? []);
+  const [awards, _setAwards] = useState(() => initial?.awards ?? []);
   const [rewardRequests, _setRewardRequests] = useState(() => initial?.rewardRequests ?? []);
   const [songs, _setSongs] = useState(() => initial?.songs ?? []);
   const [songPlays, _setSongPlays] = useState(() => initial?.songPlays ?? []);
@@ -618,8 +625,8 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const setSummerQuest = makeSyncedSetter(_setSummerQuest, "summerQuest", sync);
 
   // Persisted via the dedicated `events` + `handoff_notes` tables.
-  const [events, _setEvents] = useState(() => initial?.events ?? SEED_EVENTS);
-  const [handoff, _setHandoff] = useState(() => initial?.handoffNotes ?? SEED_HANDOFF);
+  const [events, _setEvents] = useState(() => initial?.events ?? []);
+  const [handoff, _setHandoff] = useState(() => initial?.handoffNotes ?? []);
   // Memory album — parent-added (non-proof) photos. Stored in the
   // dedicated `album_photos` table (see migration
   // 20260609084150_add_album_photos.sql). Read open to family,
@@ -650,7 +657,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     return [value, setter];
   };
   const [mode, setMode] = familySetting("mode", "summer");
-  const [priorities, setPriorities] = familySetting("priorities", SEED_PRIORITIES);
+  const [priorities, setPriorities] = familySetting("priorities", {});
   // Parent-curated Top 8 — drives the board, kid missions tab, and
   // kid home main/side quests. Two layers:
   //   weekly[DayOfWeek] — the standing plan parents tweak rarely
@@ -728,7 +735,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // picker on Taekwondo; then the migration below merges them.
   const [weeklyActivityDays, setWeeklyActivityDays] = familySetting("weeklyActivityDays", {});
   const [weeklyActivityTimes, setWeeklyActivityTimes] = familySetting("weeklyActivityTimes", {});
-  const [taskNotes, setTaskNotes] = familySetting("taskNotes", SEED_TASK_NOTES);
+  const [taskNotes, setTaskNotes] = familySetting("taskNotes", {});
   const [subProgress, setSubProgress] = familySetting("subProgress", {});
   // Board theme — parent picks; one theme per family because the board
   // is a shared family canvas, not a per-profile view. Default is
@@ -1867,8 +1874,8 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const _nextBadge = nextBadgeFor(_achCtx);
   const _nextBadgeValue = _nextBadge?.val ? _nextBadge.val(_achCtx) : 0;
   const kidData = {
-    name: user.name,
-    avatar: user.photo || user.emoji || "🧑‍🚀",
+    name: user?.name,
+    avatar: user?.photo || user?.emoji || "🧑‍🚀",
     stars: starBank,
     streak: { current: _drumCurrent, milestone: _milestone, fillPct: (_drumCurrent / _milestone) * 100 },
     nextReward: { title: CHILD.nextReward, cost: CHILD.nextRewardCost, have: starBank },
@@ -1941,6 +1948,33 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     albumPhotos, setAlbumPhotos,
   };
 
+  // First-run gate: a freshly-created family has a parent profile (from
+  // create_family RPC) but no kid yet. Render the OnboardingWizard so
+  // they can name their first kid before entering the app. Lynch and
+  // every existing family pass this check because they have kids.
+  const hasKid = users.some((u) => u.role === "kid");
+  if (!hasKid) {
+    const me = users.find((u) => u.id === currentProfileId);
+    return (
+      <OnboardingWizard
+        parentName={me?.name}
+        onCreateKid={async ({ name, emoji, color }) => {
+          addUser({
+            name,
+            role: "kid",
+            emoji,
+            color,
+            relationship: "Kid",
+            active: true,
+            accessType: "permanent",
+            accessExpires: null,
+            permissions: {},
+          });
+        }}
+      />
+    );
+  }
+
   return (
     <div
       className="min-h-screen flex justify-center"
@@ -1974,7 +2008,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
           <TaskSheet
             task={openTask}
             existing={compByTask[openTask.id]}
-            role={user.role}
+            role={user?.role}
             onClose={() => setOpenTask(null)}
             onSubmit={submitTask}
             onSaveDraft={saveDraft}
