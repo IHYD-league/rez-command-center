@@ -802,7 +802,39 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // schema comment in 20260615091800_practice_sessions.sql.
   const [practiceSessions, _setPracticeSessions] = useState(() => initial?.practiceSessions ?? []);
   const setPracticeSessions = makeSyncedSetter(_setPracticeSessions, "practiceSessions", sync);
+  // Shared family shopping list. Stupid-simple list of titles with
+  // checked flag — anyone in the family can read/write; Krissie
+  // adds at the store, Mike checks off at home.
+  const [shoppingItems, _setShoppingItems] = useState(() => initial?.shoppingItems ?? []);
+  const setShoppingItems = makeSyncedSetter(_setShoppingItems, "shoppingItems", sync);
   const addPracticeSession = (s) => setPracticeSessions((prev) => [...prev, { ...s, id: s.id || ("ps_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6)) }]);
+  const addShoppingItem = (title, notes = "") => {
+    const t = (title || "").trim();
+    if (!t) return;
+    setShoppingItems((prev) => [...prev, {
+      id: "si_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+      title: t,
+      notes,
+      checked: false,
+      checkedAt: null,
+      checkedBy: null,
+      addedBy: currentProfileId || currentUserId || null,
+      createdAt: new Date().toISOString(),
+    }]);
+  };
+  const toggleShoppingItem = (id) => setShoppingItems((prev) => prev.map((it) => {
+    if (it.id !== id) return it;
+    const nowChecked = !it.checked;
+    return {
+      ...it,
+      checked: nowChecked,
+      checkedAt: nowChecked ? new Date().toISOString() : null,
+      checkedBy: nowChecked ? (currentProfileId || currentUserId || null) : null,
+    };
+  }));
+  const removeShoppingItem = (id) => setShoppingItems((prev) => prev.filter((it) => it.id !== id));
+  const clearCheckedShoppingItems = () => setShoppingItems((prev) => prev.filter((it) => !it.checked));
+  const renameShoppingItem = (id, title) => setShoppingItems((prev) => prev.map((it) => it.id === id ? { ...it, title } : it));
   const removePracticeSession = (id) => setPracticeSessions((prev) => {
     const target = prev.find((s) => s.id === id);
     const next = prev.filter((s) => s.id !== id);
@@ -2060,6 +2092,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     bigRewardTitle, bigRewardCost,
     pendingMoreSub, setPendingMoreSub,
     practiceSessions, addPracticeSession, removePracticeSession,
+    shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem,
   };
 
   // First-run gate: a freshly-created family has a parent profile (from
@@ -11297,6 +11330,7 @@ function MoreParent(props) {
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
+  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} users={props.users} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
   if (sub === "handoff") return <BackWrap title={i18nTOf("more_handoff", "Handoff Notes")} onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
@@ -11339,6 +11373,7 @@ function MoreParent(props) {
     { k: "languages",    icon: <GraduationCap size={18} />,  label: i18nTOf("more_languages", "Languages"),                  sub: i18nTOf("more_languages_sub", "English / Spanish / Both — for the whole family") },
     { k: "siri",         icon: <Music size={18} />,          label: "Siri Shortcuts",                                        sub: "Hey Siri, mark Drums done — one tap per task" },
     { k: "practice",     icon: <Play size={18} />,           label: "Practice Timer",                                        sub: "Time a session · record a 30s clip · listen back later" },
+    { k: "shopping",     icon: <ClipboardList size={18} />,  label: "Shopping List",                                         sub: "Shared family list · add at the store · check off at home" },
   ];
   // Apply per-parent saved order. Items not in the saved list slot in
   // at the end so a new menu entry shows up automatically. The setting
@@ -11887,6 +11922,116 @@ const SKILL_STARTER_AREAS = [
   "Art",
   "PE",
 ];
+
+// Shared family shopping list. Krissie-first design: opens fast, the
+// input is autofocused, Enter adds the item, tap a row to check off,
+// long-press / pencil to rename, X to remove. Strikethrough on
+// checked items sinks them to the bottom. One-tap "Clear bought"
+// when the trip's over. The whole point is being faster than texting.
+function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, users = [] }) {
+  const [draft, setDraft] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState("");
+  const sorted = (shoppingItems || []).slice().sort((a, b) => {
+    if (a.checked !== b.checked) return a.checked ? 1 : -1;
+    return (a.createdAt || "").localeCompare(b.createdAt || "");
+  });
+  const remaining = sorted.filter((it) => !it.checked).length;
+  const done = sorted.filter((it) => it.checked).length;
+  const submit = (e) => {
+    e?.preventDefault?.();
+    addShoppingItem(draft);
+    setDraft("");
+  };
+  const finishEdit = () => {
+    if (editingId && editDraft.trim()) renameShoppingItem(editingId, editDraft.trim());
+    setEditingId(null);
+    setEditDraft("");
+  };
+  const findName = (pid) => users.find((u) => u.id === pid)?.name;
+  return (
+    <>
+      <form onSubmit={submit} className="flex gap-2 mb-3">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Add something to buy…"
+          autoFocus
+          className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-base font-semibold"
+        />
+        <button type="submit" disabled={!draft.trim()} className={`px-4 rounded-xl font-bold text-sm text-white ${draft.trim() ? "bg-indigo-600 active:scale-95" : "bg-slate-300"}`}>
+          Add
+        </button>
+      </form>
+
+      {sorted.length > 0 && (
+        <div className="flex items-center justify-between mb-2 px-1">
+          <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500">
+            {remaining} to buy {done > 0 && <span className="text-slate-300 font-medium normal-case"> · {done} done</span>}
+          </div>
+          {done > 0 && (
+            <button onClick={() => { if (confirm(`Clear ${done} bought item${done === 1 ? "" : "s"}?`)) clearCheckedShoppingItems(); }} className="text-[11px] font-bold text-rose-600 active:scale-95">
+              Clear bought
+            </button>
+          )}
+        </div>
+      )}
+
+      {sorted.length === 0 ? (
+        <Card className="p-6 text-center text-sm text-slate-400">
+          List is empty. Add the first thing above.
+        </Card>
+      ) : (
+        sorted.map((it) => (
+          <div
+            key={it.id}
+            className={`flex items-center gap-2 p-3 mb-1.5 rounded-xl border ${it.checked ? "bg-slate-50 border-slate-100" : "bg-white border-slate-100"}`}
+          >
+            <button
+              onClick={() => toggleShoppingItem(it.id)}
+              aria-label={it.checked ? "Uncheck" : "Check"}
+              className={`w-7 h-7 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${it.checked ? "bg-emerald-500 text-white" : "border-2 border-slate-200"}`}
+            >
+              {it.checked && <Check size={15} />}
+            </button>
+            <div className="flex-1 min-w-0">
+              {editingId === it.id ? (
+                <input
+                  value={editDraft}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  onBlur={finishEdit}
+                  onKeyDown={(e) => { if (e.key === "Enter") finishEdit(); if (e.key === "Escape") { setEditingId(null); setEditDraft(""); } }}
+                  autoFocus
+                  className="w-full border border-indigo-200 rounded-lg px-2 py-1 text-sm font-semibold"
+                />
+              ) : (
+                <button
+                  onClick={() => { setEditingId(it.id); setEditDraft(it.title || ""); }}
+                  className={`text-left w-full font-semibold text-sm leading-snug ${it.checked ? "line-through text-slate-400" : "text-slate-800"}`}
+                >
+                  {it.title}
+                </button>
+              )}
+              {it.checked && it.checkedBy && findName(it.checkedBy) && (
+                <div className="text-[10px] text-slate-400">✓ by {findName(it.checkedBy)}</div>
+              )}
+              {!it.checked && it.addedBy && findName(it.addedBy) && (
+                <div className="text-[10px] text-slate-400">added by {findName(it.addedBy)}</div>
+              )}
+            </div>
+            <button
+              onClick={() => removeShoppingItem(it.id)}
+              className="text-slate-300 active:scale-90 p-1 shrink-0"
+              aria-label="Remove"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))
+      )}
+    </>
+  );
+}
 
 // Practice Timer — Modacity-style. Pick an activity, tap Start, the
 // timer counts up. Optionally tap "Record 30s" to capture a clip
