@@ -190,6 +190,17 @@ export const toApp = {
     deletedBy: r.deleted_by ?? null,
   }),
 
+  shoppingItem: (r) => ({
+    id: r.id,
+    title: r.title,
+    notes: r.notes || "",
+    checked: !!r.checked,
+    checkedAt: r.checked_at || null,
+    checkedBy: r.checked_by || null,
+    addedBy: r.added_by || null,
+    createdAt: r.created_at,
+  }),
+
   practiceSession: (r) => ({
     id: r.id,
     activityId: r.activity_id || null,
@@ -478,6 +489,17 @@ export const toDb = {
     // happens to be in the same batch as an active one.
     deleted_at: o.deletedAt ?? null,
     deleted_by: o.deletedBy ?? null,
+  }),
+
+  shoppingItem: (familyId) => (o) => ({
+    id: o.id,
+    family_id: familyId,
+    title: o.title,
+    notes: o.notes || null,
+    checked: !!o.checked,
+    checked_at: o.checkedAt || null,
+    checked_by: o.checkedBy || null,
+    added_by: o.addedBy || null,
   }),
 
   practiceSession: (familyId) => (o) => ({
