@@ -23,6 +23,7 @@ const ENTITIES = {
   gifted:          { table: "gifted_stars",    toApp: toApp.gifted,         toDb: toDb.gifted,         key: "id"   },
   songs:           { table: "songs",            toApp: toApp.song,           toDb: toDb.song,           key: "id"   },
   songPlays:       { table: "song_plays",       toApp: toApp.songPlay,       toDb: toDb.songPlay,       key: "id"   },
+  activities:      { table: "activities",       toApp: toApp.activity,       toDb: toDb.activity,       key: "id"   },
   events:          { table: "events",           toApp: toApp.event,          toDb: toDb.event,          key: "id"   },
   handoffNotes:    { table: "handoff_notes",    toApp: toApp.handoffNote,    toDb: toDb.handoffNote,    key: "id"   },
   albumPhotos:     { table: "album_photos",     toApp: toApp.albumPhoto,     toDb: toDb.albumPhoto,     key: "id"   },

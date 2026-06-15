@@ -768,7 +768,13 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }
     _setOpenTask(t);
   };
-  const [activities, setActivities] = useState(SEED_ACTIVITIES);
+  // Activities table — per-family, edited via Manage Activities. Empty
+  // for brand-new families; the Manage Activities page offers a preset
+  // pack picker (Sports / Music / Martial Arts / …) for opt-in seeding.
+  // Lynch's existing catalog migrates via the one-off backfill in
+  // 20260614220000_activities_per_family.sql.
+  const [activities, _setActivities] = useState(() => initial?.activities ?? []);
+  const setActivities = makeSyncedSetter(_setActivities, "activities", sync);
   const [celebrate, setCelebrate] = useState(null);
   // Tap a DONE task anywhere → CompletionDetailSheet opens against
   // this completion id. Krissie's retro-photo flow + Reznor's "what
@@ -11511,8 +11517,175 @@ function AddPersonForm({ onCancel, onAdd }) {
 const ACT_STATUS = { active: { label: "Active", cls: "bg-emerald-100 text-emerald-700" }, break: { label: "On break", cls: "bg-amber-100 text-amber-700" }, seasonal: { label: "Seasonal", cls: "bg-sky-100 text-sky-700" }, archived: { label: "Archived", cls: "bg-slate-200 text-slate-500" } };
 const ACT_PALETTE = ["#2563eb", "#e11d48", "#ea580c", "#ca8a04", "#16a34a", "#0891b2", "#7c3aed", "#c026d3", "#db2777", "#65a30d", "#9333ea", "#0ea5e9", "#64748b"];
 
+// Generic preset packs — opt-in only. Each parent picks what's true
+// for THEIR kid; no Lynch-specific addresses, no Reznor schedules.
+// "id" is a slug-ish prefix; addActivity stamps a unique id with a
+// timestamp suffix at insert time so multiple families adding the same
+// pack don't collide.
+const ACTIVITY_PRESET_PACKS = [
+  {
+    pack: "Sports",
+    items: [
+      { name: "Soccer",     short: "Soccer",  color: "#22c55e", pillar: "body" },
+      { name: "Basketball", short: "Ball",    color: "#65a30d", pillar: "body" },
+      { name: "Baseball",   short: "BB",      color: "#dc2626", pillar: "body" },
+      { name: "Football",   short: "FB",      color: "#92400e", pillar: "body" },
+      { name: "Hockey",     short: "Hockey",  color: "#0284c7", pillar: "body" },
+      { name: "Tennis",     short: "Tennis",  color: "#84cc16", pillar: "body" },
+      { name: "Swim",       short: "Swim",    color: "#0891b2", pillar: "body" },
+      { name: "Volleyball", short: "Volley",  color: "#f59e0b", pillar: "body" },
+      { name: "Gymnastics", short: "Gym",     color: "#ec4899", pillar: "body" },
+    ],
+  },
+  {
+    pack: "Martial Arts",
+    items: [
+      { name: "Taekwondo",  short: "TKD",     color: "#dc2626", pillar: "body" },
+      { name: "Karate",     short: "Karate",  color: "#b91c1c", pillar: "body" },
+      { name: "Jujitsu",    short: "Jujitsu", color: "#7c2d12", pillar: "body" },
+      { name: "Judo",       short: "Judo",    color: "#991b1b", pillar: "body" },
+      { name: "Boxing",     short: "Boxing",  color: "#991b1b", pillar: "body" },
+    ],
+  },
+  {
+    pack: "Music",
+    items: [
+      { name: "Piano",      short: "Piano",   color: "#3b82f6", pillar: "soul" },
+      { name: "Guitar",     short: "Guitar",  color: "#a855f7", pillar: "soul" },
+      { name: "Drums",      short: "Drums",   color: "#7c3aed", pillar: "soul" },
+      { name: "Singing",    short: "Sing",    color: "#ec4899", pillar: "soul" },
+      { name: "Violin",     short: "Violin",  color: "#0ea5e9", pillar: "soul" },
+      { name: "Cello",      short: "Cello",   color: "#8b5cf6", pillar: "soul" },
+      { name: "Ukulele",    short: "Uke",     color: "#fb923c", pillar: "soul" },
+    ],
+  },
+  {
+    pack: "Dance & Movement",
+    items: [
+      { name: "Ballet",      short: "Ballet",  color: "#f472b6", pillar: "body" },
+      { name: "Hip Hop Dance", short: "Dance", color: "#db2777", pillar: "body" },
+      { name: "Jazz",        short: "Jazz",    color: "#c026d3", pillar: "body" },
+      { name: "Tap",         short: "Tap",     color: "#a21caf", pillar: "body" },
+      { name: "Yoga",        short: "Yoga",    color: "#10b981", pillar: "body" },
+    ],
+  },
+  {
+    pack: "Academics",
+    items: [
+      { name: "Reading",     short: "Read",    color: "#3b82f6", pillar: "brain" },
+      { name: "Writing",     short: "Write",   color: "#8b5cf6", pillar: "brain" },
+      { name: "Math",        short: "Math",    color: "#10b981", pillar: "brain" },
+      { name: "Science",     short: "Sci",     color: "#0d9488", pillar: "brain" },
+      { name: "Spanish",     short: "Spa",     color: "#ec4899", pillar: "brain" },
+      { name: "French",      short: "Fr",      color: "#f43f5e", pillar: "brain" },
+      { name: "Coding",      short: "Code",    color: "#6366f1", pillar: "brain" },
+    ],
+  },
+  {
+    pack: "Home & Life",
+    items: [
+      { name: "Chores",      short: "Chores",  color: "#64748b", pillar: "body" },
+      { name: "Art",         short: "Art",     color: "#f59e0b", pillar: "soul" },
+      { name: "Movement",    short: "Move",    color: "#16a34a", pillar: "body" },
+      { name: "Church",      short: "Church",  color: "#9333ea", pillar: "soul" },
+      { name: "Field Trips", short: "Trip",    color: "#0ea5e9", pillar: "brain" },
+    ],
+  },
+];
+
+function PresetPicker({ existingIds, onAdd, onClose }) {
+  const [picked, setPicked] = useState(() => new Set());
+  const isExisting = (name) => existingIds.has(name.toLowerCase());
+  const togglePick = (key) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  const submit = () => {
+    const adds = [];
+    for (const pack of ACTIVITY_PRESET_PACKS) {
+      for (const item of pack.items) {
+        const key = pack.pack + ":" + item.name;
+        if (!picked.has(key)) continue;
+        adds.push({
+          id: "a_" + item.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 20) + "_" + Date.now().toString(36),
+          name: item.name,
+          short: item.short,
+          color: item.color,
+          pillar: item.pillar,
+          status: "active",
+          note: "",
+          address: "",
+          schedule: [],
+          weeklySchedule: false,
+          weeklyTarget: null,
+        });
+      }
+    }
+    if (adds.length > 0) onAdd(adds);
+    onClose();
+  };
+  return (
+    <Card className="p-4 mb-2">
+      <div className="flex items-center justify-between mb-2">
+        <div className="font-bold text-sm">Add from presets</div>
+        <button onClick={onClose} className="text-slate-400 text-xs font-bold">Close</button>
+      </div>
+      <div className="text-[11px] text-slate-400 mb-3">Tap any you want. They'll be added in active status — you can rename, archive, or set schedules afterward.</div>
+      {ACTIVITY_PRESET_PACKS.map((pack) => (
+        <div key={pack.pack} className="mb-3">
+          <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1.5">{pack.pack}</div>
+          <div className="flex flex-wrap gap-1.5">
+            {pack.items.map((item) => {
+              const key = pack.pack + ":" + item.name;
+              const taken = isExisting(item.name);
+              const sel = picked.has(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={taken}
+                  onClick={() => togglePick(key)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                    taken ? "bg-slate-100 text-slate-300 line-through cursor-not-allowed" :
+                    sel ? "text-white" : "bg-slate-100 text-slate-600"
+                  }`}
+                  style={sel ? { background: item.color } : undefined}
+                >
+                  {item.name}
+                  {taken && <span className="ml-1 text-[9px]">already added</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <div className="flex gap-2 mt-3">
+        <button onClick={onClose} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs">Cancel</button>
+        <button
+          disabled={picked.size === 0}
+          onClick={submit}
+          className={`flex-1 py-2 rounded-xl font-bold text-xs text-white ${picked.size === 0 ? "bg-slate-300" : "bg-indigo-600"}`}
+        >
+          Add {picked.size} {picked.size === 1 ? "activity" : "activities"}
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 function ManageActivities({ activities, addActivity, updateActivity, addTask, streaks, setStreak, stopStreak, bumpStreak, setProgressActId }) {
   const [adding, setAdding] = useState(false);
+  const [presetting, setPresetting] = useState(false);
+  const existingNames = useMemo(
+    () => new Set((activities || []).map((a) => (a.name || "").toLowerCase())),
+    [activities]
+  );
+  const addManyPresets = (items) => {
+    for (const a of items) {
+      addActivity(a);
+    }
+  };
   const archived = activities.filter((a) => a.status === "archived");
   return (
     <>
@@ -11566,7 +11739,15 @@ function ManageActivities({ activities, addActivity, updateActivity, addTask, st
         </>
       )}
 
-      {!adding && <button onClick={() => setAdding(true)} className="w-full mt-3 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-2"><Plus size={16} /> {i18nTOf("manage_act_add", "Add an activity")}</button>}
+      {!adding && !presetting && (
+        <div className="flex gap-2 mt-3">
+          <button onClick={() => setPresetting(true)} className="flex-1 py-3 rounded-2xl bg-slate-200 text-slate-700 font-bold text-sm flex items-center justify-center gap-1">
+            <Plus size={14} /> From presets
+          </button>
+          <button onClick={() => setAdding(true)} className="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-2"><Plus size={16} /> {i18nTOf("manage_act_add", "Custom")}</button>
+        </div>
+      )}
+      {presetting && <PresetPicker existingIds={existingNames} onAdd={addManyPresets} onClose={() => setPresetting(false)} />}
       {adding && <AddActivityForm onCancel={() => setAdding(false)} onAdd={(a, asTask) => { addActivity(a); if (asTask) addTask({ id: "t_" + Date.now(), title: a.name, category: a.pillar, activityType: a.name, activityId: a.id, required: false, starValue: a.starValue || 5, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 30 }); setAdding(false); }} />}
       <div className="text-[11px] text-slate-400 px-1 mt-3">{i18nTOf("manage_act_hint", "Edit, pause, archive, or add anything — hockey, rugby, whatever's next. Each activity carries its own color strip and can track a daily streak.")}</div>
     </>

@@ -190,6 +190,20 @@ export const toApp = {
     deletedBy: r.deleted_by ?? null,
   }),
 
+  activity: (r) => ({
+    id: r.id,
+    name: r.name,
+    short: r.short_name || "",
+    color: r.color || "#64748b",
+    pillar: r.pillar || "body",
+    status: r.status || "active",
+    note: r.note || "",
+    address: r.address || "",
+    schedule: Array.isArray(r.schedule) ? r.schedule : [],
+    weeklySchedule: !!r.weekly_schedule,
+    weeklyTarget: r.weekly_target ?? null,
+  }),
+
   song: (r) => ({
     id: r.id,
     title: r.title,
@@ -449,6 +463,21 @@ export const toDb = {
     // happens to be in the same batch as an active one.
     deleted_at: o.deletedAt ?? null,
     deleted_by: o.deletedBy ?? null,
+  }),
+
+  activity: (familyId) => (o) => ({
+    id: o.id,
+    family_id: familyId,
+    name: o.name,
+    short_name: o.short || null,
+    color: o.color || null,
+    pillar: o.pillar || null,
+    status: o.status || "active",
+    note: o.note || null,
+    address: o.address || null,
+    schedule: Array.isArray(o.schedule) ? o.schedule : [],
+    weekly_schedule: !!o.weeklySchedule,
+    weekly_target: o.weeklyTarget ?? null,
   }),
 
   song: (familyId) => (o) => ({
