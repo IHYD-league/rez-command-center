@@ -12610,6 +12610,21 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     return arr.slice(0, 8);
   }, [history]);
 
+  // Currently-on-the-list set so favorites / restock chips already in
+  // play hide. Scoped to the active list. Declared BEFORE
+  // restockSuggestions so its const reference doesn't hit the TDZ
+  // (Mike caught a "Cannot access 'F' before initialization" crash
+  // when the two were declared in the wrong order).
+  const activeTitles = useMemo(() => {
+    const s = new Set();
+    for (const it of listItems) {
+      if (it.checked) continue;
+      if (it.requestStatus === "declined") continue;
+      s.add((it.title || "").trim().toLowerCase());
+    }
+    return s;
+  }, [listItems]);
+
   // Running-low / restock suggestions (v3 from the doc). For each
   // repeat-bought title in the active list, compute the median gap
   // between consecutive ADDs. If the time since the last add exceeds
@@ -12655,18 +12670,6 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     out.sort((a, b) => b.sinceLastDays - a.sinceLastDays);
     return out.slice(0, 6);
   }, [listItems, activeTitles, history]);
-
-  // Currently-on-the-list set so favorites already in play hide.
-  // Scoped to the active list.
-  const activeTitles = useMemo(() => {
-    const s = new Set();
-    for (const it of listItems) {
-      if (it.checked) continue;
-      if (it.requestStatus === "declined") continue;
-      s.add((it.title || "").trim().toLowerCase());
-    }
-    return s;
-  }, [listItems]);
 
   // Fuzzy suggestions for the typed draft. Skip exact matches (no
   // point suggesting what they already typed) and titles currently
