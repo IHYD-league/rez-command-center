@@ -22,6 +22,7 @@ import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
+import { searchOpenLibrary } from "./lib/enrichBook.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { confetti } from "./lib/confetti.js";
 import { milestone } from "./lib/milestone.js";
@@ -3172,7 +3173,10 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
   // gave up instead of trying the title fallback. Now bookTitle is
   // always tried as a backup if the id miss happens.
   const meta = completion?.extra || gift?.extra || {};
-  const bookId = meta.bookId;
+  // Multi-book reading completions store extra.bookIds[]; the FIRST
+  // picked book represents the row visually. Legacy single bookId
+  // still works as a fallback for completions saved before multi-book.
+  const bookId = (Array.isArray(meta.bookIds) && meta.bookIds[0]) || meta.bookId;
   const bookTitle = meta.bookTitle;
   let book = null;
   if (bookId) book = books.find((b) => b.id === bookId);
@@ -5095,7 +5099,21 @@ function CompletionDetailSheet({
                 );
               }
               if (isReadingRow) {
-                const bookTitle = x.bookTitle || (x.bookId ? (books.find((b) => b.id === x.bookId)?.canonicalTitle || books.find((b) => b.id === x.bookId)?.title) : "") || "—";
+                // Multi-book session support — prefer bookIds[], fall
+                // back to single bookId (legacy completions), then
+                // bookTitle as last-ditch.
+                const idsArr = Array.isArray(x.bookIds) && x.bookIds.length > 0
+                  ? x.bookIds
+                  : (x.bookId ? [x.bookId] : []);
+                const titles = idsArr
+                  .map((id) => {
+                    const b = books.find((bk) => bk.id === id);
+                    return b ? (b.canonicalTitle || b.title) : "";
+                  })
+                  .filter(Boolean);
+                const titleText = titles.length > 0
+                  ? titles.join(" · ")
+                  : (x.bookTitle || "—");
                 const lang = x.lang || "—";
                 const minutes = Number(x.minutes) || 0;
                 const finished = !!x.markFinished;
@@ -5106,9 +5124,9 @@ function CompletionDetailSheet({
                   >
                     <div className="relative">
                       <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-extrabold flex items-center gap-1.5 mb-2">
-                        📚 What he read
+                        📚 {titles.length > 1 ? `What he read · ${titles.length} books` : "What he read"}
                       </div>
-                      <div className="text-xl font-extrabold leading-tight mb-3 truncate">{bookTitle}</div>
+                      <div className="text-base font-extrabold leading-tight mb-3 line-clamp-2 break-words">{titleText}</div>
                       <div className="grid grid-cols-3 gap-2">
                         <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
                           <div className="text-xl font-extrabold leading-none">{minutes}</div>
@@ -5613,13 +5631,27 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   const [melodics, setMelodics] = useState(existing?.extra?.melodics ? String(existing.extra.melodics) : "");
   const [songList, setSongList] = useState(existing?.extra?.songList || "");
   const [title, setTitle] = useState(existing?.extra?.title || "");
-  // Reading picker — bookId is set when an existing book is selected;
-  // markFinished is the "I finished this book today" checkbox that
-  // flips the book's status to finished on submit. Both flow into
-  // extra.bookId / extra.markFinished so future analytics can read them.
-  const [bookId, setBookId] = useState(existing?.extra?.bookId || null);
+  // Reading picker — bookIds is the list of books logged in this one
+  // session (Mike: Reznor read 3 books today, one completion). Stored
+  // as extra.bookIds[]; for back-compat the legacy single extra.bookId
+  // is also written (= bookIds[0]) so older read sites keep resolving
+  // a cover. markFinished is the "I finished this book today" check —
+  // it applies to ALL picked books, so a Library session that wraps
+  // up multiple books works in one tap.
+  const [bookIds, setBookIds] = useState(() => {
+    const arr = existing?.extra?.bookIds;
+    if (Array.isArray(arr) && arr.length > 0) return arr.filter(Boolean);
+    const one = existing?.extra?.bookId;
+    return one ? [one] : [];
+  });
   const [markFinished, setMarkFinished] = useState(false);
   const [bookSearch, setBookSearch] = useState("");
+  // Web-search state for the Open Library lookup. Fires automatically
+  // when the local library has zero / sparse matches and the user has
+  // typed 3+ chars. Debounced 400ms so every keystroke doesn't fetch.
+  const [webResults, setWebResults] = useState([]);
+  const [webSearching, setWebSearching] = useState(false);
+  const [webError, setWebError] = useState("");
   // "Also use this photo as the book cover" — visible whenever the
   // picked book has no cover yet OR a brand new book is about to be
   // created from a typed title. Mike: the proof photo and the official
@@ -5730,21 +5762,100 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
       .slice(0, 20);
   }, [books, bookSearch, isReading]);
 
-  const pickedBook = bookId ? (books || []).find((b) => b.id === bookId) : null;
+  // pickedBooks: dereferenced from bookIds against the live books prop.
+  // filter(Boolean) handles a transient race where addBook (web result
+  // path) hasn't yet propagated through the sync layer — the chip
+  // re-appears on the next render once the row lands.
+  const pickedBooks = useMemo(
+    () => bookIds.map((id) => (books || []).find((b) => b.id === id)).filter(Boolean),
+    [bookIds, books]
+  );
+  // Legacy single-book reference for code paths inside doSubmit that
+  // still target one book (cover stamping, etc.). When there are 2+
+  // picked books, those single-book operations apply to the FIRST
+  // picked book — the parent's first explicit choice.
+  const pickedBook = pickedBooks[0] || null;
 
-  // Tap a book in the picker — fills the title/lang fields so the
-  // existing form gates still pass, and pins bookId so doSubmit knows
-  // to update that row on the books side.
+  // Tap a result → ADD to bookIds (Mike's multi-book ask). Pre-fills
+  // title/lang from this book so the gate + free-typed title field
+  // reflect what the parent most recently picked. Won't double-add.
   const pickBook = (b) => {
-    setBookId(b.id);
-    setBookTitle(b._display || b.title || "");
+    setBookIds((prev) => prev.includes(b.id) ? prev : [...prev, b.id]);
+    setBookTitle(b._display || b.canonicalTitle || b.title || "");
     if (b.lang) setLang(b.lang);
     setBookSearch("");
+    setWebResults([]);
   };
-  const clearPick = () => {
-    setBookId(null);
-    // Keep bookTitle so the user can edit it as free text from there.
+  const removePickedBook = (id) => {
+    setBookIds((prev) => prev.filter((x) => x !== id));
   };
+  const clearAllPicks = () => {
+    setBookIds([]);
+  };
+
+  // Add a result from the web search (Open Library) → create a new
+  // book row in the family's catalog + add it to this session. The
+  // book lands with auto-match status so the catalog enrichment
+  // pipeline doesn't try to re-fetch it later.
+  const addWebBook = (r) => {
+    if (!r || !r.title || !addBook) return;
+    const newId = "b_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+    const todayIso = new Date().toISOString().slice(0, 10);
+    addBook({
+      id: newId,
+      title: r.title,
+      lang: lang || "English",
+      status: "reading",
+      started: todayIso,
+      finished: "",
+      level: "",
+      rating: 0,
+      notes: "",
+      preTracking: false,
+      eraLabel: "",
+      readCount: 1,
+      coverUrl: r.coverUrl || "",
+      canonicalTitle: r.title || "",
+      canonicalAuthor: r.author || "",
+      customCoverPath: "",
+      externalSource: r.externalSource || "open_library",
+      externalId: r.externalId || "",
+      enrichedAt: new Date().toISOString(),
+      matchStatus: "auto",
+    });
+    setBookIds((prev) => prev.includes(newId) ? prev : [...prev, newId]);
+    setBookTitle(r.title);
+    setBookSearch("");
+    setWebResults([]);
+  };
+
+  // Auto-fire web search when local has nothing for the typed query.
+  // 3-char minimum + 400ms debounce keeps the fetch budget tiny.
+  // Skips entirely when the local picker already has a comfortable
+  // number of matches — saves the round trip in the common case.
+  useEffect(() => {
+    if (!isReading) { setWebResults([]); setWebError(""); return; }
+    const needle = bookSearch.trim();
+    if (needle.length < 3) { setWebResults([]); setWebError(""); return; }
+    if (pickerBooks.length >= 5) { setWebResults([]); return; }
+    let cancelled = false;
+    setWebSearching(true);
+    const id = setTimeout(async () => {
+      try {
+        const out = await searchOpenLibrary(needle, "", 5);
+        if (cancelled) return;
+        setWebResults(Array.isArray(out) ? out : []);
+        setWebError("");
+      } catch (e) {
+        if (cancelled) return;
+        setWebResults([]);
+        setWebError(e?.message || "Search failed");
+      } finally {
+        if (!cancelled) setWebSearching(false);
+      }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(id); setWebSearching(false); };
+  }, [bookSearch, pickerBooks.length, isReading]);
 
   // Upload the file to family-photos under <familyId>/proof/ and store
   // the returned path on the photo object. The legacy `url` field is
@@ -5769,7 +5880,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     if (!onSaveDraft) return;
     const proof = (nextPhotos || []).map((p) => ({ type: "photo", name: p.name, path: p.path }));
     const extra = {};
-    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
+    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
     if (useSchemaFields) Object.assign(extra, schemaExtra());
@@ -5818,7 +5929,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   let ready = true;
   let gateMsg = "";
   if (uploading) { ready = false; gateMsg = i18nTOf("ts_gate_uploading", "Photo still uploading…"); }
-  if (isReading && !bookTitle.trim()) { ready = false; gateMsg = i18nTOf("ts_gate_book_title", "Enter the book title to submit."); }
+  if (isReading && pickedBooks.length === 0 && !bookTitle.trim()) { ready = false; gateMsg = i18nTOf("ts_gate_book_title", "Pick at least one book or type a title to submit."); }
   if (isPhoto && photos.length === 0) { ready = false; gateMsg = i18nTOf("ts_gate_photo", "Add a photo of your work to submit."); }
   if (isDrums && (!drumeo && !melodics && !songList)) { ready = false; gateMsg = i18nTOf("ts_gate_drums", "Log at least one of Drumeo / Melodics / songs."); }
 
@@ -5826,7 +5937,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     // Strip any legacy preview URL from the stored proof item.
     const proof = photos.map((p) => ({ type: "photo", name: p.name, path: p.path }));
     const extra = {};
-    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
+    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
     if (useSchemaFields) Object.assign(extra, schemaExtra());
@@ -5838,37 +5949,42 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     // pre-tracking historical marker intact.
     if (isReading) {
       const todayIso = new Date().toISOString().slice(0, 10);
-      if (pickedBook && updateBook) {
-        const patch = {};
-        const wasRereadCandidate =
-          pickedBook.status === "finished" ||
-          pickedBook.status === "dropped" ||
-          pickedBook.preTracking;
-        if (markFinished) {
-          patch.status = "finished";
-          patch.finished = todayIso;
-          if (!pickedBook.started) patch.started = todayIso;
-          if (wasRereadCandidate) {
-            patch.readCount = (pickedBook.readCount || 1) + 1;
+      // Multi-book submit: every picked book gets the same status
+      // patch (finished/reading), and re-read candidates increment
+      // readCount. The "use this photo as the cover" stamp only
+      // applies to the FIRST picked book — one proof photo can't
+      // logically be the cover of multiple titles.
+      if (pickedBooks.length > 0 && updateBook) {
+        pickedBooks.forEach((pb, idx) => {
+          const patch = {};
+          const wasRereadCandidate =
+            pb.status === "finished" ||
+            pb.status === "dropped" ||
+            pb.preTracking;
+          if (markFinished) {
+            patch.status = "finished";
+            patch.finished = todayIso;
+            if (!pb.started) patch.started = todayIso;
+            if (wasRereadCandidate) {
+              patch.readCount = (pb.readCount || 1) + 1;
+            }
+          } else if (pb.status !== "reading") {
+            patch.status = "reading";
+            patch.finished = "";
+            patch.started = todayIso;
+            if (wasRereadCandidate) {
+              patch.readCount = (pb.readCount || 1) + 1;
+            }
           }
-        } else if (pickedBook.status !== "reading") {
-          patch.status = "reading";
-          patch.finished = "";
-          patch.started = todayIso;
-          if (wasRereadCandidate) {
-            patch.readCount = (pickedBook.readCount || 1) + 1;
+          // "Also use as cover" applies only to the first picked
+          // book + when that book has no cover yet — keeps the photo
+          // = cover declaration unambiguous for multi-book sessions.
+          if (idx === 0 && useAsBookCover && photo?.path && !pb.customCoverPath) {
+            patch.customCoverPath = photo.path;
           }
-        }
-        // Photo declared as the book cover → stamp it onto the book
-        // row's customCoverPath so the Reading Library + every
-        // book-thumbnail surface picks it up. The same file path
-        // also stays in completion.proof (already handled above) so
-        // the Done area / Stars still show it as proof.
-        if (useAsBookCover && photo?.path && !pickedBook.customCoverPath) {
-          patch.customCoverPath = photo.path;
-        }
-        if (Object.keys(patch).length > 0) updateBook(pickedBook.id, patch);
-      } else if (!pickedBook && bookTitle.trim() && addBook) {
+          if (Object.keys(patch).length > 0) updateBook(pb.id, patch);
+        });
+      } else if (pickedBooks.length === 0 && bookTitle.trim() && addBook) {
         // Free-typed title with no existing match — create a new book
         // row so the next session can pick it instead of re-typing.
         addBook({
@@ -5917,7 +6033,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   const doSaveDraft = () => {
     const proof = photos.map((p) => ({ type: "photo", name: p.name, path: p.path }));
     const extra = {};
-    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookId: bookId || null, markFinished });
+    if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
     if (useSchemaFields) Object.assign(extra, schemaExtra());
@@ -6095,12 +6211,41 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
 
             {isReading && (
               <>
-                {/* Book picker — search existing books to avoid duplicates.
-                    Tap a result to pin it; the title input + lang fill
-                    automatically. Type a new title in the field below
-                    when nothing matches. */}
+                {/* Book picker — search the family's library AND the web.
+                    Reznor read 3 books today? Tap each one and the chips
+                    below the search box show what's logged for this
+                    session. Local matches always come first; if a book
+                    isn't in the library yet, an Open Library search runs
+                    automatically so the parent can add it in one tap. */}
                 <div>
-                  <div className="text-xs font-semibold text-slate-500 mb-1">{i18nTOf("field_book_pick_or_type", "Pick from library, or type a new one below")}</div>
+                  <div className="text-xs font-semibold text-slate-500 mb-1">
+                    {pickedBooks.length > 0
+                      ? i18nTOf("field_book_pick_more", "Add more books, or keep going")
+                      : i18nTOf("field_book_pick_or_type", "Pick from library, or type a new one below")}
+                  </div>
+                  {pickedBooks.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                      {pickedBooks.map((pb) => {
+                        const title = pb.canonicalTitle || pb.title || i18nTOf("ts_book_untitled", "(untitled)");
+                        const isRereadCandidate = pb.preTracking || pb.status === "finished" || pb.status === "dropped";
+                        const round = isRereadCandidate ? ` · R${(pb.readCount || 1) + 1}` : "";
+                        return (
+                          <span key={pb.id} className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full pl-2.5 pr-1 py-1 text-[12px] font-bold max-w-full">
+                            <Check size={12} className="text-emerald-600 shrink-0" />
+                            <span className="truncate max-w-[180px]">{title}{round}</span>
+                            <button onClick={() => removePickedBook(pb.id)} className="text-emerald-600 p-0.5 active:scale-95" aria-label={i18nTOf("ts_picked_remove", "Remove this book")}>
+                              <X size={12} />
+                            </button>
+                          </span>
+                        );
+                      })}
+                      {pickedBooks.length > 1 && (
+                        <button onClick={clearAllPicks} className="text-[11px] text-slate-400 font-bold underline px-1">
+                          {i18nTOf("ts_picked_clear_all", "Clear all")}
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <input
                     value={bookSearch}
                     onChange={(e) => setBookSearch(e.target.value)}
@@ -6109,70 +6254,98 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                   />
                   {bookSearch.trim() && pickerBooks.length > 0 && (
                     <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
-                      {pickerBooks.map((b) => {
-                        const statusLabel =
-                          b.preTracking ? i18nTOf("ts_book_archive", "Archive · {era}").replaceAll("{era}", b.eraLabel || i18nTOf("ts_book_era_unset", "era unset"))
-                          : b.status === "finished" ? i18nTOf("ts_book_status_finished", "Finished")
-                          : b.status === "wishlist" ? i18nTOf("ts_book_status_wishlist", "Wishlist")
-                          : b.status === "dropped" ? i18nTOf("ts_book_status_dropped", "Dropped")
-                          : i18nTOf("ts_book_status_reading", "Reading");
-                        const statusColor =
-                          b.preTracking ? "bg-amber-100 text-amber-800"
-                          : b.status === "finished" ? "bg-emerald-100 text-emerald-700"
-                          : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
-                          : b.status === "dropped" ? "bg-slate-200 text-slate-500"
-                          : "bg-sky-100 text-sky-700";
-                        const isRereadCandidate = b.preTracking || b.status === "finished" || b.status === "dropped";
-                        return (
-                          <button
-                            key={b.id}
-                            type="button"
-                            onClick={() => pickBook(b)}
-                            className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-bold text-slate-800 truncate">{b._display || i18nTOf("ts_book_untitled", "(untitled)")}</div>
-                              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${statusColor}`}>{statusLabel}</span>
-                                {b.lang && <span className="text-[10px] text-slate-500">{b.lang}</span>}
-                                {(b.readCount || 1) > 1 && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                                    {i18nTOf("ts_read_count", "Read {n}×").replaceAll("{n}", b.readCount)}
-                                  </span>
-                                )}
-                                {isRereadCandidate && (
-                                  <span className="text-[10px] text-amber-600 font-bold">{i18nTOf("ts_round_hint", "round {n}?").replaceAll("{n}", (b.readCount || 1) + 1)}</span>
-                                )}
+                      {pickerBooks
+                        .filter((b) => !bookIds.includes(b.id))
+                        .map((b) => {
+                          const statusLabel =
+                            b.preTracking ? i18nTOf("ts_book_archive", "Archive · {era}").replaceAll("{era}", b.eraLabel || i18nTOf("ts_book_era_unset", "era unset"))
+                            : b.status === "finished" ? i18nTOf("ts_book_status_finished", "Finished")
+                            : b.status === "wishlist" ? i18nTOf("ts_book_status_wishlist", "Wishlist")
+                            : b.status === "dropped" ? i18nTOf("ts_book_status_dropped", "Dropped")
+                            : i18nTOf("ts_book_status_reading", "Reading");
+                          const statusColor =
+                            b.preTracking ? "bg-amber-100 text-amber-800"
+                            : b.status === "finished" ? "bg-emerald-100 text-emerald-700"
+                            : b.status === "wishlist" ? "bg-violet-100 text-violet-700"
+                            : b.status === "dropped" ? "bg-slate-200 text-slate-500"
+                            : "bg-sky-100 text-sky-700";
+                          const isRereadCandidate = b.preTracking || b.status === "finished" || b.status === "dropped";
+                          return (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => pickBook(b)}
+                              className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-bold text-slate-800 truncate">{b._display || i18nTOf("ts_book_untitled", "(untitled)")}</div>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${statusColor}`}>{statusLabel}</span>
+                                  {b.lang && <span className="text-[10px] text-slate-500">{b.lang}</span>}
+                                  {(b.readCount || 1) > 1 && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                                      {i18nTOf("ts_read_count", "Read {n}×").replaceAll("{n}", b.readCount)}
+                                    </span>
+                                  )}
+                                  {isRereadCandidate && (
+                                    <span className="text-[10px] text-amber-600 font-bold">{i18nTOf("ts_round_hint", "round {n}?").replaceAll("{n}", (b.readCount || 1) + 1)}</span>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          </button>
-                        );
-                      })}
+                            </button>
+                          );
+                        })}
                     </div>
                   )}
-                  {pickedBook && (
-                    <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-2">
-                      <Check size={14} className="text-emerald-600 shrink-0" />
-                      <div className="flex-1 text-[12px] text-emerald-800 font-bold truncate">
-                        {i18nTOf("field_picked", "Picked")}: {pickedBook.canonicalTitle || pickedBook.title || i18nTOf("ts_book_untitled", "(untitled)")}
-                        {(pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped") && (
-                          <span className="text-[10px] text-amber-700 ml-1">{i18nTOf("ts_round_inline", "(this will be Round {n})").replaceAll("{n}", (pickedBook.readCount || 1) + 1)}</span>
-                        )}
+                  {/* Web search — fires automatically when the local
+                      library has nothing for the query. Open Library
+                      returns cover thumb + title + author + year so
+                      a one-tap add gives the new book a real cover
+                      out of the gate. */}
+                  {bookSearch.trim().length >= 3 && (webSearching || webResults.length > 0 || webError) && (
+                    <div className="mt-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-2">
+                      <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-700 mb-1 px-1">
+                        {webSearching ? i18nTOf("ts_web_searching", "Searching the web…") : i18nTOf("ts_web_results", "From the web (tap to add)")}
                       </div>
-                      <button onClick={clearPick} className="text-emerald-600 p-1" aria-label={i18nTOf("ts_picked_clear", "Clear picked book")}>
-                        <X size={14} />
-                      </button>
+                      {webError && (
+                        <div className="text-[11px] text-rose-700 px-1">{webError}</div>
+                      )}
+                      {webResults.length > 0 && (
+                        <div className="bg-white rounded-xl divide-y divide-slate-100 overflow-hidden">
+                          {webResults.map((r, i) => (
+                            <button
+                              key={`web-${i}`}
+                              type="button"
+                              onClick={() => addWebBook(r)}
+                              className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
+                            >
+                              {r.coverThumbUrl
+                                ? <img src={r.coverThumbUrl} alt="" className="w-10 h-14 object-cover rounded shrink-0 bg-slate-100" loading="lazy" />
+                                : <div className="w-10 h-14 rounded bg-slate-100 grid place-items-center shrink-0"><BookOpen size={14} className="text-slate-300" /></div>}
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-bold text-slate-800 truncate">{r.title || i18nTOf("ts_book_untitled", "(untitled)")}</div>
+                                <div className="text-[11px] text-slate-500 truncate">
+                                  {r.author || i18nTOf("ts_web_author_unknown", "Author unknown")}{r.year ? ` · ${r.year}` : ""}
+                                </div>
+                              </div>
+                              <Plus size={16} className="text-indigo-500 shrink-0" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-                <Field label={pickedBook ? i18nTOf("field_book_title_synced", "Title (synced from pick)") : i18nTOf("field_book_title_required", "Book title *")}>
-                  <input
-                    value={bookTitle}
-                    onChange={(e) => { setBookTitle(e.target.value); if (pickedBook) setBookId(null); }}
-                    placeholder={i18nTOf("ts_book_title_ph", "e.g. Dog Man")}
-                    className="input"
-                  />
-                </Field>
+                {pickedBooks.length === 0 && (
+                  <Field label={i18nTOf("field_book_title_required", "Book title *")}>
+                    <input
+                      value={bookTitle}
+                      onChange={(e) => setBookTitle(e.target.value)}
+                      placeholder={i18nTOf("ts_book_title_ph", "e.g. Dog Man")}
+                      className="input"
+                    />
+                  </Field>
+                )}
                 <div className="flex gap-2">
                   <button onClick={() => setLang("English")} className={`flex-1 py-2 rounded-2xl text-sm font-semibold ${lang === "English" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{i18nTOf("ts_lang_english", "English")}</button>
                   <button onClick={() => setLang("Spanish")} className={`flex-1 py-2 rounded-2xl text-sm font-semibold ${lang === "Spanish" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{i18nTOf("ts_lang_spanish", "Spanish 🇪🇸")}</button>
@@ -6186,7 +6359,9 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     className="w-4 h-4"
                   />
                   <span className="text-sm text-slate-700">
-                    {i18nTOf("ts_finished_today", "✅ He finished this book today")}
+                    {pickedBooks.length > 1
+                      ? i18nTOf("ts_finished_today_many", "✅ He finished these books today")
+                      : i18nTOf("ts_finished_today", "✅ He finished this book today")}
                     {pickedBook && (pickedBook.preTracking || pickedBook.status === "finished" || pickedBook.status === "dropped")
                       ? i18nTOf("ts_round_suffix", " (Round {n})").replaceAll("{n}", (pickedBook.readCount || 1) + 1)
                       : ""}
@@ -7862,7 +8037,9 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   const isReadingRow = pt === "reading" || /read|book/.test(at);
   const isDrumsRow = pt === "drums" || /drum/.test(at);
   const meta = comp?.extra || {};
-  const bookId = meta.bookId;
+  // Multi-book completions store extra.bookIds[]; the FIRST picked
+  // book provides the row's hero cover. Legacy bookId still works.
+  const bookId = (Array.isArray(meta.bookIds) && meta.bookIds[0]) || meta.bookId;
   const bookTitle = meta.bookTitle;
   // Same robust id-then-title fallback as ProofThumb. The id-only
   // lookup before this could miss when the id lookup returned undef
