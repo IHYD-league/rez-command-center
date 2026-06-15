@@ -586,6 +586,17 @@ function makeSyncedSetter(rawSetter, key, sync) {
 }
 
 export default function App({ initial, currentProfileId, sync, familyId, signOut, sessionEmail } = {}) {
+  // Scope the persistent practice timer to the current family the
+  // moment we have a familyId. Without this, the timer's localStorage
+  // entry was global across every signed-in account on the browser,
+  // and Mike caught a timer started on his Lynch profile showing up
+  // on a separate burdenthemovie@gmail.com test family. Family data
+  // never crosses the wire — sign-out / sign-in into a different
+  // family clears the in-memory state via setNamespace("").
+  useEffect(() => {
+    practiceTimerStore.setNamespace(familyId || "");
+  }, [familyId]);
+
   // Each persistent entity hydrates from `initial` (Supabase). Empty
   // means a brand-new family — the OnboardingWizard renders below before
   // any of this matters. We no longer fall back to in-file SEEDs at
