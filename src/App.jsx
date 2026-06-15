@@ -5832,12 +5832,24 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
 
   // Auto-fire web search when local has nothing for the typed query.
   // 3-char minimum + 400ms debounce keeps the fetch budget tiny.
-  // Primary: Google Books (best cover hit rate + most reliable).
-  // Fallback: Open Library, fired only when Google returned zero
-  // results — covers indie / older titles GB sometimes misses.
-  // webRetryTick bumps to re-fire the same query after an error,
-  // bound to a "Try again" button so a transient blip doesn't
-  // require the parent to retype.
+  //
+  // Primary: Google Books (via /api/google-books proxy). Mike's words:
+  // "The star wars search was great showed me options that were close
+  // and the book covers" — GB has dramatically better cover hit rate
+  // AND enriches titles with series/publisher info ("Little Kids First
+  // Big Book of Dinosaurs (National Geographic Kids)"). With a key set
+  // in Netlify env (GOOGLE_BOOKS_API_KEY) this is reliable; without
+  // one, GB returns 429 fast and we fall through.
+  //
+  // Silent fallback: Open Library (via /api/open-library proxy).
+  // No key required; coverage is broader on indie + older titles even
+  // if covers are sparser. Tried whenever GB returns empty OR throws.
+  //
+  // Both calls go through same-origin /api/* proxies so Safari's
+  // intermittent "Load failed" on cross-origin fetches can't strand us.
+  //
+  // webRetryTick bumps to re-fire the same query — bound to the "Try
+  // again" button so a transient blip doesn't make Mike retype.
   const [webRetryTick, setWebRetryTick] = useState(0);
   useEffect(() => {
     if (!isReading) { setWebResults([]); setWebError(""); return; }
@@ -5848,28 +5860,35 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     setWebSearching(true);
     setWebError("");
     const id = setTimeout(async () => {
+      let out = [];
+      let primaryErr = null;
       try {
-        let out = await searchGoogleBooks(needle, "", 5);
-        if (cancelled) return;
-        if (!Array.isArray(out) || out.length === 0) {
-          // GB had nothing — try OL as a fallback so indie / very old
-          // titles still surface a hit. If THIS throws too, the catch
-          // below surfaces a single retry-friendly error.
-          try {
-            const ol = await searchOpenLibrary(needle, "", 5);
-            if (!cancelled && Array.isArray(ol)) out = ol;
-          } catch { /* swallow — primary error path handles UX */ }
-        }
-        if (cancelled) return;
-        setWebResults(Array.isArray(out) ? out : []);
-        setWebError("");
+        out = await searchGoogleBooks(needle, "", 5);
       } catch (e) {
-        if (cancelled) return;
-        setWebResults([]);
-        setWebError(e?.message || "Couldn't reach the book service.");
-      } finally {
-        if (!cancelled) setWebSearching(false);
+        primaryErr = e;
+        out = [];
       }
+      if (cancelled) return;
+      if (!Array.isArray(out) || out.length === 0) {
+        try {
+          const ol = await searchOpenLibrary(needle, "", 5);
+          if (!cancelled && Array.isArray(ol)) out = ol;
+        } catch (e2) {
+          // OL also failed — only surface an error if primary errored
+          // too. If primary returned zero but didn't throw, this is
+          // just a "no results" outcome, not a service error.
+          if (primaryErr && !cancelled) {
+            setWebResults([]);
+            setWebError(primaryErr.message || "Couldn't reach the book service.");
+            setWebSearching(false);
+            return;
+          }
+        }
+      }
+      if (cancelled) return;
+      setWebResults(Array.isArray(out) ? out : []);
+      setWebError("");
+      setWebSearching(false);
     }, 400);
     return () => { cancelled = true; clearTimeout(id); setWebSearching(false); };
   }, [bookSearch, pickerBooks.length, isReading, webRetryTick]);

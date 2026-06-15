@@ -5,15 +5,13 @@
 // We cache the result in the books table (cover_url, canonical_*,
 // external_id, match_status) so we NEVER re-hit OL on render.
 //
-// User-Agent per OL guidance: identify the app + a real contact.
-//   LittleLegendTreasures/1.0 (lyncho14@gmail.com)
+// User-Agent is set by the proxy (netlify/functions/open-library.js)
+// — per OL guidance, a recognizable UA + a real contact.
 //
 // Rate-limit defense: an in-flight Map de-dupes concurrent calls for
 // the same (title, author) tuple. With auto-enrich firing once per
 // unmatched row on first render, a freshly-loaded gallery never
 // hammers OL — at most one fetch per unique book.
-
-const UA = "LittleLegendTreasures/1.0 (lyncho14@gmail.com)";
 
 // In-flight de-dupe so two components asking for the same query
 // share a single fetch + share the same promise.
@@ -52,7 +50,9 @@ function normalize(doc) {
   };
 }
 
-// Search Open Library and return the top N normalized candidates.
+// Search Open Library through our same-origin Netlify Function proxy
+// (netlify/functions/open-library.js). The proxy fixes Safari "Load
+// failed" intermittents on direct OL fetches and adds a 1h edge cache.
 // Throws on network / non-2xx — caller decides how to surface.
 export async function searchOpenLibrary(title, author = "", limit = 5) {
   const trimTitle = (title || "").trim();
@@ -61,19 +61,10 @@ export async function searchOpenLibrary(title, author = "", limit = 5) {
   params.set("title", trimTitle);
   if (author) params.set("author", author.trim());
   params.set("limit", String(limit));
-  // We only need a few fields, so let OL trim the response payload.
-  params.set("fields", "key,title,author_name,first_publish_year,cover_i,isbn");
-  const url = `https://openlibrary.org/search.json?${params.toString()}`;
+  const url = `/api/open-library?${params.toString()}`;
   const res = await fetch(url, {
     method: "GET",
-    headers: {
-      // OL guidance: a User-Agent that identifies the app + a contact.
-      // The browser may strip this header (Chrome doesn't allow setting
-      // User-Agent on fetch), but we set it for environments that
-      // honor it (e.g. a future Netlify Function proxy).
-      "User-Agent": UA,
-      "Accept": "application/json",
-    },
+    headers: { "Accept": "application/json" },
   });
   if (!res.ok) throw new Error(`open_library: ${res.status}`);
   const json = await res.json();
