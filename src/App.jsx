@@ -26,6 +26,8 @@ import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { confetti } from "./lib/confetti.js";
 import { milestone } from "./lib/milestone.js";
 import MilestoneCelebrate from "./MilestoneCelebrate.jsx";
+import { practiceTimerStore } from "./lib/practiceTimerStore.js";
+import PracticeTimerBanner from "./PracticeTimerBanner.jsx";
 import { nextBirthdayInfo, upcomingBirthdays } from "./lib/birthdays.js";
 import { supabase } from "./lib/supabase.js";
 import { toApp } from "./data/transform.js";
@@ -2256,6 +2258,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
         }}
       >
         <TopBar user={user} mode={mode} onSwitch={() => { setCurrentUserId(null); }} onSignOut={signOut} sessionEmail={sessionEmail} onOpenHub={() => setHubOpen(true)} onOpenSearch={() => setSearchOpen(true)} />
+        <PracticeTimerBanner activities={activities} onOpen={() => { setPendingMoreSub("practice"); setTab("more"); }} />
         <div className="flex-1 overflow-y-auto pb-24">
           <Router tab={tab} {...shared} />
         </div>
@@ -13456,10 +13459,14 @@ function PracticeTimer({ activities = [], practiceSessions = [], addPracticeSess
   // Pre-select drums when Lynch lands here; fall back to first active.
   const drums = activities.find((a) => /drum/i.test(a.name) && a.status === "active");
   const firstActive = activities.find((a) => a.status === "active");
-  const [activityId, setActivityId] = useState((drums || firstActive)?.id || "");
-  const [running, setRunning] = useState(false);
-  const [startedAt, setStartedAt] = useState(null);
-  const [elapsed, setElapsed] = useState(0);
+  const initialSession = practiceTimerStore.get();
+  const [activityId, setActivityId] = useState(initialSession?.activityId || (drums || firstActive)?.id || "");
+  // The store holds the source of truth for "running" + startedAt so
+  // the timer keeps ticking when this component unmounts (Mike's app
+  // tabs / sub-pages). A floating banner above the content reads the
+  // same store so the user always sees the timer is alive.
+  const [session, setSession] = useState(initialSession);
+  const [now, setNow] = useState(() => Date.now());
   const [notes, setNotes] = useState("");
   const [recState, setRecState] = useState("idle"); // idle | recording | uploading | done | error
   const [recError, setRecError] = useState("");
@@ -13469,26 +13476,37 @@ function PracticeTimer({ activities = [], practiceSessions = [], addPracticeSess
   const recorderRef = useRef(null);
   const recStopperRef = useRef(null);
 
-  // Tick the elapsed counter every second while running. Cleaning on
-  // unmount or stop prevents background drift.
+  const running = !!session;
+  const startedAt = session?.startedAt || null;
+  const elapsed = running ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
+
+  useEffect(() => practiceTimerStore.subscribe((s) => {
+    setSession(s);
+    if (s?.activityId) setActivityId(s.activityId);
+  }), []);
+
   useEffect(() => {
-    if (!running || !startedAt) return;
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    if (!running) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [running, startedAt]);
+  }, [running]);
 
   const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   const start = () => {
-    setStartedAt(Date.now());
-    setElapsed(0);
-    setRunning(true);
+    practiceTimerStore.start({
+      activityId,
+      profileId: (users.find((u) => u.role === "kid")?.id) || currentProfileId || null,
+    });
   };
 
   const stop = async () => {
-    if (!running) return;
-    const dur = Math.floor((Date.now() - startedAt) / 1000);
-    setRunning(false);
+    const live = practiceTimerStore.get();
+    if (!live) return;
+    const dur = Math.max(0, Math.floor((Date.now() - live.startedAt) / 1000));
+    const startedAtIso = new Date(live.startedAt).toISOString();
+    const profileId = live.profileId || (users.find((u) => u.role === "kid")?.id) || currentProfileId || null;
+    practiceTimerStore.stop();
     let audioPath = "";
     if (recBlob && familyId) {
       try {
@@ -13502,22 +13520,32 @@ function PracticeTimer({ activities = [], practiceSessions = [], addPracticeSess
       }
     }
     addPracticeSession({
-      activityId,
-      profileId: (users.find((u) => u.role === "kid")?.id) || currentProfileId || null,
-      startedAt: new Date(startedAt).toISOString(),
+      activityId: live.activityId || activityId,
+      profileId,
+      startedAt: startedAtIso,
       endedAt: new Date().toISOString(),
       durationSeconds: dur,
       audioPath,
       notes: notes.trim(),
     });
     // Reset for the next session
-    setStartedAt(null);
-    setElapsed(0);
     setNotes("");
     setRecBlob(null);
     if (recAudioUrl) { URL.revokeObjectURL(recAudioUrl); setRecAudioUrl(null); }
     setRecElapsed(0);
     setRecState("idle");
+  };
+
+  const cancel = () => {
+    if (!confirm("Cancel this practice session? Nothing will be saved.")) return;
+    practiceTimerStore.stop();
+    setNotes("");
+    setRecBlob(null);
+    if (recAudioUrl) { URL.revokeObjectURL(recAudioUrl); setRecAudioUrl(null); }
+    setRecElapsed(0);
+    setRecState("idle");
+    try { recorderRef.current?.state === "recording" && recorderRef.current.stop(); } catch (_) {}
+    if (recStopperRef.current) { clearInterval(recStopperRef.current); recStopperRef.current = null; }
   };
 
   const startRecording = async () => {
@@ -13630,11 +13658,21 @@ function PracticeTimer({ activities = [], practiceSessions = [], addPracticeSess
               ▶ Start practice
             </button>
           ) : (
-            <button onClick={stop} className="flex-1 py-3 rounded-2xl font-extrabold text-sm text-white bg-rose-600 active:scale-[0.98]">
-              ■ Stop & save
-            </button>
+            <>
+              <button onClick={cancel} className="px-4 py-3 rounded-2xl font-extrabold text-sm text-slate-600 bg-white border border-slate-200 active:scale-[0.98]">
+                Cancel
+              </button>
+              <button onClick={stop} className="flex-1 py-3 rounded-2xl font-extrabold text-sm text-white bg-rose-600 active:scale-[0.98]">
+                ■ Stop &amp; save
+              </button>
+            </>
           )}
         </div>
+        {running && (
+          <div className="text-[10px] text-slate-500 text-center mt-2 leading-snug">
+            Timer keeps running if you leave this page. Tap the live banner at the top to come back.
+          </div>
+        )}
       </Card>
 
       {running && (
