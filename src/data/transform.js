@@ -262,6 +262,8 @@ export const toApp = {
     id: r.id,
     title: r.title,
     date: r.event_date,
+    time: r.event_time ?? null,            // "HH:MM" 24h, or null for all-day
+    recurWeekday: r.recur_weekday ?? null, // 0..6 or null
     category: r.category ?? "",
     notes: r.notes ?? "",
   }),
@@ -532,6 +534,8 @@ export const toDb = {
     family_id: familyId,
     title: o.title,
     event_date: o.date || null,
+    event_time: o.time || null,
+    recur_weekday: Number.isInteger(o.recurWeekday) ? o.recurWeekday : null,
     category: o.category ?? null,
     notes: o.notes ?? null,
   }),
