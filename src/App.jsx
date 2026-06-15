@@ -1961,6 +1961,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     boardTheme, setBoardTheme,
     boardDailyCap, setBoardDailyCap,
     albumPhotos, setAlbumPhotos,
+    learningGoals, setLearningGoals,
   };
 
   // First-run gate: a freshly-created family has a parent profile (from
@@ -10461,7 +10462,7 @@ function MoreParent(props) {
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
   if (sub === "handoff") return <BackWrap title={i18nTOf("more_handoff", "Handoff Notes")} onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
-  if (sub === "skills") return <BackWrap title={i18nTOf("more_skills", "Learning Goals")} onBack={() => setSub("menu")}><Skills learningGoals={learningGoals} setLearningGoals={setLearningGoals} kids={(users || []).filter((u) => u.role === "kid")} updateUser={updateUser} /></BackWrap>;
+  if (sub === "skills") return <BackWrap title={i18nTOf("more_skills", "Learning Goals")} onBack={() => setSub("menu")}><Skills learningGoals={props.learningGoals} setLearningGoals={props.setLearningGoals} kids={(props.users || []).filter((u) => u.role === "kid")} updateUser={props.updateUser} /></BackWrap>;
   if (sub === "people") return <BackWrap title={i18nTOf("more_people", "Family & Helpers")} onBack={() => setSub("menu")}><People {...props} /></BackWrap>;
   if (sub === "activities") return <BackWrap title={i18nTOf("more_activities", "Activities & Status")} onBack={() => setSub("menu")}><ManageActivities {...props} /></BackWrap>;
   if (sub === "tasks") return <BackWrap title={i18nTOf("more_tasks", "Tasks & Chores")} onBack={() => setSub("menu")}><ManageTasks {...props} /></BackWrap>;
