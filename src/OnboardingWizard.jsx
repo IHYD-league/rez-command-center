@@ -27,10 +27,13 @@ const COLORS = [
   { id: "slate",   hex: "#475569", name: "Storm" },
 ];
 
+const GRADES = ["Pre-K", "K", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th", "11th", "12th"];
+
 export default function OnboardingWizard({ parentName, onCreateKid }) {
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("🚀");
   const [color, setColor] = useState(COLORS[0].hex);
+  const [grade, setGrade] = useState("");
   const [busy, setBusy] = useState(false);
   const ready = name.trim().length > 0 && !busy;
 
@@ -42,6 +45,7 @@ export default function OnboardingWizard({ parentName, onCreateKid }) {
         name: name.trim(),
         emoji,
         color,
+        grade: grade || null,
       });
     } catch (e) {
       setBusy(false);
@@ -86,6 +90,26 @@ export default function OnboardingWizard({ parentName, onCreateKid }) {
                   }`}
                 >
                   {e}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+              Grade <span className="text-slate-400 font-medium normal-case">(optional — helps tailor goals)</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {GRADES.map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setGrade(grade === g ? "" : g)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                    grade === g ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  {g}
                 </button>
               ))}
             </div>
