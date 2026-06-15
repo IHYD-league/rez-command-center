@@ -286,6 +286,7 @@ export const toApp = {
     title: r.title,
     date: r.event_date,
     time: r.event_time ?? null,            // "HH:MM" 24h, or null for all-day
+    durationMinutes: r.duration_minutes ?? null, // null = use family default
     recurWeekday: r.recur_weekday ?? null, // 0..6 or null
     address: r.address ?? "",
     category: r.category ?? "",
@@ -582,6 +583,7 @@ export const toDb = {
     title: o.title,
     event_date: o.date || null,
     event_time: o.time || null,
+    duration_minutes: Number.isFinite(o.durationMinutes) ? o.durationMinutes : null,
     recur_weekday: Number.isInteger(o.recurWeekday) ? o.recurWeekday : null,
     address: o.address || null,
     category: o.category ?? null,
