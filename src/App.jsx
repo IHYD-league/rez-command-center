@@ -859,6 +859,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const removeShoppingItem = (id) => setShoppingItems((prev) => prev.filter((it) => it.id !== id));
   const clearCheckedShoppingItems = () => setShoppingItems((prev) => prev.filter((it) => !it.checked));
   const renameShoppingItem = (id, title) => setShoppingItems((prev) => prev.map((it) => it.id === id ? { ...it, title } : it));
+  const updateShoppingItem = (id, patch) => setShoppingItems((prev) => prev.map((it) => it.id === id ? { ...it, ...patch } : it));
   const removePracticeSession = (id) => setPracticeSessions((prev) => {
     const target = prev.find((s) => s.id === id);
     const next = prev.filter((s) => s.id !== id);
@@ -2116,7 +2117,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     bigRewardTitle, bigRewardCost,
     pendingMoreSub, setPendingMoreSub,
     practiceSessions, addPracticeSession, removePracticeSession,
-    shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, decideShoppingRequest,
+    shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
   };
 
@@ -11599,7 +11600,7 @@ function MoreParent(props) {
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
-  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} /></BackWrap>;
+  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
@@ -12405,12 +12406,72 @@ function EmailSetup(props) {
 // long-press / pencil to rename, X to remove. Strikethrough on
 // checked items sinks them to the bottom. One-tap "Clear bought"
 // when the trip's over. The whole point is being faster than texting.
-function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, decideShoppingRequest, users = [], user = null }) {
+function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null }) {
   const isKid = user?.role === "kid";
   const isParent = user?.role === "parent" || user?.role === "helper" || user?.role === "grandparent";
   const [draft, setDraft] = useState("");
+  const [draftBrand, setDraftBrand] = useState("");
+  const [showSmartSuggestions, setShowSmartSuggestions] = useState(true);
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
+  const [editBrandDraft, setEditBrandDraft] = useState("");
+
+  // Smart-add: history map keyed by lowercased title. Surfaces
+  // favorites + fuzzy type-ahead with brand carry-over so Krissie
+  // doesn't retype "Honey Nut Cheerios" every week. Per the doc
+  // (v1.5 phase): "Start typing 'pea' → suggests 'Peanut butter' because
+  // you've added it before. Gets faster every week."
+  const history = useMemo(() => {
+    const m = new Map();
+    for (const it of (shoppingItems || [])) {
+      const k = (it.title || "").trim().toLowerCase();
+      if (!k) continue;
+      const prev = m.get(k) || { title: it.title, count: 0, lastUsed: "", brand: "" };
+      prev.count += 1;
+      const when = it.createdAt || "";
+      if (when > prev.lastUsed) {
+        prev.lastUsed = when;
+        prev.title = it.title; // canonical casing = most recent
+      }
+      if (it.brand) prev.brand = it.brand;
+      m.set(k, prev);
+    }
+    return m;
+  }, [shoppingItems]);
+
+  // Favorites = items added 2+ times historically, sorted by recency.
+  // Top 8 surface as one-tap chips above the input.
+  const favorites = useMemo(() => {
+    const arr = [...history.values()].filter((h) => h.count >= 2);
+    arr.sort((a, b) => (b.lastUsed || "").localeCompare(a.lastUsed || ""));
+    return arr.slice(0, 8);
+  }, [history]);
+
+  // Currently-on-the-list set so favorites already in play hide.
+  const activeTitles = useMemo(() => {
+    const s = new Set();
+    for (const it of (shoppingItems || [])) {
+      if (it.checked) continue;
+      if (it.requestStatus === "declined") continue;
+      s.add((it.title || "").trim().toLowerCase());
+    }
+    return s;
+  }, [shoppingItems]);
+
+  // Fuzzy suggestions for the typed draft. Skip exact matches (no
+  // point suggesting what they already typed) and titles currently
+  // on the active list.
+  const suggestions = useMemo(() => {
+    const q = draft.trim();
+    if (!q || !showSmartSuggestions) return [];
+    return [...history.values()]
+      .filter((h) => !activeTitles.has((h.title || "").toLowerCase()))
+      .map((h) => ({ h, m: fuzzyMatch(q, h.title) }))
+      .filter((x) => x.m.hit && (x.h.title || "").toLowerCase() !== q.toLowerCase())
+      .sort((a, b) => b.m.score - a.m.score || (b.h.count - a.h.count))
+      .slice(0, 5)
+      .map((x) => x.h);
+  }, [draft, history, activeTitles, showSmartSuggestions]);
   // Scan-a-list state
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
@@ -12471,28 +12532,99 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [declineReasonDraft, setDeclineReasonDraft] = useState("");
   const submit = (e) => {
     e?.preventDefault?.();
-    addShoppingItem(draft);
+    addShoppingItem(draft, "", { brand: draftBrand });
     setDraft("");
+    setDraftBrand("");
+    setShowSmartSuggestions(true);
+  };
+  // One-tap quick-add from favorites / suggestions: pulls the saved
+  // brand pref along so Krissie gets "Jif" not generic peanut butter.
+  const quickAdd = (entry) => {
+    addShoppingItem(entry.title, "", { brand: entry.brand || "" });
+    setDraft("");
+    setDraftBrand("");
+    setShowSmartSuggestions(true);
   };
   const finishEdit = () => {
-    if (editingId && editDraft.trim()) renameShoppingItem(editingId, editDraft.trim());
+    if (editingId) {
+      const patch = {};
+      if (editDraft.trim()) patch.title = editDraft.trim();
+      patch.brand = (editBrandDraft || "").trim();
+      if (updateShoppingItem) updateShoppingItem(editingId, patch);
+      else if (patch.title) renameShoppingItem(editingId, patch.title);
+    }
     setEditingId(null);
     setEditDraft("");
+    setEditBrandDraft("");
   };
   const findName = (pid) => users.find((u) => u.id === pid)?.name;
   return (
     <>
-      <form onSubmit={submit} className="flex gap-2 mb-2">
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Add something to buy…"
-          autoFocus
-          className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-base font-semibold"
-        />
-        <button type="submit" disabled={!draft.trim()} className={`px-4 rounded-xl font-bold text-sm text-white ${draft.trim() ? "bg-indigo-600 active:scale-95" : "bg-slate-300"}`}>
-          Add
-        </button>
+      {/* ⭐ Quick add — favorites from your own history (added 2+ times).
+          Brand pref carries over, so tapping "Cheerios" adds with
+          "Honey Nut Cheerios" as the brand if that's what you bought
+          last time. */}
+      {favorites.length > 0 && (
+        <div className="mb-2">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1.5 px-1">⭐ Quick add</div>
+          <div className="flex flex-wrap gap-1.5">
+            {favorites.map((f) => (
+              <button
+                key={f.title}
+                type="button"
+                onClick={() => quickAdd(f)}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 font-bold text-xs active:scale-95"
+              >
+                + {f.title}
+                {f.brand && <span className="text-[10px] font-medium text-amber-600">· {f.brand}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <form onSubmit={submit} className="mb-2">
+        <div className="flex gap-2">
+          <input
+            value={draft}
+            onChange={(e) => { setDraft(e.target.value); setShowSmartSuggestions(true); }}
+            onFocus={() => setShowSmartSuggestions(true)}
+            placeholder="Add something to buy…"
+            autoFocus
+            className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-base font-semibold"
+          />
+          <button type="submit" disabled={!draft.trim()} className={`px-4 rounded-xl font-bold text-sm text-white ${draft.trim() ? "bg-indigo-600 active:scale-95" : "bg-slate-300"}`}>
+            Add
+          </button>
+        </div>
+        {/* Brand subfield slides in once you've typed something. */}
+        {draft.trim() && (
+          <input
+            value={draftBrand}
+            onChange={(e) => setDraftBrand(e.target.value)}
+            placeholder="Brand (optional) — e.g. Jif, Honey Nut Cheerios"
+            className="w-full mt-1.5 border border-slate-200 rounded-xl px-3 py-2 text-sm"
+          />
+        )}
+        {/* Fuzzy suggestions from history matching the draft. */}
+        {suggestions.length > 0 && (
+          <div className="mt-1.5 rounded-xl border border-slate-100 bg-slate-50 p-1.5">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 px-1.5 mb-1">From your history</div>
+            <div className="flex flex-wrap gap-1.5">
+              {suggestions.map((s) => (
+                <button
+                  key={s.title}
+                  type="button"
+                  onClick={() => quickAdd(s)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-bold text-slate-700 active:scale-95"
+                >
+                  + {s.title}
+                  {s.brand && <span className="text-[10px] font-medium text-slate-500">· {s.brand}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </form>
 
       <label className="block mb-3">
@@ -12625,26 +12757,42 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
             </button>
             <div className="flex-1 min-w-0">
               {editingId === it.id ? (
-                <input
-                  value={editDraft}
-                  onChange={(e) => setEditDraft(e.target.value)}
-                  onBlur={finishEdit}
-                  onKeyDown={(e) => { if (e.key === "Enter") finishEdit(); if (e.key === "Escape") { setEditingId(null); setEditDraft(""); } }}
-                  autoFocus
-                  className="w-full border border-indigo-200 rounded-lg px-2 py-1 text-sm font-semibold"
-                />
+                <div>
+                  <input
+                    value={editDraft}
+                    onChange={(e) => setEditDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") finishEdit(); if (e.key === "Escape") { setEditingId(null); setEditDraft(""); setEditBrandDraft(""); } }}
+                    autoFocus
+                    className="w-full border border-indigo-200 rounded-lg px-2 py-1 text-sm font-semibold mb-1"
+                  />
+                  <input
+                    value={editBrandDraft}
+                    onChange={(e) => setEditBrandDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") finishEdit(); if (e.key === "Escape") { setEditingId(null); setEditDraft(""); setEditBrandDraft(""); } }}
+                    placeholder="Brand (optional)"
+                    className="w-full border border-indigo-100 rounded-lg px-2 py-1 text-xs"
+                  />
+                  <div className="flex gap-1.5 mt-1">
+                    <button type="button" onClick={() => { setEditingId(null); setEditDraft(""); setEditBrandDraft(""); }} className="text-[10px] font-bold text-slate-400 px-1.5 py-0.5">Cancel</button>
+                    <div className="flex-1" />
+                    <button type="button" onClick={finishEdit} className="text-[10px] font-bold text-indigo-600 px-1.5 py-0.5">Save</button>
+                  </div>
+                </div>
               ) : (
                 <button
-                  onClick={() => { setEditingId(it.id); setEditDraft(it.title || ""); }}
+                  onClick={() => { setEditingId(it.id); setEditDraft(it.title || ""); setEditBrandDraft(it.brand || ""); }}
                   className={`text-left w-full font-semibold text-sm leading-snug ${it.checked ? "line-through text-slate-400" : "text-slate-800"}`}
                 >
                   {it.title}
                 </button>
               )}
-              {it.checked && it.checkedBy && findName(it.checkedBy) && (
+              {editingId !== it.id && it.brand && (
+                <div className="text-[10px] text-amber-700 font-bold">{it.brand}</div>
+              )}
+              {editingId !== it.id && it.checked && it.checkedBy && findName(it.checkedBy) && (
                 <div className="text-[10px] text-slate-400">✓ by {findName(it.checkedBy)}</div>
               )}
-              {!it.checked && it.addedBy && findName(it.addedBy) && (
+              {editingId !== it.id && !it.checked && it.addedBy && findName(it.addedBy) && (
                 <div className="text-[10px] text-slate-400">added by {findName(it.addedBy)}</div>
               )}
             </div>
