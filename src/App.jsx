@@ -11659,7 +11659,7 @@ function Weekly({ completions = [], gifted = [], tasks = [], activities = [], bo
   const rows = [...byActivity.entries()]
     .map(([aid, dates]) => {
       const a = actLookup(aid);
-      return { name: a?.short || a?.name || aid, days: dates.size, aid };
+      return { name: a?.short || a?.name || "Untitled activity", days: dates.size, aid };
     })
     .sort((a, b) => b.days - a.days);
 
@@ -11691,7 +11691,7 @@ function Weekly({ completions = [], gifted = [], tasks = [], activities = [], bo
     activeRequired.add(aid);
   }
   const slipping = [...activeRequired]
-    .map((aid) => ({ aid, days: byActivity.get(aid)?.size || 0, name: actLookup(aid)?.short || actLookup(aid)?.name || aid }))
+    .map((aid) => ({ aid, days: byActivity.get(aid)?.size || 0, name: actLookup(aid)?.short || actLookup(aid)?.name || "Untitled activity" }))
     .filter((r) => r.days < 3)
     .sort((a, b) => a.days - b.days);
 
