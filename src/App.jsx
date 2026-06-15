@@ -736,6 +736,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const [weeklyActivityDays, setWeeklyActivityDays] = familySetting("weeklyActivityDays", {});
   const [weeklyActivityTimes, setWeeklyActivityTimes] = familySetting("weeklyActivityTimes", {});
   const [taskNotes, setTaskNotes] = familySetting("taskNotes", {});
+  // Per-family learning goals — each entry is { area, note }. Empty
+  // for brand-new families; the Skills page lets parents add/edit/
+  // remove entries freely (per the total-control memory rule). Lynch
+  // gets their existing 5 areas via the migration backfill.
+  const [learningGoals, setLearningGoals] = familySetting("learningGoals", []);
   const [subProgress, setSubProgress] = familySetting("subProgress", {});
   // Board theme — parent picks; one theme per family because the board
   // is a shared family canvas, not a per-profile view. Default is
@@ -1958,12 +1963,13 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     return (
       <OnboardingWizard
         parentName={me?.name}
-        onCreateKid={async ({ name, emoji, color }) => {
+        onCreateKid={async ({ name, emoji, color, grade }) => {
           addUser({
             name,
             role: "kid",
             emoji,
             color,
+            grade: grade || null,
             relationship: "Kid",
             active: true,
             accessType: "permanent",
@@ -10445,7 +10451,7 @@ function MoreParent(props) {
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
   if (sub === "handoff") return <BackWrap title={i18nTOf("more_handoff", "Handoff Notes")} onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
-  if (sub === "skills") return <BackWrap title={i18nTOf("more_skills", "Learning Goals")} onBack={() => setSub("menu")}><Skills /></BackWrap>;
+  if (sub === "skills") return <BackWrap title={i18nTOf("more_skills", "Learning Goals")} onBack={() => setSub("menu")}><Skills learningGoals={learningGoals} setLearningGoals={setLearningGoals} kids={(users || []).filter((u) => u.role === "kid")} updateUser={updateUser} /></BackWrap>;
   if (sub === "people") return <BackWrap title={i18nTOf("more_people", "Family & Helpers")} onBack={() => setSub("menu")}><People {...props} /></BackWrap>;
   if (sub === "activities") return <BackWrap title={i18nTOf("more_activities", "Activities & Status")} onBack={() => setSub("menu")}><ManageActivities {...props} /></BackWrap>;
   if (sub === "tasks") return <BackWrap title={i18nTOf("more_tasks", "Tasks & Chores")} onBack={() => setSub("menu")}><ManageTasks {...props} /></BackWrap>;
@@ -11016,18 +11022,159 @@ function HandoffFull({ handoff, users, addHandoff }) {
   );
 }
 
-function Skills() {
-  const areas = [
-    { area: "English reading", note: "Above grade level — keep stretching with chapter books." },
-    { area: "Spanish reading/speaking", note: "Reading solo; build to 5 full spoken sentences/day." },
-    { area: "Writing", note: "Daily handwriting + 1 creative piece/week." },
-    { area: "Math", note: "On grade — keep consistent." },
-    { area: "Music / drums", note: "1hr daily, Drumeo + Melodics fundamentals." },
-  ];
+// Generic starter areas any family can opt into. Subject names only —
+// the note is left blank so each family fills in what's true for THEIR
+// kid (no Lynch-specific text leaks). Parent taps "Add suggested
+// starters" on the empty state to pre-fill these, then edits each.
+const SKILL_STARTER_AREAS = [
+  "Reading",
+  "Writing",
+  "Math",
+  "Science",
+  "Music",
+  "Spanish",
+  "Art",
+  "PE",
+];
+
+function Skills({ learningGoals = [], setLearningGoals, kids = [], updateUser }) {
+  const [editingIdx, setEditingIdx] = useState(null);
+  const [draft, setDraft] = useState({ area: "", note: "" });
+  const [adding, setAdding] = useState(false);
+
+  const startAdd = () => { setDraft({ area: "", note: "" }); setAdding(true); setEditingIdx(null); };
+  const startEdit = (i) => {
+    setDraft({ area: learningGoals[i].area || "", note: learningGoals[i].note || "" });
+    setEditingIdx(i);
+    setAdding(false);
+  };
+  const cancel = () => { setEditingIdx(null); setAdding(false); setDraft({ area: "", note: "" }); };
+  const saveAdd = () => {
+    const area = draft.area.trim();
+    if (!area) return;
+    setLearningGoals((prev) => [...(prev || []), { area, note: draft.note.trim() }]);
+    cancel();
+  };
+  const saveEdit = () => {
+    if (editingIdx == null) return;
+    const area = draft.area.trim();
+    if (!area) return;
+    setLearningGoals((prev) =>
+      (prev || []).map((g, i) => (i === editingIdx ? { area, note: draft.note.trim() } : g))
+    );
+    cancel();
+  };
+  const remove = (i) => {
+    if (!confirm("Remove this learning goal?")) return;
+    setLearningGoals((prev) => (prev || []).filter((_, idx) => idx !== i));
+    cancel();
+  };
+  const seedStarters = () => {
+    setLearningGoals(SKILL_STARTER_AREAS.map((area) => ({ area, note: "" })));
+  };
+
+  const setGrade = (kidId, grade) => {
+    if (!updateUser) return;
+    updateUser(kidId, { grade: grade.trim() || null });
+  };
+
   return (
     <>
-      <p className="text-sm text-slate-400 px-1 mb-2">Where he is across each subject — a quick read for parents and helpers.</p>
-      {areas.map((a) => <Card key={a.area} className="p-3 mb-2"><div className="font-bold text-sm">{a.area}</div><div className="text-[11px] text-slate-400">{a.note}</div></Card>)}
+      <p className="text-sm text-slate-400 px-1 mb-3">
+        Track what your kid is working on across each subject. Tap any goal to edit; add or remove freely as things change.
+      </p>
+
+      {/* Grade editors per kid */}
+      {kids.length > 0 && (
+        <Card className="p-3 mb-3 bg-slate-50">
+          <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-2">Grade level</div>
+          {kids.map((k) => (
+            <div key={k.id} className="flex items-center gap-2 mb-1.5 last:mb-0">
+              <span className="text-sm font-semibold flex-1 truncate">{k.name}</span>
+              <input
+                type="text"
+                defaultValue={k.grade || ""}
+                onBlur={(e) => setGrade(k.id, e.target.value)}
+                placeholder="e.g. 2nd"
+                className="w-24 border border-slate-200 rounded-lg px-2 py-1 text-sm"
+              />
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {learningGoals.length === 0 && !adding ? (
+        <Card className="p-4 mb-2 text-center bg-slate-50">
+          <div className="text-sm font-semibold text-slate-600 mb-1">No goals yet</div>
+          <div className="text-[11px] text-slate-400 mb-3">Add a learning goal — or start with common subjects you can then edit.</div>
+          <div className="flex gap-2">
+            <button onClick={startAdd} className="flex-1 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs">+ Add goal</button>
+            <button onClick={seedStarters} className="flex-1 py-2 rounded-xl bg-slate-200 text-slate-700 font-bold text-xs">Add starter subjects</button>
+          </div>
+        </Card>
+      ) : (
+        <>
+          {learningGoals.map((g, i) => editingIdx === i ? (
+            <Card key={i} className="p-3 mb-2 border-indigo-200 border-2">
+              <input
+                value={draft.area}
+                onChange={(e) => setDraft((d) => ({ ...d, area: e.target.value }))}
+                placeholder="Subject (e.g. Reading)"
+                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm font-bold mb-2"
+              />
+              <textarea
+                value={draft.note}
+                onChange={(e) => setDraft((d) => ({ ...d, note: e.target.value }))}
+                placeholder="What they're working on, where they are, where you want them to get…"
+                rows={3}
+                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs mb-2 resize-none"
+              />
+              <div className="flex gap-2">
+                <button onClick={() => remove(i)} className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-600 border border-rose-200">Remove</button>
+                <div className="flex-1" />
+                <button onClick={cancel} className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-500">Cancel</button>
+                <button onClick={saveEdit} className="text-xs font-bold px-3 py-1.5 rounded-xl bg-indigo-600 text-white">Save</button>
+              </div>
+            </Card>
+          ) : (
+            <Card key={i} className="p-3 mb-2">
+              <button onClick={() => startEdit(i)} className="w-full text-left">
+                <div className="font-bold text-sm">{g.area}</div>
+                {g.note && <div className="text-[11px] text-slate-400 mt-0.5">{g.note}</div>}
+                {!g.note && <div className="text-[10px] text-slate-300 italic mt-0.5">Tap to add details</div>}
+              </button>
+            </Card>
+          ))}
+          {adding && (
+            <Card className="p-3 mb-2 border-indigo-200 border-2">
+              <input
+                value={draft.area}
+                onChange={(e) => setDraft((d) => ({ ...d, area: e.target.value }))}
+                placeholder="Subject (e.g. Reading)"
+                autoFocus
+                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm font-bold mb-2"
+              />
+              <textarea
+                value={draft.note}
+                onChange={(e) => setDraft((d) => ({ ...d, note: e.target.value }))}
+                placeholder="What they're working on…"
+                rows={3}
+                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs mb-2 resize-none"
+              />
+              <div className="flex gap-2">
+                <div className="flex-1" />
+                <button onClick={cancel} className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-500">Cancel</button>
+                <button onClick={saveAdd} className="text-xs font-bold px-3 py-1.5 rounded-xl bg-indigo-600 text-white">Add</button>
+              </div>
+            </Card>
+          )}
+          {!adding && (
+            <button onClick={startAdd} className="w-full mt-2 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1">
+              <Plus size={16} /> Add a goal
+            </button>
+          )}
+        </>
+      )}
     </>
   );
 }
