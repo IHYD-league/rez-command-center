@@ -13804,6 +13804,7 @@ function People({ users, addUser, updateUser, removeUser, familyId, pendingRegis
             {u.role !== "kid" && (
               <EmailEditor user={u} onSave={(email) => updateUser(u.id, { email })} />
             )}
+            {u.role === "kid" && <GrandparentShareLink kidId={u.id} kidName={u.name} />}
             {!locked(u) && (
               <AccessEditor
                 user={u}
@@ -13950,6 +13951,119 @@ function AccessEditor({ user, onSave }) {
 // Inline editor for a profile's login email. Saving an email lets that
 // person sign in via Supabase Auth with that address — the
 // claim_profile_by_email RPC stamps auth_user_id on their first login.
+// Per-kid grandparent share link control. Parent taps to mint or
+// rotate a UUID token via the SECURITY DEFINER RPC, copy it as a
+// /share/<token> URL, or revoke. The shared page (SharedKidView)
+// shows kid name, streaks, this-week stars, and recent wins — no
+// rewards economy, no other family members, no addresses.
+function GrandparentShareLink({ kidId, kidName }) {
+  const [token, setToken] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  // On mount, peek at the kid's profile row to see if a token already
+  // exists. Reads are RLS-gated (current family) so it's safe.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("view_token")
+          .eq("id", kidId)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) setError(error.message);
+        else setToken(data?.view_token || null);
+      } catch (e) {
+        if (cancelled) return;
+        setError(String(e?.message || e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [kidId]);
+
+  const url = token ? `${window.location.origin}/share/${token}` : "";
+
+  const generate = async () => {
+    setBusy(true); setError("");
+    try {
+      const { data, error } = await supabase.rpc("generate_kid_view_token", { p_kid_id: kidId });
+      if (error) setError(error.message);
+      else setToken(data);
+    } catch (e) {
+      setError(String(e?.message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const revoke = async () => {
+    if (!confirm(`Revoke ${kidName}'s share link? Anyone who has it will lose access.`)) return;
+    setBusy(true); setError("");
+    try {
+      const { error } = await supabase.rpc("revoke_kid_view_token", { p_kid_id: kidId });
+      if (error) setError(error.message);
+      else setToken(null);
+    } catch (e) {
+      setError(String(e?.message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const copy = async () => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        setCopied(true); setTimeout(() => setCopied(false), 1500);
+      } catch { /* skip */ }
+    }
+  };
+
+  if (loading) return null;
+  return (
+    <div className="mt-2 rounded-xl bg-slate-50 border border-slate-100 p-2.5">
+      <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1">🔗 Share with grandma</div>
+      <div className="text-[10px] text-slate-500 leading-snug mb-2">
+        Read-only link to {kidName || "this kid"}'s progress (streaks, recent wins, this week's stars). No sign-up needed. Revocable any time.
+      </div>
+      {!token ? (
+        <button onClick={generate} disabled={busy} className="text-[11px] font-bold px-3 py-1.5 rounded-full bg-indigo-600 text-white active:scale-95">
+          {busy ? "Working…" : "Create a share link"}
+        </button>
+      ) : (
+        <>
+          <div className="text-[10px] font-mono break-all bg-white border border-slate-100 rounded-lg p-2 mb-2 text-slate-600">{url}</div>
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={copy} className={`text-[11px] font-bold px-2.5 py-1.5 rounded-full ${copied ? "bg-emerald-100 text-emerald-700" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
+              {copied ? "✓ Copied" : "📋 Copy link"}
+            </button>
+            <button onClick={generate} disabled={busy} className="text-[11px] font-bold px-2.5 py-1.5 rounded-full bg-slate-100 text-slate-600">
+              {busy ? "…" : "🔁 Rotate"}
+            </button>
+            <button onClick={revoke} disabled={busy} className="text-[11px] font-bold px-2.5 py-1.5 rounded-full bg-rose-50 text-rose-600 border border-rose-200">
+              Revoke
+            </button>
+          </div>
+        </>
+      )}
+      {error && <div className="text-[10px] text-rose-600 mt-1.5">{error}</div>}
+    </div>
+  );
+}
+
 function EmailEditor({ user, onSave }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(user.email || "");
