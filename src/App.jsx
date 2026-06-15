@@ -6265,10 +6265,23 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                         const title = pb.canonicalTitle || pb.title || i18nTOf("ts_book_untitled", "(untitled)");
                         const isRereadCandidate = pb.preTracking || pb.status === "finished" || pb.status === "dropped";
                         const round = isRereadCandidate ? ` · R${(pb.readCount || 1) + 1}` : "";
+                        const coverSrc = pb.coverUrl || "";
                         return (
-                          <span key={pb.id} className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full pl-2.5 pr-1 py-1 text-[12px] font-bold max-w-full">
-                            <Check size={12} className="text-emerald-600 shrink-0" />
-                            <span className="truncate max-w-[180px]">{title}{round}</span>
+                          <span key={pb.id} className="inline-flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full pl-1 pr-1 py-0.5 text-[12px] font-bold max-w-full">
+                            <span className="w-6 h-8 rounded bg-emerald-100 grid place-items-center shrink-0 relative overflow-hidden">
+                              <Check size={12} className="text-emerald-600" />
+                              {coverSrc && (
+                                <img
+                                  src={coverSrc}
+                                  alt=""
+                                  className="absolute inset-0 w-full h-full object-cover"
+                                  loading="lazy"
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                />
+                              )}
+                            </span>
+                            <span className="truncate max-w-[160px] py-1">{title}{round}</span>
                             <button onClick={() => removePickedBook(pb.id)} className="text-emerald-600 p-0.5 active:scale-95" aria-label={i18nTOf("ts_picked_remove", "Remove this book")}>
                               <X size={12} />
                             </button>
@@ -6366,9 +6379,19 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                               onClick={() => addWebBook(r)}
                               className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
                             >
-                              {r.coverThumbUrl
-                                ? <img src={r.coverThumbUrl} alt="" className="w-10 h-14 object-cover rounded shrink-0 bg-slate-100" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                                : <div className="w-10 h-14 rounded bg-slate-100 grid place-items-center shrink-0"><BookOpen size={14} className="text-slate-300" /></div>}
+                              <div className="w-10 h-14 rounded bg-slate-100 grid place-items-center shrink-0 relative overflow-hidden">
+                                <BookOpen size={14} className="text-slate-300" />
+                                {r.coverThumbUrl && (
+                                  <img
+                                    src={r.coverThumbUrl}
+                                    alt=""
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer"
+                                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                  />
+                                )}
+                              </div>
                               <div className="flex-1 min-w-0">
                                 <div className="text-sm font-bold text-slate-800 truncate">{r.title || i18nTOf("ts_book_untitled", "(untitled)")}</div>
                                 <div className="text-[11px] text-slate-500 truncate">
