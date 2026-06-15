@@ -8396,26 +8396,33 @@ function DaySheet({ iso, items, onAdd, onEdit, onClose }) {
         <div className="text-sm text-slate-400 mb-3">Nothing scheduled. Add the first thing below.</div>
       )}
       {items.map((it) => (
-        <button
+        <div
           key={it.key}
-          onClick={() => onEdit && it.event && onEdit(it.event)}
-          disabled={!it.event}
-          className={`w-full flex items-center gap-2 p-3 mb-2 rounded-xl border ${it.event ? "border-slate-200 active:scale-[0.99]" : "border-slate-100 bg-slate-50"}`}
+          className={`p-3 mb-2 rounded-xl border ${it.event ? "border-slate-200" : "border-slate-100 bg-slate-50"}`}
         >
-          <div className="w-1.5 self-stretch rounded-full shrink-0" style={{ background: it.color || "#6366f1" }} />
-          <div className="flex-1 min-w-0 text-left">
-            <div className="font-bold text-sm truncate">{it.title}</div>
-            {(it.time || it.subtitle) && (
-              <div className="text-[11px] text-slate-500 truncate">
-                {it.time && <span>{fmt12(it.time)}</span>}
-                {it.time && it.subtitle && <span> · </span>}
-                {it.subtitle}
-              </div>
-            )}
+          <div
+            onClick={() => onEdit && it.event && onEdit(it.event)}
+            className={`flex items-start gap-2 ${it.event ? "cursor-pointer" : ""}`}
+          >
+            <div className="w-1.5 self-stretch rounded-full shrink-0 min-h-[1.5rem]" style={{ background: it.color || "#6366f1" }} />
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-sm truncate">{it.title}</div>
+              {(it.time || it.subtitle) && (
+                <div className="text-[11px] text-slate-500 truncate">
+                  {it.time && <span>{fmt12(it.time)}</span>}
+                  {it.time && it.subtitle && <span> · </span>}
+                  {it.subtitle}
+                </div>
+              )}
+              {it.address && (
+                <div className="text-[11px] text-slate-600 mt-1 leading-snug select-text">{it.address}</div>
+              )}
+            </div>
+            {it.recurring && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 shrink-0">Every {it.recurWeekdayLabel}</span>}
+            {it.event && <ChevronRight size={14} className="text-slate-300 shrink-0 mt-0.5" />}
           </div>
-          {it.recurring && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 shrink-0">Every {it.recurWeekdayLabel}</span>}
-          {it.event && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
-        </button>
+          {it.address && <MapLinksRow address={it.address} size="sm" />}
+        </div>
       ))}
       <button
         onClick={onAdd}
@@ -8485,6 +8492,69 @@ function TimePicker({ value, onChange }) {
   );
 }
 
+// Build "open in maps" URLs. Apple Maps and Google Maps both accept
+// query-style searches that handle either a free-text venue name or
+// a street address. Waze's deeplink behaves the same. Encoded once;
+// reused by every map button. Universal links work in iOS Safari,
+// Android Chrome, and on desktop.
+function mapsUrls(address) {
+  const q = encodeURIComponent((address || "").trim());
+  return {
+    apple:  `https://maps.apple.com/?q=${q}`,
+    google: `https://www.google.com/maps/search/?api=1&query=${q}`,
+    waze:   `https://waze.com/ul?q=${q}&navigate=yes`,
+  };
+}
+
+function MapLinksRow({ address, size = "sm" }) {
+  const [copied, setCopied] = useState(false);
+  if (!address || !address.trim()) return null;
+  const trimmed = address.trim();
+  const urls = mapsUrls(trimmed);
+  const cls = size === "lg"
+    ? "px-3 py-2 rounded-xl text-[12px]"
+    : "px-2.5 py-1.5 rounded-full text-[11px]";
+  const copy = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(trimmed);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Older browsers / restrictive contexts — fall back to a
+      // hidden textarea select-and-copy so a Krissie-tier user
+      // still gets the address onto their clipboard.
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = trimmed;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      } catch {
+        // Give up — the address text is still visible above; the
+        // parent can long-press to copy manually.
+      }
+    }
+  };
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      <a href={urls.apple}  target="_blank" rel="noopener noreferrer" className={`${cls} bg-slate-100 text-slate-700 font-bold active:scale-95`}>📍 Apple Maps</a>
+      <a href={urls.google} target="_blank" rel="noopener noreferrer" className={`${cls} bg-blue-50 text-blue-700 font-bold active:scale-95`}>🗺️ Google</a>
+      <a href={urls.waze}   target="_blank" rel="noopener noreferrer" className={`${cls} bg-violet-50 text-violet-700 font-bold active:scale-95`}>🚗 Waze</a>
+      <button type="button" onClick={copy} className={`${cls} ${copied ? "bg-emerald-100 text-emerald-700" : "bg-amber-50 text-amber-700"} font-bold active:scale-95`}>
+        {copied ? "✓ Copied" : "📋 Copy"}
+      </button>
+    </div>
+  );
+}
+
 // Add / edit event sheet body. Used for both new and existing events.
 function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = [], pastTitles = [], onSave, onDelete, onClose }) {
   const isEdit = !!event;
@@ -8496,6 +8566,7 @@ function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = 
     Number.isInteger(event?.recurWeekday) ? event.recurWeekday :
     Number.isInteger(defaultRecurWeekday) ? defaultRecurWeekday : null
   );
+  const [address, setAddress] = useState(event?.address || "");
   const [notes, setNotes] = useState(event?.notes || "");
 
   // Fuzzy autocomplete: surface up to 6 best matches from the family's
@@ -8545,6 +8616,7 @@ function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = 
       date: date || null,
       time: time || null,
       recurWeekday: repeatChecked ? recur : null,
+      address: address.trim() || null,
       notes: notes.trim() || null,
       category: event?.category || "Activity",
     };
@@ -8575,7 +8647,17 @@ function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = 
               <button
                 key={s.key}
                 type="button"
-                onClick={() => { setTitle(s.label); setShowSuggestions(false); }}
+                onClick={() => {
+                  setTitle(s.label);
+                  setShowSuggestions(false);
+                  // Auto-fill the address from the matching activity if
+                  // we don't have one yet. Saves Mike from retyping
+                  // "Rose Bowl Aquatics, 360 N Arroyo Blvd…" every time.
+                  if (!address.trim() && s.kind === "activity") {
+                    const a = activities.find((x) => (x.name === s.label) || (x.short === s.label));
+                    if (a?.address) setAddress(a.address);
+                  }
+                }}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-bold text-slate-700 active:scale-95"
               >
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color || "#94a3b8" }} />
@@ -8606,6 +8688,14 @@ function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = 
           <span className={`block w-5 h-5 bg-white rounded-full transition ${repeatChecked ? "translate-x-4" : ""}`} />
         </span>
       </button>
+      <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1 mt-4">Address (optional)</label>
+      <input
+        value={address}
+        onChange={(e) => setAddress(e.target.value)}
+        placeholder="e.g. 360 N Arroyo Blvd, Pasadena, CA 91103"
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm"
+      />
+      {address.trim() && <MapLinksRow address={address} size="sm" />}
       <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1 mt-4">Notes (optional)</label>
       <textarea
         value={notes}
@@ -8798,6 +8888,7 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
             title: ev.title,
             time: ev.time,
             subtitle: ev.notes,
+            address: ev.address || "",
             color: colorForEvent(ev),
             recurring: true,
             recurWeekdayLabel: WEEKDAY_NAMES_FULL[ev.recurWeekday],
@@ -8810,6 +8901,7 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
           title: ev.title,
           time: ev.time,
           subtitle: ev.notes,
+          address: ev.address || "",
           color: colorForEvent(ev),
           recurring: false,
           event: ev,
@@ -8831,6 +8923,7 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
               // HH:MM. Pass as subtitle so fmt12 doesn't break.
               time: null,
               subtitle: s.time,
+              address: a.address || "",
               color: a.color,
               recurring: false,
               event: null, // not editable from here
