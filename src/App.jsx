@@ -1880,6 +1880,47 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songs.length]);
 
+  // Siri Shortcut / URL-deeplink quick complete. Parent sets up an iOS
+  // Shortcut that opens `?qc=drums` → app marks today's matching task
+  // complete. Idempotent: if today's completion already exists, we
+  // toast "already done" instead of doubling up. Matches by task id,
+  // activityType, or fuzzy title — forgives "drum" vs "Drums".
+  const _qcFiredRef = React.useRef(false);
+  useEffect(() => {
+    if (_qcFiredRef.current) return;
+    if (!tasks || tasks.length === 0) return; // wait for tasks to hydrate
+    let qc = null;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      qc = params.get("qc") || params.get("quickComplete");
+    } catch (_) { return; }
+    if (!qc) return;
+    _qcFiredRef.current = true;
+    const norm = (s) => (s || "").toLowerCase().trim();
+    const q = norm(qc);
+    const match = tasks.find((t) => t.id === qc)
+      || tasks.find((t) => norm(t.activityType) === q)
+      || tasks.find((t) => norm(t.title) === q)
+      || tasks.find((t) => norm(t.title).includes(q))
+      || tasks.find((t) => norm(t.activityType).includes(q));
+    if (!match) {
+      toast.error(`Couldn't find a task matching "${qc}".`);
+    } else if (compByTask[match.id]?.status === "approved") {
+      toast.success(`${match.title} already done today ✨`);
+    } else {
+      submitTask(match.id, { notes: "Logged via Siri Shortcut" });
+      toast.success(`✓ Logged ${match.title}`);
+    }
+    // Clear the query string so a future refresh doesn't re-fire.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("qc");
+      url.searchParams.delete("quickComplete");
+      window.history.replaceState({}, "", url.pathname + (url.search ? url.search : "") + url.hash);
+    } catch (_) { /* fine */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks.length]);
+
   const [hubOpen, setHubOpen] = useState(false);
 
   // Welcome overlay — re-fires on every app open + every profile switch.
@@ -11237,6 +11278,7 @@ function MoreParent(props) {
   if (sub === "privacy") return <BackWrap title={i18nTOf("more_privacy", "Privacy & Safety")} onBack={() => setSub("menu")}><PrivacySafety {...props} setSub={setSub} /></BackWrap>;
   if (sub === "audit") return <BackWrap title={i18nTOf("more_audit", "Data audit")} onBack={() => setSub("menu")}><DataAudit {...props} /></BackWrap>;
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
+  if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
   if (sub === "handoff") return <BackWrap title={i18nTOf("more_handoff", "Handoff Notes")} onBack={() => setSub("menu")}><HandoffFull {...props} /></BackWrap>;
@@ -11277,6 +11319,7 @@ function MoreParent(props) {
     { k: "audit",        icon: <AlertCircle size={18} />,    label: i18nTOf("more_audit", "Data audit"),                     sub: i18nTOf("more_audit_sub", "Check the math · find drift · spot orphans") },
     { k: "privacy",      icon: <Lock size={18} />,           label: i18nTOf("more_privacy", "Privacy & Safety"),             sub: i18nTOf("more_privacy_sub", "Family isolation · what's stored · own your data") },
     { k: "languages",    icon: <GraduationCap size={18} />,  label: i18nTOf("more_languages", "Languages"),                  sub: i18nTOf("more_languages_sub", "English / Spanish / Both — for the whole family") },
+    { k: "siri",         icon: <Music size={18} />,          label: "Siri Shortcuts",                                        sub: "Hey Siri, mark Drums done — one tap per task" },
   ];
   // Apply per-parent saved order. Items not in the saved list slot in
   // at the end so a new menu entry shows up automatically. The setting
@@ -11825,6 +11868,91 @@ const SKILL_STARTER_AREAS = [
   "Art",
   "PE",
 ];
+
+// Siri Shortcuts page — one row per active task with a copyable URL
+// that hits ?qc=<slug>. Parents make an iOS Shortcut → "Open URL" →
+// paste → name it ("Reznor did drums") → enable Hey Siri.
+function CopyChip({ value, label = "Copy URL" }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      } catch { /* give up */ }
+    }
+  };
+  return (
+    <button onClick={onCopy} className={`text-[11px] font-bold px-2.5 py-1.5 rounded-full ${copied ? "bg-emerald-100 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+      {copied ? "✓ Copied" : label}
+    </button>
+  );
+}
+
+function SiriShortcuts({ tasks = [], users = [] }) {
+  const kid = users.find((u) => u.role === "kid");
+  const origin = (typeof window !== "undefined" && window.location?.origin) || "https://little-legend-treasures.netlify.app";
+  const active = (tasks || []).filter((t) => t.active !== false);
+  const slug = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return (
+    <>
+      <Card className="p-4 mb-3 bg-gradient-to-br from-indigo-50 to-violet-50 border-indigo-100">
+        <div className="text-sm font-extrabold mb-1">Say "Hey Siri" instead of opening the app</div>
+        <p className="text-[12px] text-slate-600 leading-snug">
+          One iPhone trick that takes 90 seconds. Once set up, you say <em>"Hey Siri, {kid?.name || "kid"} did drums"</em> and the app marks today's drums task done.
+        </p>
+      </Card>
+
+      <Card className="p-3 mb-3">
+        <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-2">How to set one up (iPhone)</div>
+        <ol className="text-[12px] text-slate-600 space-y-1.5 list-decimal pl-4">
+          <li>Open the <strong>Shortcuts</strong> app (already on every iPhone).</li>
+          <li>Tap <strong>+</strong> top right → <strong>Add Action</strong> → search "Open URL" → tap it.</li>
+          <li>Tap the URL field → paste the URL for the task you want from the list below.</li>
+          <li>Tap the shortcut name at the top → rename it to what you'd say out loud (e.g. "Reznor did drums").</li>
+          <li>Tap the share icon → <strong>Add to Siri</strong> if it asks. Done.</li>
+          <li>Now say <em>"Hey Siri, Reznor did drums"</em> any time today and the app logs it.</li>
+        </ol>
+      </Card>
+
+      <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-2 px-1">Copy a URL per task</div>
+      {active.length === 0 && (
+        <Card className="p-4 text-sm text-slate-400 text-center">No active tasks yet. Add some under More → Tasks first.</Card>
+      )}
+      {active.map((t) => {
+        const url = `${origin}/?qc=${slug(t.activityType || t.title || t.id)}`;
+        return (
+          <Card key={t.id} className="p-3 mb-2">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="font-bold text-sm flex-1 truncate">{t.title}</div>
+              <CopyChip value={url} />
+            </div>
+            <div className="text-[10px] text-slate-400 font-mono break-all leading-snug">{url}</div>
+            <div className="text-[10px] text-slate-400 mt-1">Suggested phrase: <em>"{kid?.name || "Kid"} did {t.activityType || t.title}"</em></div>
+          </Card>
+        );
+      })}
+
+      <Card className="p-3 mt-3 bg-slate-50">
+        <div className="text-[11px] text-slate-500 leading-snug">
+          The URL only works while you're signed in on the device. If Siri opens it in a fresh browser window, just sign in once — the next "Hey Siri" works.
+        </div>
+      </Card>
+    </>
+  );
+}
 
 function Skills({ learningGoals = [], setLearningGoals, kids = [], updateUser }) {
   const [editingIdx, setEditingIdx] = useState(null);
