@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
-  ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft,
+  ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft, ChevronRight,
   Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map as MapIcon, Settings, TrendingUp, Download, Play
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
@@ -745,6 +745,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // remove entries freely (per the total-control memory rule). Lynch
   // gets their existing 5 areas via the migration backfill.
   const [learningGoals, setLearningGoals] = familySetting("learningGoals", []);
+  // Temp-week overrides — arr of { id, startDate, endDate, label }.
+  // When today's date falls inside any range, the calendar suppresses
+  // recurring entries (weekly events + activity schedules) so the
+  // "vacation week / Disney day / visit Xander" week is shown clean
+  // and the parent fills it in with one-off entries.
+  const [weekOverrides, setWeekOverrides] = familySetting("weekOverrides", []);
   const [subProgress, setSubProgress] = familySetting("subProgress", {});
   // Board theme — parent picks; one theme per family because the board
   // is a shared family canvas, not a per-profile view. Default is
@@ -1381,7 +1387,9 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     if (!text.trim()) return;
     setHandoff((prev) => [{ id: "h_" + Date.now(), authorId: currentUserId, note: text, pinned: false, time: "now" }, ...prev]);
   };
-  const addEvent = (ev) => setEvents((prev) => [...prev, { ...ev, id: "ev_" + Date.now() }]);
+  const addEvent = (ev) => setEvents((prev) => [...prev, { ...ev, id: "ev_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6) }]);
+  const updateEvent = (id, patch) => setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  const removeEvent = (id) => setEvents((prev) => prev.filter((e) => e.id !== id));
   const addUser = (u) => setUsers((prev) => [...prev, { ...u, id: "u_" + Date.now() }]);
   const updateUser = (id, patch) => setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
   const removeUser = (id) => setUsers((prev) => prev.filter((u) => u.id !== id));
@@ -1962,6 +1970,8 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     boardDailyCap, setBoardDailyCap,
     albumPhotos, setAlbumPhotos,
     learningGoals, setLearningGoals,
+    updateEvent, removeEvent,
+    weekOverrides, setWeekOverrides,
   };
 
   // First-run gate: a freshly-created family has a parent profile (from
@@ -8291,11 +8301,321 @@ function RewardEditRow({ r, updateReward, removeReward }) {
 }
 
 // ===================== PARENT: CALENDAR =====================
-function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, weeklyActivityDays = {}, weeklyActivityTimes = {}, toggleWeeklyDay, setWeeklyDayTime, activities, users = [] }) {
-  const [title, setTitle] = useState("");
-  const [date, setDate] = useState("2026-06-12");
-  const sorted = [...events].sort((a, b) => a.date.localeCompare(b.date));
-  const catColor = { School: "bg-sky-100 text-sky-700", Activity: "bg-emerald-100 text-emerald-700", "Field Trip": "bg-amber-100 text-amber-700" };
+// Helpers used by SimpleWeekStrip — kept module-scope so both the
+// strip and the underlying CalendarView can share the same formatting.
+const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAY_NAMES_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+function startOfWeek(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - x.getDay());
+  return x;
+}
+function fmtIso(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function fmt12(hhmm) {
+  if (!hhmm) return "";
+  const [hStr, mStr] = hhmm.split(":");
+  let h = Number(hStr); const m = Number(mStr);
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+function inOverride(iso, overrides) {
+  if (!iso || !overrides || !overrides.length) return null;
+  return overrides.find((o) => iso >= o.startDate && iso <= o.endDate) || null;
+}
+
+// One row in the new week strip — Mon / Tue / etc. with the count of
+// items and a thin colored bar showing what's scheduled. Tap to open
+// the sheet for that day.
+function WeekDayCell({ iso, weekday, label, count, overridden, isToday, onTap }) {
+  return (
+    <button
+      type="button"
+      onClick={onTap}
+      className={`w-full flex items-center gap-2 py-3 px-3 rounded-2xl mb-1.5 text-left transition active:scale-[0.99] ${
+        isToday ? "bg-indigo-50 border-2 border-indigo-200" : "bg-white border border-slate-100"
+      }`}
+    >
+      <div className={`w-12 shrink-0 text-center ${isToday ? "text-indigo-700" : "text-slate-500"}`}>
+        <div className="text-[10px] font-bold uppercase tracking-wider">{weekday}</div>
+        <div className="text-xl font-extrabold leading-tight">{label}</div>
+      </div>
+      <div className="flex-1 min-w-0">
+        {overridden && (
+          <div className="text-[10px] font-bold uppercase tracking-wider text-violet-600 mb-0.5">{overridden.label || "This week is different"}</div>
+        )}
+        <div className="text-sm font-semibold text-slate-700">
+          {count === 0 ? <span className="text-slate-300 font-medium">Tap to add</span> : `${count} ${count === 1 ? "thing" : "things"}`}
+        </div>
+      </div>
+      <ChevronRight size={16} className="text-slate-300 shrink-0" />
+    </button>
+  );
+}
+
+// Bottom-sheet body for a single day: list of entries + Add button.
+function DaySheet({ iso, items, onAdd, onEdit, onClose }) {
+  const d = new Date(iso + "T12:00");
+  const dayLabel = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  return (
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="font-extrabold text-lg">{dayLabel}</div>
+        <button onClick={onClose} className="text-slate-400 text-sm font-bold">Close</button>
+      </div>
+      {items.length === 0 && (
+        <div className="text-sm text-slate-400 mb-3">Nothing scheduled. Add the first thing below.</div>
+      )}
+      {items.map((it) => (
+        <button
+          key={it.key}
+          onClick={() => onEdit && it.event && onEdit(it.event)}
+          disabled={!it.event}
+          className={`w-full flex items-center gap-2 p-3 mb-2 rounded-xl border ${it.event ? "border-slate-200 active:scale-[0.99]" : "border-slate-100 bg-slate-50"}`}
+        >
+          <div className="w-1.5 self-stretch rounded-full shrink-0" style={{ background: it.color || "#6366f1" }} />
+          <div className="flex-1 min-w-0 text-left">
+            <div className="font-bold text-sm truncate">{it.title}</div>
+            {(it.time || it.subtitle) && (
+              <div className="text-[11px] text-slate-500 truncate">
+                {it.time && <span>{fmt12(it.time)}</span>}
+                {it.time && it.subtitle && <span> · </span>}
+                {it.subtitle}
+              </div>
+            )}
+          </div>
+          {it.recurring && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 shrink-0">Every {it.recurWeekdayLabel}</span>}
+          {it.event && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
+        </button>
+      ))}
+      <button
+        onClick={onAdd}
+        className="w-full mt-2 py-3 rounded-2xl bg-indigo-600 text-white font-extrabold text-sm flex items-center justify-center gap-2"
+      >
+        <Plus size={16} /> Add to {WEEKDAY_NAMES_FULL[d.getDay()]}
+      </button>
+    </div>
+  );
+}
+
+// Wheel-style time picker — three buttons-rows (hour, minute, AM/PM).
+// Big tap targets, no keyboard, no free text. NULL = all-day toggle.
+function TimePicker({ value, onChange }) {
+  const allDay = !value;
+  let h = 9, m = 0, ampm = "AM";
+  if (value) {
+    const [hStr, mStr] = value.split(":");
+    let hh = Number(hStr);
+    ampm = hh >= 12 ? "PM" : "AM";
+    hh = hh % 12; if (hh === 0) hh = 12;
+    h = hh;
+    m = Number(mStr);
+  }
+  const setParts = (hh, mm, ap) => {
+    let h24 = hh % 12;
+    if (ap === "PM") h24 += 12;
+    onChange(`${String(h24).padStart(2, "0")}:${String(mm).padStart(2, "0")}`);
+  };
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => onChange(allDay ? "09:00" : null)}
+        className={`text-[11px] font-bold px-2 py-1 rounded-full mb-2 ${allDay ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-500"}`}
+      >
+        {allDay ? "✓ All day" : "All day"}
+      </button>
+      {!allDay && (
+        <div className="grid grid-cols-3 gap-1.5">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 text-center">Hour</div>
+            <div className="max-h-32 overflow-y-auto bg-slate-50 rounded-xl p-1 space-y-0.5">
+              {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hh) => (
+                <button key={hh} type="button" onClick={() => setParts(hh, m, ampm)} className={`w-full py-1.5 rounded-lg text-sm font-bold ${h === hh ? "bg-indigo-600 text-white" : "text-slate-600"}`}>{hh}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 text-center">Min</div>
+            <div className="max-h-32 overflow-y-auto bg-slate-50 rounded-xl p-1 space-y-0.5">
+              {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((mm) => (
+                <button key={mm} type="button" onClick={() => setParts(h, mm, ampm)} className={`w-full py-1.5 rounded-lg text-sm font-bold ${m === mm ? "bg-indigo-600 text-white" : "text-slate-600"}`}>:{String(mm).padStart(2, "0")}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 text-center">AM/PM</div>
+            <div className="bg-slate-50 rounded-xl p-1 space-y-0.5">
+              <button type="button" onClick={() => setParts(h, m, "AM")} className={`w-full py-1.5 rounded-lg text-sm font-bold ${ampm === "AM" ? "bg-indigo-600 text-white" : "text-slate-600"}`}>AM</button>
+              <button type="button" onClick={() => setParts(h, m, "PM")} className={`w-full py-1.5 rounded-lg text-sm font-bold ${ampm === "PM" ? "bg-indigo-600 text-white" : "text-slate-600"}`}>PM</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Add / edit event sheet body. Used for both new and existing events.
+function EventEditSheet({ event, defaultDate, defaultRecurWeekday, onSave, onDelete, onClose }) {
+  const isEdit = !!event;
+  const [title, setTitle] = useState(event?.title || "");
+  const [date, setDate] = useState(event?.date || defaultDate || "");
+  const [time, setTime] = useState(event?.time || null);
+  const [recur, setRecur] = useState(
+    Number.isInteger(event?.recurWeekday) ? event.recurWeekday :
+    Number.isInteger(defaultRecurWeekday) ? defaultRecurWeekday : null
+  );
+  const [notes, setNotes] = useState(event?.notes || "");
+  const repeatChecked = Number.isInteger(recur);
+  const dayFor = (iso) => iso ? new Date(iso + "T12:00").getDay() : null;
+  const toggleRepeat = () => {
+    if (repeatChecked) {
+      setRecur(null);
+    } else {
+      setRecur(dayFor(date) ?? new Date().getDay());
+    }
+  };
+  const save = () => {
+    if (!title.trim()) return;
+    const payload = {
+      title: title.trim(),
+      date: date || null,
+      time: time || null,
+      recurWeekday: repeatChecked ? recur : null,
+      notes: notes.trim() || null,
+      category: event?.category || "Activity",
+    };
+    onSave(payload);
+  };
+  return (
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="font-extrabold text-lg">{isEdit ? "Edit" : "Add to calendar"}</div>
+        <button onClick={onClose} className="text-slate-400 text-sm font-bold">Close</button>
+      </div>
+      <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1">What</label>
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="e.g. Soccer practice"
+        autoFocus={!isEdit}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-base font-semibold mb-3"
+      />
+      <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1">When</label>
+      <input
+        type="date"
+        value={date || ""}
+        onChange={(e) => setDate(e.target.value)}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-base mb-3"
+      />
+      <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1">Time</label>
+      <TimePicker value={time} onChange={setTime} />
+      <button
+        type="button"
+        onClick={toggleRepeat}
+        className={`w-full mt-4 flex items-center justify-between rounded-xl px-3 py-2.5 ${repeatChecked ? "bg-violet-50 border border-violet-200" : "bg-slate-50 border border-slate-200"}`}
+      >
+        <span className="text-sm font-semibold">Repeat every {date ? WEEKDAY_NAMES_FULL[dayFor(date)] : "week"}</span>
+        <span className={`w-10 h-6 rounded-full p-0.5 transition shrink-0 ${repeatChecked ? "bg-emerald-500" : "bg-slate-300"}`}>
+          <span className={`block w-5 h-5 bg-white rounded-full transition ${repeatChecked ? "translate-x-4" : ""}`} />
+        </span>
+      </button>
+      <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1 mt-4">Notes (optional)</label>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="What to bring, who's picking up, anything else…"
+        rows={2}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm resize-none mb-3"
+      />
+      <div className="flex gap-2 mt-2">
+        {isEdit && onDelete && (
+          <button onClick={() => { if (confirm("Remove this from the calendar?")) { onDelete(); onClose(); } }} className="px-3 py-2.5 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 font-bold text-xs">Remove</button>
+        )}
+        <div className="flex-1" />
+        <button onClick={onClose} className="px-3 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs">Cancel</button>
+        <button
+          disabled={!title.trim()}
+          onClick={() => { save(); onClose(); }}
+          className={`px-4 py-2.5 rounded-xl font-bold text-xs text-white ${title.trim() ? "bg-indigo-600" : "bg-slate-300"}`}
+        >
+          {isEdit ? "Save" : "Add"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Week-override picker. One toggle to mark the current visible week as
+// "different" so recurring entries hide. Also lists active overrides.
+function WeekOverrideCard({ weekStartIso, weekEndIso, overrides = [], setWeekOverrides }) {
+  const active = inOverride(weekStartIso, overrides);
+  const [editing, setEditing] = useState(false);
+  const [label, setLabel] = useState("");
+  const startOverride = () => {
+    const o = {
+      id: "wo_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+      startDate: weekStartIso,
+      endDate: weekEndIso,
+      label: label.trim() || "This week is different",
+    };
+    setWeekOverrides([...(overrides || []), o]);
+    setEditing(false);
+    setLabel("");
+  };
+  const stopOverride = (id) => {
+    setWeekOverrides((overrides || []).filter((o) => o.id !== id));
+  };
+  if (active) {
+    return (
+      <Card className="p-3 mb-3 bg-violet-50 border-violet-200">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-violet-600 mb-0.5">Override active</div>
+            <div className="font-bold text-sm truncate">{active.label}</div>
+            <div className="text-[11px] text-slate-500">Recurring entries hidden this week</div>
+          </div>
+          <button onClick={() => stopOverride(active.id)} className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-white text-violet-700 border border-violet-200">End override</button>
+        </div>
+      </Card>
+    );
+  }
+  if (editing) {
+    return (
+      <Card className="p-3 mb-3 bg-violet-50 border-violet-200">
+        <div className="text-xs font-bold text-violet-700 mb-2">Mark this week different</div>
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Visiting Xander, Disney day…"
+          autoFocus
+          className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm mb-2"
+        />
+        <div className="flex gap-2">
+          <button onClick={() => { setEditing(false); setLabel(""); }} className="flex-1 py-1.5 rounded-lg bg-slate-100 text-slate-500 font-bold text-xs">Cancel</button>
+          <button onClick={startOverride} className="flex-1 py-1.5 rounded-lg bg-violet-600 text-white font-bold text-xs">Start override</button>
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="w-full text-left mb-3 rounded-2xl border border-dashed border-violet-200 bg-white p-3 active:scale-[0.99]"
+    >
+      <div className="text-[11px] font-bold text-violet-600 uppercase tracking-wider">Make this week different</div>
+      <div className="text-[11px] text-slate-500 mt-0.5">Vacation, Disney day, visiting family — hide the normal weekly schedule for this one week.</div>
+    </button>
+  );
+}
+
+function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, weeklyActivityDays = {}, weeklyActivityTimes = {}, toggleWeeklyDay, setWeeklyDayTime, activities, users = [], weekOverrides = [], setWeekOverrides }) {
   // Active activities that opted into the per-week day picker. Mike:
   // "We should be able to add another activity like Swim, Basketball,
   // Drums for when those do have days they change. … flexibility to
@@ -8341,9 +8661,190 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
     return { day, items };
   });
   const statusTag = { break: i18nTOf("cal_status_break", "on break"), seasonal: i18nTOf("cal_status_seasonal", "seasonal") };
+  // --- New simple week-strip UX -------------------------------------
+  const [weekOffset, setWeekOffset] = useState(0); // 0 = this week
+  const [openDay, setOpenDay] = useState(null);    // ISO yyyy-mm-dd
+  const [editingEvent, setEditingEvent] = useState(null); // null | "new" | event obj
+  const todayDate = new Date();
+  const todayIso = fmtIso(todayDate);
+  const weekStartDate = new Date(startOfWeek(todayDate));
+  weekStartDate.setDate(weekStartDate.getDate() + weekOffset * 7);
+  const weekDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStartDate);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+  const weekStartIso = fmtIso(weekDates[0]);
+  const weekEndIso = fmtIso(weekDates[6]);
+  const weekOverride = inOverride(weekStartIso, weekOverrides);
+
+  // Build a per-day items list combining date-specific events and
+  // recurring events (matched by weekday). Recurring entries hide
+  // when the week is overridden — temp events for that week land as
+  // date-specific entries on the right dates.
+  const itemsForDate = (d) => {
+    const iso = fmtIso(d);
+    const wd = d.getDay();
+    const list = [];
+    for (const ev of events || []) {
+      if (Number.isInteger(ev.recurWeekday)) {
+        // Recurring: only render when no override AND weekday matches
+        if (!weekOverride && ev.recurWeekday === wd) {
+          list.push({
+            key: ev.id + ":" + iso,
+            title: ev.title,
+            time: ev.time,
+            subtitle: ev.notes,
+            color: "#7c3aed",
+            recurring: true,
+            recurWeekdayLabel: WEEKDAY_NAMES_FULL[ev.recurWeekday],
+            event: ev,
+          });
+        }
+      } else if (ev.date === iso) {
+        list.push({
+          key: ev.id,
+          title: ev.title,
+          time: ev.time,
+          subtitle: ev.notes,
+          color: "#0ea5e9",
+          recurring: false,
+          event: ev,
+        });
+      }
+    }
+    // Add activity recurring schedule items (read-only here — they're
+    // edited under Manage Activities). Suppress when overridden.
+    if (!weekOverride) {
+      const dayName = WEEKDAY_NAMES_FULL[wd];
+      for (const a of activities || []) {
+        if (a.status !== "active") continue;
+        for (const s of (a.schedule || [])) {
+          if (s.day === dayName) {
+            list.push({
+              key: "act_" + a.id + ":" + iso,
+              title: a.name,
+              // schedule slots store times like "5:00–6:00 PM" — not
+              // HH:MM. Pass as subtitle so fmt12 doesn't break.
+              time: null,
+              subtitle: s.time,
+              color: a.color,
+              recurring: false,
+              event: null, // not editable from here
+            });
+          }
+        }
+      }
+    }
+    // Sort: timed first by time, then untimed by title.
+    list.sort((a, b) => {
+      const at = a.time || (a.subtitle && /\d/.test(a.subtitle) ? "99:99" : "99:99");
+      const bt = b.time || (b.subtitle && /\d/.test(b.subtitle) ? "99:99" : "99:99");
+      if (at !== bt) return at.localeCompare(bt);
+      return (a.title || "").localeCompare(b.title || "");
+    });
+    return list;
+  };
+
+  const openDayItems = openDay ? itemsForDate(new Date(openDay + "T12:00")) : [];
+  const openDayWeekday = openDay ? new Date(openDay + "T12:00").getDay() : null;
+
+  const saveEvent = (payload) => {
+    if (editingEvent && editingEvent !== "new") {
+      updateEvent && updateEvent(editingEvent.id, payload);
+    } else {
+      addEvent && addEvent(payload);
+    }
+    setEditingEvent(null);
+  };
+  const deleteEvent = () => {
+    if (editingEvent && editingEvent !== "new" && removeEvent) {
+      removeEvent(editingEvent.id);
+    }
+    setEditingEvent(null);
+  };
+
   return (
     <div className="px-4 pt-4">
       <h2 className="font-extrabold text-lg px-1">{i18nTOf("cal_heading", "Calendar")}</h2>
+
+      {/* Week navigation strip */}
+      <div className="flex items-center justify-between mt-3 mb-2">
+        <button
+          onClick={() => setWeekOffset((w) => w - 1)}
+          className="px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 font-bold text-xs"
+        >
+          ‹ Prev
+        </button>
+        <div className="text-xs font-bold text-slate-700">
+          {weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} –{" "}
+          {weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+        </div>
+        <button
+          onClick={() => setWeekOffset((w) => w + 1)}
+          className="px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 font-bold text-xs"
+        >
+          Next ›
+        </button>
+      </div>
+
+      {/* Week-override toggle */}
+      <WeekOverrideCard
+        weekStartIso={weekStartIso}
+        weekEndIso={weekEndIso}
+        overrides={weekOverrides}
+        setWeekOverrides={setWeekOverrides}
+      />
+
+      {/* The 7 day cells */}
+      {weekDates.map((d) => {
+        const iso = fmtIso(d);
+        const items = itemsForDate(d);
+        return (
+          <WeekDayCell
+            key={iso}
+            iso={iso}
+            weekday={WEEKDAY_NAMES[d.getDay()]}
+            label={String(d.getDate())}
+            count={items.length}
+            overridden={weekOverride}
+            isToday={iso === todayIso}
+            onTap={() => setOpenDay(iso)}
+          />
+        );
+      })}
+
+      {/* Day sheet — overlay */}
+      {openDay && !editingEvent && (
+        <div className="fixed inset-0 z-40 bg-black/40 flex items-end" onClick={() => setOpenDay(null)}>
+          <div className="w-full max-w-md mx-auto bg-white rounded-t-3xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <DaySheet
+              iso={openDay}
+              items={openDayItems}
+              onAdd={() => setEditingEvent("new")}
+              onEdit={(ev) => setEditingEvent(ev)}
+              onClose={() => setOpenDay(null)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Add/edit event sheet */}
+      {editingEvent && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={() => setEditingEvent(null)}>
+          <div className="w-full max-w-md mx-auto bg-white rounded-t-3xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <EventEditSheet
+              event={editingEvent === "new" ? null : editingEvent}
+              defaultDate={openDay || todayIso}
+              defaultRecurWeekday={null}
+              onSave={saveEvent}
+              onDelete={editingEvent !== "new" ? deleteEvent : null}
+              onClose={() => setEditingEvent(null)}
+            />
+          </div>
+        </div>
+      )}
+
       <Card className="p-3 mt-2 bg-amber-50 border-amber-100 flex items-center gap-2 text-sm text-amber-800"><Sun size={16} /> {i18nTOf("cal_summer_banner", "Summer Mode: June 11 – Sept 1, 2026. School starts back ~Sept 1.")}</Card>
 
       {/* One section per activity that opted into weeklySchedule. */}
@@ -8419,28 +8920,6 @@ function CalendarView({ events, addEvent, mode, tkdDays, tkdTimes, toggleTkdDay,
       </Card>
       <div className="text-[11px] text-slate-400 px-1 mb-1">{mode === "school" ? i18nTOf("cal_school_hours", "School: 8:00 AM–2:10 PM, Mon–Fri.") : i18nTOf("cal_summer_hours", "Summer homeschool block: 8 AM–2 PM, Mon–Fri.")} {i18nTOf("cal_manage_hint", "Manage breaks & seasons under More → Activities.")}</div>
 
-      <SectionTitle icon={<CalIcon size={16} className="text-indigo-500" />}>{i18nTOf("sec_upcoming", "Upcoming")}</SectionTitle>
-      {sorted.length === 0 && (
-        <div className="text-[11px] text-slate-400 px-1 mb-2">{i18nTOf("cal_upcoming_empty", "Nothing on the calendar yet.")}</div>
-      )}
-      {sorted.map((e) => (
-        <Card key={e.id} className="p-3 mb-2">
-          <div className="flex items-center justify-between">
-            <div className="font-bold text-sm">{e.title}</div>
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${catColor[e.category] || "bg-slate-100 text-slate-500"}`}>{e.category}</span>
-          </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">{new Date(e.date + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}{e.notes ? ` · ${e.notes}` : ""}</div>
-        </Card>
-      ))}
-      <Card className="p-3 mt-3">
-        <div className="text-xs font-bold text-slate-500 mb-2">{i18nTOf("cal_add_event", "Add event")}</div>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={i18nTOf("cal_event_title_ph", "Event title")} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2" />
-        <div className="flex gap-2">
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm" />
-          <button onClick={() => { if (title.trim()) { addEvent({ title, date, category: "Activity", notes: "" }); setTitle(""); } }} className="px-4 rounded-xl bg-indigo-600 text-white font-bold text-sm"><Plus size={16} /></button>
-        </div>
-        <div className="text-[11px] text-slate-400 mt-2">{i18nTOf("cal_add_event_hint", "Add upcoming events — practices, classes, field trips, anything that affects today's plan.")}</div>
-      </Card>
     </div>
   );
 }
