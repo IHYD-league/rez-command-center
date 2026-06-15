@@ -23,6 +23,7 @@ import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } 
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { searchOpenLibrary } from "./lib/enrichBook.js";
+import { searchGoogleBooks } from "./lib/enrichBookGoogle.js";
 import { applyCustomOrder, nudgeOrder } from "./lib/libraryOrder.js";
 import { confetti } from "./lib/confetti.js";
 import { milestone } from "./lib/milestone.js";
@@ -5831,8 +5832,13 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
 
   // Auto-fire web search when local has nothing for the typed query.
   // 3-char minimum + 400ms debounce keeps the fetch budget tiny.
-  // Skips entirely when the local picker already has a comfortable
-  // number of matches — saves the round trip in the common case.
+  // Primary: Google Books (best cover hit rate + most reliable).
+  // Fallback: Open Library, fired only when Google returned zero
+  // results — covers indie / older titles GB sometimes misses.
+  // webRetryTick bumps to re-fire the same query after an error,
+  // bound to a "Try again" button so a transient blip doesn't
+  // require the parent to retype.
+  const [webRetryTick, setWebRetryTick] = useState(0);
   useEffect(() => {
     if (!isReading) { setWebResults([]); setWebError(""); return; }
     const needle = bookSearch.trim();
@@ -5840,22 +5846,33 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     if (pickerBooks.length >= 5) { setWebResults([]); return; }
     let cancelled = false;
     setWebSearching(true);
+    setWebError("");
     const id = setTimeout(async () => {
       try {
-        const out = await searchOpenLibrary(needle, "", 5);
+        let out = await searchGoogleBooks(needle, "", 5);
+        if (cancelled) return;
+        if (!Array.isArray(out) || out.length === 0) {
+          // GB had nothing — try OL as a fallback so indie / very old
+          // titles still surface a hit. If THIS throws too, the catch
+          // below surfaces a single retry-friendly error.
+          try {
+            const ol = await searchOpenLibrary(needle, "", 5);
+            if (!cancelled && Array.isArray(ol)) out = ol;
+          } catch { /* swallow — primary error path handles UX */ }
+        }
         if (cancelled) return;
         setWebResults(Array.isArray(out) ? out : []);
         setWebError("");
       } catch (e) {
         if (cancelled) return;
         setWebResults([]);
-        setWebError(e?.message || "Search failed");
+        setWebError(e?.message || "Couldn't reach the book service.");
       } finally {
         if (!cancelled) setWebSearching(false);
       }
     }, 400);
     return () => { cancelled = true; clearTimeout(id); setWebSearching(false); };
-  }, [bookSearch, pickerBooks.length, isReading]);
+  }, [bookSearch, pickerBooks.length, isReading, webRetryTick]);
 
   // Upload the file to family-photos under <familyId>/proof/ and store
   // the returned path on the photo object. The legacy `url` field is
@@ -6307,8 +6324,19 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                       <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-700 mb-1 px-1">
                         {webSearching ? i18nTOf("ts_web_searching", "Searching the web…") : i18nTOf("ts_web_results", "From the web (tap to add)")}
                       </div>
-                      {webError && (
-                        <div className="text-[11px] text-rose-700 px-1">{webError}</div>
+                      {webError && !webSearching && (
+                        <div className="bg-white rounded-xl p-2 flex items-center gap-2">
+                          <div className="flex-1 text-[11px] text-slate-600 leading-snug">
+                            {i18nTOf("ts_web_error_msg", "Couldn't reach the book service. Could be a hiccup.")}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setWebRetryTick((t) => t + 1)}
+                            className="text-[11px] font-bold text-white bg-indigo-600 rounded-lg px-3 py-1.5 active:scale-95 shrink-0"
+                          >
+                            {i18nTOf("ts_web_retry", "Try again")}
+                          </button>
+                        </div>
                       )}
                       {webResults.length > 0 && (
                         <div className="bg-white rounded-xl divide-y divide-slate-100 overflow-hidden">
@@ -6320,7 +6348,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                               className="w-full flex items-center gap-2 p-2 text-left active:scale-[0.99]"
                             >
                               {r.coverThumbUrl
-                                ? <img src={r.coverThumbUrl} alt="" className="w-10 h-14 object-cover rounded shrink-0 bg-slate-100" loading="lazy" />
+                                ? <img src={r.coverThumbUrl} alt="" className="w-10 h-14 object-cover rounded shrink-0 bg-slate-100" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                                 : <div className="w-10 h-14 rounded bg-slate-100 grid place-items-center shrink-0"><BookOpen size={14} className="text-slate-300" /></div>}
                               <div className="flex-1 min-w-0">
                                 <div className="text-sm font-bold text-slate-800 truncate">{r.title || i18nTOf("ts_book_untitled", "(untitled)")}</div>
