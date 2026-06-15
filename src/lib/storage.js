@@ -131,6 +131,33 @@ async function sha256Hex(arrayBuffer) {
 // Returns { path, name } — `path` is what we persist; `name` is
 // the original filename for display purposes. Images are compressed
 // via compressImage before upload; non-images pass through.
+// Audio upload — used by the practice-session timer's 30s clip. We
+// don't compress (the recorder already produces a tight webm/m4a) but
+// we DO content-hash so a parent re-recording the same silence /
+// short loop dedupes to the same path. Same family-scoped folder
+// structure as photos: <familyId>/<kind>/<sha256>.<ext>.
+export async function uploadFamilyAudio({ blob, familyId, kind = "practice", ext: extOverride }) {
+  if (!supabase) throw new Error("Supabase client not configured");
+  if (!blob) throw new Error("uploadFamilyAudio: missing blob");
+  if (!familyId) throw new Error("uploadFamilyAudio: missing familyId");
+  const safeKind = String(kind).replace(/[^a-z0-9_-]/gi, "").slice(0, 32) || "audio";
+  const inferred = (blob.type || "")
+    .replace(/^audio\//, "")
+    .replace(/[;].*$/, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase()
+    .slice(0, 6);
+  const ext = (extOverride || inferred || "webm").slice(0, 6);
+  const arrayBuf = await blob.arrayBuffer();
+  const hash = await sha256Hex(arrayBuf);
+  const path = `${familyId}/${safeKind}/${hash}.${ext}`;
+  const { error } = await supabase.storage
+    .from(PHOTOS_BUCKET)
+    .upload(path, blob, { upsert: true, contentType: blob.type || undefined });
+  if (error) throw error;
+  return { path };
+}
+
 export async function uploadFamilyPhoto({ file, familyId, kind = "proof" }) {
   if (!supabase) throw new Error("Supabase client not configured");
   if (!file) throw new Error("uploadFamilyPhoto: missing file");
