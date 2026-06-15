@@ -41,7 +41,7 @@ const mergeDone = (saved) => {
 const countOf = (wd) => (wd.build ? 1 : 0) + (wd.math ? 1 : 0) + (wd.code ? 1 : 0) + (wd.read ? 1 : 0);
 
 /* ============ COMPONENT ============ */
-export default function SummerQuest({ child = "Reznor", initialMode, initialDone, onSave }) {
+export default function SummerQuest({ child = "", initialMode, initialDone, onSave }) {
   const controlled = !!(initialDone || initialMode || onSave);
   const [mode, setMode] = useState(initialMode || "home");
   const [done, setDone] = useState(() => mergeDone(initialDone));

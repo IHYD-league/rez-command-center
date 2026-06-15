@@ -277,7 +277,12 @@ export default function DataExport({
     if (rowCount === 0) return;
     const csv = buildCsv();
     const range = `${from || "all"}_to_${to || "all"}`;
-    const fname = `reznor-${datasetId.replace(/_/g, "-")}-${range}.csv`;
+    // Filename derives from the first kid's name so each family's
+    // exports are self-labeled. Falls back to "family" when the
+    // family hasn't created a kid profile yet.
+    const kid = (users || []).find((u) => u.role === "kid");
+    const slug = (kid?.name || "family").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "family";
+    const fname = `${slug}-${datasetId.replace(/_/g, "-")}-${range}.csv`;
     downloadCsv(fname, csv);
   }
 

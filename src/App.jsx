@@ -56,12 +56,13 @@ const SEED_USERS = [
   { id: "u_guest", name: "Example Babysitter", role: "guest", relationship: "Guest sitter", color: "#64748b", emoji: "🧩", active: true, accessType: "temporary", accessExpires: "2026-06-13", permissions: { approveSimple: false, approveAll: false, viewReports: false } },
 ];
 
-const CHILD = {
-  id: "c_reznor", name: "Reznor", grade: "1st (reading ahead)", school: "—",
-  starBankBase: 60, // carried-over stars before today; + today's drums (10) = bank of 70
-  nextReward: "Movie Night", nextRewardCost: 200,
-  bigReward: "Universal Studios", bigRewardCost: 500,
-};
+// CHILD removed 2026-06-15 — these were Lynch-specific defaults
+// (Reznor's name, Movie Night / Universal as reward tiers, a
+// starBankBase of 60 carried over from in-memory days). Replaced
+// with: profile.name from the active kid; nextRewardTitle /
+// nextRewardCost / bigRewardTitle / bigRewardCost derived from the
+// rewards table; starBankBase fixed to 0 (every star is now an
+// actual completion or gift).
 
 const CONTACTS = [
   { label: "Dad (Mike)", value: "Call / text Mike" },
@@ -745,6 +746,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // remove entries freely (per the total-control memory rule). Lynch
   // gets their existing 5 areas via the migration backfill.
   const [learningGoals, setLearningGoals] = familySetting("learningGoals", []);
+  // Carry-over star bank base — historical pre-completion stars that
+  // existed before this family started tracking via the DB. Lynch
+  // gets 60 backfilled via 20260615081500_lynch_starbank_base.sql;
+  // new families default to 0 and only see their actual earnings.
+  const [starBankBase] = familySetting("starBankBase", 0);
   // Temp-week overrides — arr of { id, startDate, endDate, label }.
   // When today's date falls inside any range, the calendar suppresses
   // recurring entries (weekly events + activity schedules) so the
@@ -1038,7 +1044,22 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const redeemedTotal = redemptions.filter((r) => r.status === "approved").reduce((s, r) => s + r.cost, 0);
   const giftedTotal = gifted.reduce((s, g) => s + g.stars, 0);
   const giftedToday = gifted.filter((g) => g.date === TODAY_ISO).reduce((s, g) => s + (Number(g.stars) || 0), 0);
-  const starBank = CHILD.starBankBase + earnedAllTime + giftedTotal - redeemedTotal;
+  const starBank = (Number(starBankBase) || 0) + earnedAllTime + giftedTotal - redeemedTotal;
+  // Active rewards sorted cheapest-first. Drives the "next reward" /
+  // "big goal" tiles below — per-family, derived from the rewards
+  // table instead of the hardcoded Lynch defaults (Movie Night /
+  // Universal). Tiles render only when there's at least one active
+  // reward; brand-new families with empty rewards see nothing.
+  const activeRewardsAsc = useMemo(
+    () => (rewards || []).filter((r) => r.active !== false).slice().sort((a, b) => (a.starCost || 0) - (b.starCost || 0)),
+    [rewards]
+  );
+  const nextRewardObj = activeRewardsAsc.find((r) => (r.starCost || 0) > starBank) || activeRewardsAsc[activeRewardsAsc.length - 1] || null;
+  const bigRewardObj = activeRewardsAsc[activeRewardsAsc.length - 1] || null;
+  const nextRewardTitle = nextRewardObj?.title || "";
+  const nextRewardCost = nextRewardObj?.starCost || 0;
+  const bigRewardTitle = bigRewardObj?.title || "";
+  const bigRewardCost = bigRewardObj?.starCost || 0;
   // Today-only stats (what the labels actually say). Honest now.
   // "Earned today" MUST include bonus gifts so the parent + kid see
   // exactly the same total that landed in the bank today. Hiding
@@ -1901,7 +1922,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     avatar: user?.photo || user?.emoji || "🧑‍🚀",
     stars: starBank,
     streak: { current: _drumCurrent, milestone: _milestone, fillPct: (_drumCurrent / _milestone) * 100 },
-    nextReward: { title: CHILD.nextReward, cost: CHILD.nextRewardCost, have: starBank },
+    nextReward: { title: nextRewardTitle, cost: nextRewardCost, have: starBank },
     xp: _xp,
     level: {
       value: _levelN,
@@ -1972,6 +1993,8 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     learningGoals, setLearningGoals,
     updateEvent, removeEvent,
     weekOverrides, setWeekOverrides,
+    nextRewardTitle, nextRewardCost,
+    bigRewardTitle, bigRewardCost,
   };
 
   // First-run gate: a freshly-created family has a parent profile (from
@@ -2118,7 +2141,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
             earnedToday={earnedToday}
             pendingStars={pendingStars}
             availableToday={availableToday}
-            base={CHILD.starBankBase}
+            base={Number(starBankBase) || 0}
             role={user?.role}
             removeGift={removeGift}
             songs={songs}
@@ -3149,7 +3172,7 @@ function LoginScreen({ users, currentProfileId, onPick, onSignOut, sessionEmail 
               textShadow: "0 6px 24px rgba(0,0,0,0.7), 0 2px 4px rgba(0,0,0,0.5)",
             }}
           >
-            Reznor Command Center
+            Family Command Center
           </h1>
           <p
             className="text-sm mt-1 font-semibold"
@@ -3351,7 +3374,7 @@ function LoginScreen({ users, currentProfileId, onPick, onSignOut, sessionEmail 
 }
 
 // ===================== KID: MISSIONS =====================
-function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, setOpenCompletionId, availableToday, earnedToday, pendingStars, starBank, mode, priorities, users, activities, streaks, subProgress, toggleSub, undoTask }) {
+function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, setOpenCompletionId, availableToday, earnedToday, pendingStars, starBank, mode, priorities, user, users, activities, streaks, subProgress, toggleSub, undoTask }) {
   // Read from the parent-curated Top 8 so the kid's missions tab,
   // home quests, and the board all show the same list. Fall back to
   // the broader todaysTasks only if Top 8 is somehow empty.
@@ -3362,7 +3385,7 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
     <div className="px-4 pt-4">
       <div className="rounded-3xl p-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(135deg,#f59e0b,#ef4444)" }}>
         <Sparkles className="absolute -right-3 -top-3 opacity-20" size={90} />
-        <div className="text-sm font-semibold opacity-90">Hey Reznor! 🚀</div>
+        <div className="text-sm font-semibold opacity-90">Hey {user?.name || "there"}! 🚀</div>
         <div className="text-2xl font-extrabold mt-1">Today's Missions</div>
         <div className="flex gap-2 mt-4">
           <KidStat label="Earned" value={earnedToday} icon={<Star size={14} className="fill-current" />} />
@@ -3375,7 +3398,7 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
         <div className="text-[11px] mt-1 opacity-90">{done} of {sourceList.length} missions complete</div>
       </div>
 
-      <div className="mt-3"><PiggyBank stars={starBank} /></div>
+      <div className="mt-3"><PiggyBank stars={starBank} kidName={user?.name} /></div>
       <StreakStrip streaks={streaks} activities={activities} />
 
       <SectionTitle icon={<Trophy size={16} className="text-rose-500" />}>{i18nTOf("sec_today_missions", "Today's missions")} <span className="text-[11px] font-normal text-slate-400">· {i18nTOf("hint_most_important_first", "most important first")}</span></SectionTitle>
@@ -5045,7 +5068,7 @@ function StreakStrip({ streaks, activities }) {
   );
 }
 
-function PiggyBank({ stars }) {
+function PiggyBank({ stars, kidName }) {
   return (
     <div className="rounded-3xl p-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#fce7f3,#fde68a)" }}>
       <div className="relative shrink-0">
@@ -5062,7 +5085,7 @@ function PiggyBank({ stars }) {
         <Star size={15} className="absolute -top-1 left-2 text-amber-500 fill-amber-400" />
       </div>
       <div className="flex-1">
-        <div className="text-[11px] font-bold text-pink-700/70 uppercase tracking-wide">Reznor's Star Bank</div>
+        <div className="text-[11px] font-bold text-pink-700/70 uppercase tracking-wide">{kidName ? `${kidName}'s Star Bank` : "Star Bank"}</div>
         <div className="text-3xl font-extrabold text-pink-700 leading-none">{stars} <span className="text-xl">⭐</span></div>
       </div>
     </div>
@@ -6587,7 +6610,7 @@ function KidStars({ completions, tasks, starBank, earnedToday, pendingStars, gif
   const wonToday = dayWins.filter((a) => a.test(ctx)).length;
   return (
     <div className="px-4 pt-4">
-      <PiggyBank stars={starBank} />
+      <PiggyBank stars={starBank} kidName={user?.name} />
       <div className="grid grid-cols-2 gap-2 mt-3">
         <BigStat label={i18nTOf("stat_earned_today", "Earned today")} value={earnedToday} onClick={() => setStatDetailId?.("earned")} />
         <BigStat label={i18nTOf("stat_pending_short", "Pending")} value={pendingStars} onClick={() => setStatDetailId?.("pending")} />
@@ -6950,7 +6973,7 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"] }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0 }) {
   const [showAddPicker, setShowAddPicker] = useState(false);
   // Reorder mode is per-section so flipping it on for Bonus
   // doesn't add nudge buttons to Still-to-do too. Same pattern as
@@ -7010,16 +7033,24 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
 
       <StreakStrip streaks={streaks} activities={activities} />
 
-      <Card className="p-4 mt-3">
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-bold">{i18nTOf("pt_next_reward", "Next reward")}</span><span className="text-slate-500">{i18nTOf("pt_at_cost", "{name} @ {n} ⭐").replaceAll("{name}", CHILD.nextReward).replaceAll("{n}", CHILD.nextRewardCost)}</span>
-        </div>
-        <div className="h-2 bg-slate-100 rounded-full mt-2 overflow-hidden"><div className="h-full bg-amber-400" style={{ width: `${Math.min(100, (starBank / CHILD.nextRewardCost) * 100)}%` }} /></div>
-        <div className="flex items-center justify-between text-xs mt-3 text-slate-400">
-          <span>{i18nTOf("pt_big_goal", "Big goal: {name} @ {n} ⭐").replaceAll("{name}", CHILD.bigReward).replaceAll("{n}", CHILD.bigRewardCost)}</span>
-          <button onClick={() => setMode(mode === "summer" ? "school" : "summer")} className="font-semibold text-indigo-600">{i18nTOf("pt_switch_mode", "Switch to {mode} mode").replaceAll("{mode}", mode === "summer" ? i18nTOf("pt_mode_school", "School") : i18nTOf("pt_mode_summer", "Summer"))}</button>
-        </div>
-      </Card>
+      {nextRewardTitle ? (
+        <Card className="p-4 mt-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-bold">{i18nTOf("pt_next_reward", "Next reward")}</span><span className="text-slate-500">{i18nTOf("pt_at_cost", "{name} @ {n} ⭐").replaceAll("{name}", nextRewardTitle).replaceAll("{n}", nextRewardCost)}</span>
+          </div>
+          <div className="h-2 bg-slate-100 rounded-full mt-2 overflow-hidden"><div className="h-full bg-amber-400" style={{ width: `${nextRewardCost > 0 ? Math.min(100, (starBank / nextRewardCost) * 100) : 0}%` }} /></div>
+          <div className="flex items-center justify-between text-xs mt-3 text-slate-400">
+            {bigRewardTitle && bigRewardTitle !== nextRewardTitle ? (
+              <span>{i18nTOf("pt_big_goal", "Big goal: {name} @ {n} ⭐").replaceAll("{name}", bigRewardTitle).replaceAll("{n}", bigRewardCost)}</span>
+            ) : <span />}
+            <button onClick={() => setMode(mode === "summer" ? "school" : "summer")} className="font-semibold text-indigo-600">{i18nTOf("pt_switch_mode", "Switch to {mode} mode").replaceAll("{mode}", mode === "summer" ? i18nTOf("pt_mode_school", "School") : i18nTOf("pt_mode_summer", "Summer"))}</button>
+          </div>
+        </Card>
+      ) : (
+        <Card className="p-3 mt-3 bg-slate-50 border border-dashed border-slate-200">
+          <div className="text-xs text-slate-500">Add rewards to set a "next reward" goal — More → Rewards.</div>
+        </Card>
+      )}
 
       <GiftStarsCard
         giftStars={giftStars}
@@ -10865,7 +10896,7 @@ function DataAudit(props) {
     albumPhotos: props.albumPhotos || [],
     users: props.users || [],
     starBank: props.starBank || 0,
-    base: CHILD.starBankBase || 0,
+    base: 0,
   }), [props.completions, props.tasks, props.gifted, props.redemptions, props.songs, props.songPlays, props.books, props.albumPhotos, props.users, props.starBank]);
   const summary = auditSummary(findings);
   const headerTone =
