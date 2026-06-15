@@ -9245,14 +9245,56 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
     if (setWeeklyDayTime) setWeeklyDayTime(a.id, day, t);
   };
   // Build the weekly grid: scheduled fixed-day items + every weekly-
-  // schedule activity's per-week picks.
+  // schedule activity's per-week picks + every RECURRING event from
+  // the events table (recur_weekday set). The events bit keeps this
+  // legacy view in sync with the new tap-day calendar — anything
+  // Mike adds with "Repeat every Tuesday" shows here too. Dedupes
+  // by title-to-activity match so a "Drums" activity entry + a
+  // "Drum class" event don't both render side by side.
   const weekly = DAYS.map((day) => {
     const items = [];
+    // 1. Fixed activity schedules.
     activities.forEach((a) => (a.schedule || []).forEach((s) => { if (s.day === day) items.push({ name: a.short || a.name, time: s.time, color: a.color, status: a.status, note: a.note }); }));
+    // 2. Flexible weekly-schedule activity per-week picks.
     for (const a of weeklyActivities) {
       if (daysFor(a).includes(day)) {
         items.push({ name: a.short || a.name, time: timesFor(a)[day] || "set a time", color: a.color, weeklyPicked: true, status: a.status });
       }
+    }
+    // 3. Recurring events from the events table for this weekday.
+    //    Skip events whose title fuzzily matches an existing activity
+    //    that already has a schedule entry for this day — that's the
+    //    "Drums activity + Drum class event" dedup. Both refer to the
+    //    same Tuesday slot; we don't want two pills.
+    const dayActivityNames = new Set(
+      activities
+        .filter((a) => (a.schedule || []).some((s) => s.day === day))
+        .map((a) => (a.name || "").toLowerCase())
+    );
+    const weekdayIdx = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"].indexOf(day);
+    for (const ev of events || []) {
+      if (!Number.isInteger(ev.recurWeekday)) continue;
+      if (ev.recurWeekday !== weekdayIdx) continue;
+      const t = (ev.title || "").toLowerCase();
+      const dupes = [...dayActivityNames].some((n) => n && (t.includes(n) || n.includes(t)));
+      if (dupes) continue;
+      // Inline color resolver (avoids forward-referencing the
+      // colorForEvent helper which is declared further down — that
+      // would hit a temporal dead zone). Match the title against any
+      // activity for a tint; fall back to recurring-event violet.
+      const matchAct = activities.find((a) => {
+        const n = (a.name || "").toLowerCase();
+        const s = (a.short || "").toLowerCase();
+        return (n && t.includes(n)) || (s && t.includes(s));
+      });
+      items.push({
+        name: ev.title,
+        time: ev.time ? fmt12(ev.time) : "",
+        color: matchAct?.color || "#7c3aed",
+        status: "active",
+        note: ev.notes || "",
+        recurringEvent: true,
+      });
     }
     return { day, items };
   });
