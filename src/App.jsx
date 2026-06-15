@@ -8731,13 +8731,48 @@ function MapLinksRow({ address, size = "sm" }) {
   );
 }
 
+// Convert "HH:MM" → minutes-since-midnight. Used by the overlap math.
+function timeToMinutes(hhmm) {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(":").map((x) => Number(x));
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+// Return any events on the same date (or weekday, for recurring) that
+// overlap the candidate's time window. Excludes the candidate itself
+// when editing. Default 60-min duration when an event has none.
+function findOverlaps({ candidate, allEvents = [], defaultDuration = 60 }) {
+  const startA = timeToMinutes(candidate.time);
+  if (startA == null) return []; // all-day events don't conflict
+  const durA = Number.isFinite(candidate.durationMinutes) ? candidate.durationMinutes : defaultDuration;
+  const endA = startA + durA;
+  const isRecurA = Number.isInteger(candidate.recurWeekday);
+  const weekdayA = isRecurA ? candidate.recurWeekday : (candidate.date ? new Date(candidate.date + "T12:00").getDay() : null);
+  return allEvents.filter((ev) => {
+    if (ev.id && candidate.id && ev.id === candidate.id) return false;
+    const startB = timeToMinutes(ev.time);
+    if (startB == null) return false;
+    const durB = Number.isFinite(ev.durationMinutes) ? ev.durationMinutes : defaultDuration;
+    const endB = startB + durB;
+    // Day match: either both same iso date, or recurring + candidate weekday matches.
+    const sameDay =
+      (ev.date && candidate.date && ev.date === candidate.date)
+      || (Number.isInteger(ev.recurWeekday) && weekdayA != null && ev.recurWeekday === weekdayA)
+      || (isRecurA && ev.date && weekdayA === new Date(ev.date + "T12:00").getDay());
+    if (!sameDay) return false;
+    return startA < endB && startB < endA;
+  });
+}
+
 // Add / edit event sheet body. Used for both new and existing events.
-function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = [], pastTitles = [], onSave, onDelete, onClose }) {
+function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = [], pastTitles = [], allEvents = [], onSave, onDelete, onClose }) {
   const isEdit = !!event;
   const [title, setTitle] = useState(event?.title || "");
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [date, setDate] = useState(event?.date || defaultDate || "");
   const [time, setTime] = useState(event?.time || null);
+  const [durationMinutes, setDurationMinutes] = useState(event?.durationMinutes ?? null);
   const [recur, setRecur] = useState(
     Number.isInteger(event?.recurWeekday) ? event.recurWeekday :
     Number.isInteger(defaultRecurWeekday) ? defaultRecurWeekday : null
@@ -8791,6 +8826,7 @@ function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = 
       title: title.trim(),
       date: date || null,
       time: time || null,
+      durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
       recurWeekday: repeatChecked ? recur : null,
       address: address.trim() || null,
       notes: notes.trim() || null,
@@ -8854,6 +8890,61 @@ function EventEditSheet({ event, defaultDate, defaultRecurWeekday, activities = 
       />
       <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1">Time</label>
       <TimePicker value={time} onChange={setTime} />
+
+      {time && (
+        <>
+          <label className="block text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1 mt-3">How long</label>
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { v: 15, label: "15m" },
+              { v: 30, label: "30m" },
+              { v: 45, label: "45m" },
+              { v: 60, label: "1h" },
+              { v: 90, label: "1h 30m" },
+              { v: 120, label: "2h" },
+              { v: 180, label: "3h" },
+            ].map((opt) => (
+              <button
+                key={opt.v}
+                type="button"
+                onClick={() => setDurationMinutes(durationMinutes === opt.v ? null : opt.v)}
+                className={`px-2.5 py-1.5 rounded-full text-xs font-bold transition ${(durationMinutes === opt.v) ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {!Number.isFinite(durationMinutes) && (
+            <div className="text-[10px] text-slate-400 mt-1">No length set — assumes 1 hour for conflict detection.</div>
+          )}
+        </>
+      )}
+
+      {(() => {
+        if (!time) return null;
+        const candidate = {
+          id: event?.id,
+          date: repeatChecked ? null : date,
+          time,
+          durationMinutes,
+          recurWeekday: repeatChecked ? recur : null,
+        };
+        const overlaps = findOverlaps({ candidate, allEvents });
+        if (overlaps.length === 0) return null;
+        return (
+          <Card className="mt-3 p-3 bg-amber-50 border border-amber-200">
+            <div className="text-[11px] uppercase tracking-wider font-bold text-amber-700 mb-1">⚠️ Heads up — overlap</div>
+            <div className="text-[12px] text-amber-800 leading-snug mb-1">This time conflicts with {overlaps.length === 1 ? "another scheduled item" : `${overlaps.length} other scheduled items`}:</div>
+            <ul className="text-[12px] text-amber-900 pl-4 list-disc">
+              {overlaps.map((o) => (
+                <li key={o.id}>{o.title}{o.time ? ` · ${fmt12(o.time)}` : ""}{Number.isFinite(o.durationMinutes) ? ` (${o.durationMinutes}m)` : ""}</li>
+              ))}
+            </ul>
+            <div className="text-[10px] text-amber-700 mt-2">You can still save — this is just a warning.</div>
+          </Card>
+        );
+      })()}
+
       <button
         type="button"
         onClick={toggleRepeat}
@@ -9168,6 +9259,44 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
         setWeekOverrides={setWeekOverrides}
       />
 
+      {/* Weekly load gauge — total scheduled minutes across the week's
+          items with a time. Surfaces "Reznor has 14h scheduled this
+          week" in plain English; flips amber over 15h, rose over 20h
+          per the research on overcommit / burnout patterns. */}
+      {(() => {
+        let totalMinutes = 0;
+        for (const d of weekDates) {
+          for (const it of itemsForDate(d)) {
+            if (!it.time) continue;
+            const dur = Number.isFinite(it.event?.durationMinutes) ? it.event.durationMinutes : 60;
+            totalMinutes += dur;
+          }
+        }
+        const hours = Math.round((totalMinutes / 60) * 10) / 10;
+        const tone = hours >= 20 ? "rose" : hours >= 15 ? "amber" : hours >= 1 ? "emerald" : "slate";
+        const palette = {
+          slate:   { bg: "bg-slate-50",   border: "border-slate-200",   ink: "text-slate-500",   label: "Light week" },
+          emerald: { bg: "bg-emerald-50", border: "border-emerald-200", ink: "text-emerald-700", label: "Healthy week" },
+          amber:   { bg: "bg-amber-50",   border: "border-amber-200",   ink: "text-amber-700",   label: "Heavier than usual" },
+          rose:    { bg: "bg-rose-50",    border: "border-rose-200",    ink: "text-rose-700",    label: "Overloaded — consider cutting one" },
+        }[tone];
+        return (
+          <Card className={`p-3 mb-3 ${palette.bg} ${palette.border}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className={`text-[10px] uppercase tracking-wider font-bold ${palette.ink}`}>{palette.label}</div>
+                <div className="text-sm font-extrabold text-slate-800">{hours}h scheduled this week</div>
+              </div>
+              <div className="text-[10px] text-slate-400 text-right max-w-[150px] leading-snug">
+                {hours >= 15 && "Watch for burnout signs — tired, melt-downs, slipping streaks."}
+                {hours < 15 && hours > 0 && "Room for a playdate or a slow morning."}
+                {hours === 0 && "Wide open."}
+              </div>
+            </div>
+          </Card>
+        );
+      })()}
+
       {/* The 7 day cells */}
       {weekDates.map((d) => {
         const iso = fmtIso(d);
@@ -9218,7 +9347,14 @@ function CalendarView({ events, addEvent, updateEvent, removeEvent, mode, tkdDay
               defaultDate={openDay || todayIso}
               defaultRecurWeekday={null}
               activities={activities}
-              pastTitles={Array.from(new Set((events || []).map((e) => e.title).filter(Boolean)))}
+              pastTitles={Array.from(new Set([
+                ...(events || []).map((e) => e.title).filter(Boolean),
+                "Playdate",
+                "Birthday party",
+                "Doctor appointment",
+                "Dentist",
+              ]))}
+              allEvents={events}
               onSave={saveEvent}
               onDelete={editingEvent !== "new" ? deleteEvent : null}
               onClose={() => setEditingEvent(null)}
