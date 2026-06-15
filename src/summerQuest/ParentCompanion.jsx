@@ -103,7 +103,7 @@ const mergeDone = (saved) => { const d = blankDone(); WEEKS.forEach((w) => { if 
 const STORAGE_KEY = "lltSummerQuest_v1"; // SAME key as SummerQuest.jsx → shared source of truth in standalone preview
 
 /* ===================== COMPONENT ===================== */
-export default function ParentCompanion({ child = "Reznor", mode: modeProp, done: doneProp, onSave }) {
+export default function ParentCompanion({ child = "", mode: modeProp, done: doneProp, onSave }) {
   const controlled = !!(modeProp || doneProp || onSave);
   const [mode, setMode] = useState(modeProp || "home");
   const [done, setDone] = useState(() => mergeDone(doneProp));
