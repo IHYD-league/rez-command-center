@@ -2,11 +2,12 @@ import React, { useState } from "react";
 import { supabase } from "./lib/supabase.js";
 
 export default function Login() {
-  // Three branches:
+  // Four branches:
   //   signin     — existing account signing back in
   //   register   — joining an existing family (parent pre-staged their
   //                email, or the request_to_join queue takes them)
   //   newfamily  — starting a brand new family (Magnetta path)
+  //   forgot     — request a password-reset email
   const [mode, setMode] = useState("signin");
   const [name, setName] = useState("");
   const [familyName, setFamilyName] = useState("");
@@ -28,6 +29,16 @@ export default function Login() {
           password,
         });
         if (error) setErr(error.message);
+        return;
+      }
+
+      if (mode === "forgot") {
+        if (!email.trim()) { setErr("Enter your email first."); return; }
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: window.location.origin,
+        });
+        if (error) { setErr(error.message); return; }
+        setInfo("Reset link sent. Check your email — you can close this tab once you've reset.");
         return;
       }
 
@@ -88,11 +99,12 @@ export default function Login() {
     signin:    "Family sign-in",
     register:  "Join an existing family",
     newfamily: "Start a new family",
+    forgot:    "Reset your password",
   }[mode];
 
   const submitLabel = busy
-    ? (mode === "signin" ? "Signing in…" : "Creating account…")
-    : (mode === "signin" ? "Sign in" : mode === "newfamily" ? "Create family" : "Request access");
+    ? (mode === "signin" ? "Signing in…" : mode === "forgot" ? "Sending…" : "Creating account…")
+    : (mode === "signin" ? "Sign in" : mode === "newfamily" ? "Create family" : mode === "forgot" ? "Send reset link" : "Request access");
 
   return (
     <div
@@ -177,18 +189,31 @@ export default function Login() {
           className="w-full rounded-2xl bg-white/15 border border-white/15 px-3 py-2 mb-4 text-white placeholder-white/40 focus:outline-none focus:bg-white/20"
         />
 
-        <label className="block text-[11px] uppercase tracking-wide text-white/60 mb-1">
-          Password
-        </label>
-        <input
-          type="password"
-          autoComplete={mode === "signin" ? "current-password" : "new-password"}
-          required
-          minLength={mode !== "signin" ? 8 : undefined}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-2xl bg-white/15 border border-white/15 px-3 py-2 mb-4 text-white placeholder-white/40 focus:outline-none focus:bg-white/20"
-        />
+        {mode !== "forgot" && (
+          <>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-[11px] uppercase tracking-wide text-white/60">Password</label>
+              {mode === "signin" && (
+                <button
+                  type="button"
+                  onClick={() => swap("forgot")}
+                  className="text-[11px] font-bold text-white/80 hover:text-white"
+                >
+                  Forgot?
+                </button>
+              )}
+            </div>
+            <input
+              type="password"
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
+              required
+              minLength={mode !== "signin" ? 8 : undefined}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded-2xl bg-white/15 border border-white/15 px-3 py-2 mb-4 text-white placeholder-white/40 focus:outline-none focus:bg-white/20"
+            />
+          </>
+        )}
 
         {err && (
           <div className="text-amber-200 text-sm mb-3" role="alert">
@@ -214,8 +239,20 @@ export default function Login() {
             ? "Don't have an account? Tap Join (existing family) or New family (start your own)."
             : mode === "newfamily"
               ? "You'll be the founding parent. You can add your kid's profile next."
-              : "A parent of an existing family will see your request and approve or deny it. If they pre-staged your email, you'll go in automatically."}
+              : mode === "forgot"
+                ? "We'll email you a link to reset your password."
+                : "A parent of an existing family will see your request and approve or deny it. If they pre-staged your email, you'll go in automatically."}
         </p>
+
+        {mode === "forgot" && (
+          <button
+            type="button"
+            onClick={() => swap("signin")}
+            className="mx-auto mt-3 block text-[11px] font-bold text-white/80"
+          >
+            ← Back to sign in
+          </button>
+        )}
       </form>
     </div>
   );
