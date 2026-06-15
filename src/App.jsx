@@ -12480,6 +12480,52 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     return arr.slice(0, 8);
   }, [history]);
 
+  // Running-low / restock suggestions (v3 from the doc). For each
+  // repeat-bought title in the active list, compute the median gap
+  // between consecutive ADDs. If the time since the last add exceeds
+  // 0.9× the median AND the item isn't currently on the list, surface
+  // it as a "Maybe getting low" chip. Pure client-side smarts — no
+  // schema, no API call, gets smarter as the family uses the app.
+  const restockSuggestions = useMemo(() => {
+    const byTitle = new Map(); // lowercased title → sorted ISO timestamps
+    for (const it of listItems) {
+      const k = (it.title || "").trim().toLowerCase();
+      if (!k || !it.createdAt) continue;
+      if (!byTitle.has(k)) byTitle.set(k, []);
+      byTitle.get(k).push(it.createdAt);
+    }
+    const now = Date.now();
+    const out = [];
+    for (const [k, isos] of byTitle.entries()) {
+      if (isos.length < 2) continue;
+      if (activeTitles.has(k)) continue; // already on the list, no nudge
+      isos.sort();
+      const gaps = [];
+      for (let i = 1; i < isos.length; i++) {
+        const a = new Date(isos[i - 1]).getTime();
+        const b = new Date(isos[i]).getTime();
+        if (b > a) gaps.push(b - a);
+      }
+      if (gaps.length === 0) continue;
+      const sorted = gaps.slice().sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      // Throw out 1-hour-ish accidents — these aren't real cadence.
+      if (median < 24 * 3600_000) continue;
+      const last = new Date(isos[isos.length - 1]).getTime();
+      const sinceLast = now - last;
+      if (sinceLast < median * 0.9) continue;
+      const hist = history.get(k);
+      out.push({
+        title: hist?.title || k,
+        brand: hist?.brand || "",
+        cadenceDays: Math.round(median / 86400_000),
+        sinceLastDays: Math.round(sinceLast / 86400_000),
+      });
+    }
+    out.sort((a, b) => b.sinceLastDays - a.sinceLastDays);
+    return out.slice(0, 6);
+  }, [listItems, activeTitles, history]);
+
   // Currently-on-the-list set so favorites already in play hide.
   // Scoped to the active list.
   const activeTitles = useMemo(() => {
@@ -12506,10 +12552,12 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
       .slice(0, 5)
       .map((x) => x.h);
   }, [draft, history, activeTitles, showSmartSuggestions]);
-  // Scan-a-list state
+  // Scan-a-list / scan-a-product state. scanKind controls which vision
+  // prompt fires; results land in the same preview Card.
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
-  const [scanResults, setScanResults] = useState(null); // { items: [{ title, picked: true }] } or null
+  const [scanResults, setScanResults] = useState(null); // { items: [{ title, brand?, picked: true }] } or null
+  const [scanKind, setScanKind] = useState("shopping_list");
   const onScanFile = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow same-file re-pick
@@ -12519,15 +12567,17 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     setScanning(true);
     try {
       const { scanImage } = await import("./lib/visionScan.js");
-      const j = await scanImage({ file, kind: "shopping_list" });
+      const j = await scanImage({ file, kind: scanKind });
       if (j.status === "vision_not_configured") {
         setScanError("Vision isn't set up yet — paste ANTHROPIC_API_KEY into Netlify env vars first.");
       } else if (j.status !== "ok") {
         setScanError("Couldn't read that one — try a sharper photo or better light.");
       } else if (!j.data?.items?.length) {
-        setScanError("Didn't find any items. If the list is in the photo, try snapping it again with the writing clearer.");
+        setScanError(scanKind === "shopping_product"
+          ? "Couldn't read the product. Try better light or a closer crop on the label."
+          : "Didn't find any items. If the list is in the photo, try snapping it again with the writing clearer.");
       } else {
-        setScanResults({ items: j.data.items.map((it) => ({ title: it.title, picked: true })) });
+        setScanResults({ items: j.data.items.map((it) => ({ title: it.title, brand: it.brand || "", picked: true })) });
       }
     } catch (e) {
       setScanError(String(e?.message || e));
@@ -12539,7 +12589,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const renameScan = (i, v) => setScanResults((s) => ({ ...s, items: s.items.map((it, idx) => idx === i ? { ...it, title: v } : it) }));
   const commitScan = () => {
     const picked = (scanResults?.items || []).filter((it) => it.picked);
-    for (const it of picked) addShoppingItem(it.title);
+    for (const it of picked) addShoppingItem(it.title, "", { brand: it.brand || "", listName: activeList });
     setScanResults(null);
   };
   // Partition the ACTIVE-LIST items into pending / on-the-list /
@@ -12654,6 +12704,31 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
         )}
       </div>
 
+      {/* 🔁 Maybe running low — items past their usual restock cadence
+          based on this family's own history. Pure client-side smarts;
+          gets sharper each week as the data grows. Tap a chip → adds
+          to the list with the saved brand pref carried through. */}
+      {restockSuggestions.length > 0 && (
+        <div className="mb-2">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-rose-500 mb-1.5 px-1">🔁 Maybe running low</div>
+          <div className="flex flex-wrap gap-1.5">
+            {restockSuggestions.map((s) => (
+              <button
+                key={s.title}
+                type="button"
+                onClick={() => quickAdd(s)}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-rose-50 border border-rose-200 text-rose-800 font-bold text-xs active:scale-95"
+                title={`Usually added every ~${s.cadenceDays} days · last added ${s.sinceLastDays}d ago`}
+              >
+                + {s.title}
+                {s.brand && <span className="text-[10px] font-medium text-rose-600">· {s.brand}</span>}
+                <span className="text-[10px] font-medium text-rose-500/70">{s.sinceLastDays}d</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ⭐ Quick add — favorites from your own history (added 2+ times).
           Brand pref carries over, so tapping "Cheerios" adds with
           "Honey Nut Cheerios" as the brand if that's what you bought
@@ -12721,12 +12796,20 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
         )}
       </form>
 
-      <label className="block mb-3">
-        <input type="file" accept="image/*" onChange={onScanFile} className="hidden" />
-        <span className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-bold text-xs cursor-pointer active:scale-[0.99]">
-          📷 Scan a written list
-        </span>
-      </label>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <label className="block">
+          <input type="file" accept="image/*" onChange={(e) => { setScanKind("shopping_list"); onScanFile(e); }} className="hidden" />
+          <span className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-bold text-[11px] cursor-pointer active:scale-[0.99]">
+            📷 Scan a written list
+          </span>
+        </label>
+        <label className="block">
+          <input type="file" accept="image/*" onChange={(e) => { setScanKind("shopping_product"); onScanFile(e); }} className="hidden" />
+          <span className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-violet-50 border border-violet-200 text-violet-800 font-bold text-[11px] cursor-pointer active:scale-[0.99]">
+            📷 Scan a product
+          </span>
+        </label>
+      </div>
 
       {scanning && (
         <Card className="p-3 mb-3 bg-slate-50 text-center">
@@ -12753,11 +12836,14 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
               >
                 {it.picked && <Check size={13} />}
               </button>
-              <input
-                value={it.title}
-                onChange={(e) => renameScan(i, e.target.value)}
-                className={`flex-1 border border-slate-200 rounded-lg px-2 py-1 text-sm bg-white ${it.picked ? "text-slate-800" : "text-slate-400 line-through"}`}
-              />
+              <div className="flex-1 min-w-0">
+                <input
+                  value={it.title}
+                  onChange={(e) => renameScan(i, e.target.value)}
+                  className={`w-full border border-slate-200 rounded-lg px-2 py-1 text-sm bg-white ${it.picked ? "text-slate-800" : "text-slate-400 line-through"}`}
+                />
+                {it.brand && <div className="text-[10px] text-amber-700 font-bold mt-0.5 px-1">brand: {it.brand}</div>}
+              </div>
             </div>
           ))}
           <button
