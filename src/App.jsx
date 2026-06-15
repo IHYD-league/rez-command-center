@@ -7300,7 +7300,8 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
   const hasTasks = (tasks || []).length > 0;
   const hasRewards = (rewards || []).filter((r) => r.active !== false).length > 0;
   const hasCalendarEntries = (events || []).length > 0;
-  const allDone = hasActiveActivities && hasTasks && hasRewards && hasCalendarEntries;
+  const hasInvitedFamily = (users || []).some((u) => u.role !== "parent" && u.email);
+  const allDone = hasActiveActivities && hasTasks && hasRewards && hasCalendarEntries && hasInvitedFamily;
   const showQuickStart = !hasCompletions && !allDone && setTab && setPendingMoreSub;
   const go = (subKey) => { setPendingMoreSub(subKey); setTab("more"); };
 
@@ -7317,9 +7318,10 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
             <span className="text-xl">👋</span>
             <div className="font-extrabold text-sm">Welcome — let's set up {user?.name || "your kid"}</div>
           </div>
-          <div className="text-[11px] text-slate-500 mb-3 leading-snug">Four quick steps. Tap each to jump straight there. This card disappears as soon as your kid logs their first completion.</div>
+          <div className="text-[11px] text-slate-500 mb-3 leading-snug">Five quick steps. Tap each to jump straight there. This card disappears as soon as your kid logs their first completion.</div>
           <div className="space-y-1.5">
             {[
+              { sub: "people",     icon: "👨‍👩‍👧", title: "Invite your family", done: hasInvitedFamily,    hint: "Spouse, helpers, grandparents, the kid's own login — one-tap text/email invite per person." },
               { sub: "activities", icon: "🎯", title: "Add activities",  done: hasActiveActivities, hint: "From presets or Custom — drums, jujitsu, reading, anything." },
               { sub: "tasks",      icon: "🧹", title: "Add tasks + chores", done: hasTasks,        hint: "Daily missions and household chores that earn stars." },
               { sub: "rewards",    icon: "🎁", title: "Set a reward",     done: hasRewards,         hint: "What's the kid working toward? Movie, toy, day-out." },
@@ -13876,9 +13878,15 @@ function People({ users, addUser, updateUser, removeUser, familyId, pendingRegis
                 {["grandparent", "helper", "guest"].includes(u.role) && <Toggle on={!!u.easyLocked} label={i18nTOf("people_lock_easy", "💛 Lock to Easy mode")} onClick={() => updateUser(u.id, { easyLocked: !u.easyLocked })} />}
               </div>
             )}
-            {u.role !== "kid" && (
-              <EmailEditor user={u} onSave={(email) => updateUser(u.id, { email })} />
-            )}
+            {/* Email is editable for every role — including kids. The
+                old guard blocked kid editing entirely, which forced
+                Mike to write SQL to set Reznor's reztronx@gmail.com.
+                Editing email is NOT deletion; deletion is what the
+                "kids never delete" rule protects against. Letting
+                Monica add Maddox's email here is the difference
+                between "easy onboarding" and "needs Mike's help." */}
+            <EmailEditor user={u} onSave={(email) => updateUser(u.id, { email })} />
+            <InviteTextButton user={u} familyName={user?.familyName} />
             {u.role === "kid" && <GrandparentShareLink kidId={u.id} kidName={u.name} />}
             <BirthdayEditor user={u} onSave={(birthday) => updateUser(u.id, { birthday })} />
             {!locked(u) && (
@@ -14036,6 +14044,43 @@ function AccessEditor({ user, onSave }) {
 // Showing the badge ONLY when ≤ 7 days out so it doesn't compete with
 // the streak data parents care about most. Per Mike's rule: streak
 // importance > birthday distance > everything else on this row.
+// One-tap invite for everyone Monica pre-stages. Opens the device's
+// SMS/Mail app with a friendly prefilled message containing the
+// signup URL + the email she set, so Tom / grandma / Maddox don't
+// have to be told the multi-step "register and use this email"
+// instructions verbatim. Only renders when an email is set AND the
+// person hasn't actually signed up yet (auth_user_id null).
+function InviteTextButton({ user, familyName }) {
+  if (!user?.email) return null;
+  if (user.auth_user_id) return null; // already linked = already signed up
+  const origin = (typeof window !== "undefined" && window.location?.origin) || "https://little-legend-treasures.netlify.app";
+  const fam = familyName || "our family";
+  const intro = user.role === "kid"
+    ? `Hey ${user.name}! Your parents added you to ${fam}'s Command Center app.`
+    : `Hey ${user.name}! I added you to ${fam}'s Command Center app.`;
+  const steps = `Go here: ${origin}\nTap "Join" (or "Sign in" if you've used it before)\nUse this email: ${user.email}\nPick any password.\nYou'll be linked automatically when you sign in.`;
+  const body = `${intro}\n\n${steps}`;
+  const sms = `sms:&body=${encodeURIComponent(body)}`;
+  const mailto = `mailto:${encodeURIComponent(user.email)}?subject=${encodeURIComponent("Join " + fam + " on Family Command Center")}&body=${encodeURIComponent(body)}`;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(body); }
+    catch { /* skip */ }
+  };
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      <a href={sms} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 active:scale-95">
+        💬 Text invite
+      </a>
+      <a href={mailto} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 active:scale-95">
+        📧 Email invite
+      </a>
+      <button onClick={copy} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+        📋 Copy
+      </button>
+    </div>
+  );
+}
+
 function BirthdayEditor({ user, onSave }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(user.birthday || "");
