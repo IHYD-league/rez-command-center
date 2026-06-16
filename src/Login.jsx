@@ -177,12 +177,15 @@ export default function Login() {
         fontFamily: 'ui-rounded, "SF Pro Rounded", system-ui, sans-serif',
       }}
     >
-      {/* PHONE SHELL — mobile-width column centered on desktop. The
-          scenic background image fills THIS column only; the surrounding
-          desktop area falls through to the gradient. On mobile it's
-          full-width because the viewport is narrower than the cap. */}
+      {/* PHONE SHELL — mobile-width column with the scenic backdrop
+          confined to it. NO vertical centering: content stacks from
+          the top so the logo (which is rendered first) is always the
+          first thing the viewport shows. Previous build's
+          `justify-center` was pushing the logo off-screen above when
+          content overflowed the viewport — Mike: "why is the logo
+          still off the screen?" */}
       <div
-        className="mx-auto w-full min-h-screen flex flex-col justify-center"
+        className="mx-auto w-full min-h-screen"
         style={{
           maxWidth: `${PHONE_SHELL_MAX}px`,
           backgroundImage: `url(${ASSETS.bg})`,
@@ -191,21 +194,27 @@ export default function Login() {
           backgroundRepeat: "no-repeat",
         }}
       >
-        <div className="px-4 py-6 flex flex-col items-stretch">
-          {/* Logo — large, drawn ABOVE the card flow with negative
-              bottom margin so the bottom ~third overlaps onto the
-              card's top edge per the mockup. */}
+        <div className="px-4 pt-4 pb-8 flex flex-col items-stretch">
+          {/* Logo — sized large, rendered first in flow so it's at the
+              top of the visible area on every viewport. */}
           <img
             src={ASSETS.logo}
             alt="My Family HQ"
-            className="w-[88%] max-w-[380px] mx-auto -mb-[12%] relative z-10 drop-shadow-2xl pointer-events-none select-none"
+            className="w-[88%] max-w-[380px] mx-auto relative z-10 drop-shadow-2xl pointer-events-none select-none"
             draggable={false}
           />
 
+          {/* Form is pulled UP under the logo with a fixed-pixel
+              negative margin and given a generous top padding so the
+              "Family sign-in" title clears the logo bottom. Fixed
+              pixels rather than percentages so the overlap is
+              predictable regardless of parent width. */}
           <form
             onSubmit={submit}
-            className="w-full rounded-[28px] pt-[20%] pb-6 px-5"
+            className="w-full rounded-[28px] pb-6 px-5"
             style={{
+              marginTop: "-110px",
+              paddingTop: "150px",
               background: BRAND.creamWhite,
               border: `3px solid ${BRAND.sunshineYellow}`,
               boxShadow:
