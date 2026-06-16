@@ -2234,6 +2234,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
           addUser({
             name,
             role: "kid",
+            // is_child is the bypass the actor guard checks when a
+            // non-admin parent submits a completion on behalf of the
+            // kid. A DB trigger (2026-06-16) now pins this to
+            // (role = 'kid') regardless of what the client sends, but
+            // we set it here too so the code matches the truth.
+            is_child: true,
             emoji,
             color,
             grade: grade || null,
