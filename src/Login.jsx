@@ -3,7 +3,7 @@ import { supabase } from "./lib/supabase.js";
 
 const ASSETS = {
   bg:   "/Sign-in/MFHQ-background-sign-in.png",
-  logo: "/Sign-in/my-family-hq-clean-logo.png",
+  logo: "/Sign-in/my-family-hq-logo-tight.png",
 };
 
 // Embedded stylesheet — every dimension copied verbatim from Mike's
@@ -18,75 +18,78 @@ const STYLES = `
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 290px 22px 28px;
+  padding: 24px 16px 20px;
   font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
 }
 
 .loginCard {
   position: relative;
   width: 100%;
-  max-width: 720px;
-  border-radius: 38px;
-  border: 4px solid #FFD94D;
+  max-width: 420px;
+  border-radius: 28px;
+  border: 3px solid #FFD94D;
   background: rgba(255, 248, 220, 0.96);
-  padding: 60px 28px 38px;
-  box-shadow: 0 18px 40px rgba(75, 45, 20, 0.22);
+  padding: 28px 20px 20px;
+  margin-top: 175px;
+  box-shadow: 0 14px 32px rgba(75, 45, 20, 0.22);
   box-sizing: border-box;
 }
 
 .loginLogo {
   position: absolute;
   left: 50%;
-  top: -270px;
+  top: -200px;
   transform: translateX(-50%);
-  width: min(540px, 84vw);
+  width: 72vw;
+  max-width: 280px;
+  aspect-ratio: 1024 / 960;
   height: auto;
   z-index: 5;
   pointer-events: none;
   user-select: none;
-  filter: drop-shadow(0 10px 18px rgba(75, 45, 20, 0.35));
+  filter: drop-shadow(0 8px 14px rgba(75, 45, 20, 0.32));
 }
 
 .loginTitle {
-  margin: 0 0 28px;
+  margin: 0 0 16px;
   text-align: center;
-  font-size: 34px;
+  font-size: 24px;
   line-height: 1;
   font-weight: 900;
   color: #1F5132;
 }
 
 .loginTabs {
-  height: 68px;
+  height: 52px;
   display: grid;
   grid-template-columns: 1fr 1fr 1.35fr;
-  gap: 8px;
-  padding: 8px;
-  margin-bottom: 32px;
-  border: 3px solid rgba(255, 217, 77, 0.7);
-  border-radius: 28px;
+  gap: 6px;
+  padding: 6px;
+  margin-bottom: 18px;
+  border: 2px solid rgba(255, 217, 77, 0.7);
+  border-radius: 22px;
   background: rgba(255, 246, 216, 0.72);
   box-sizing: border-box;
 }
 
 .tab {
   white-space: nowrap;
-  font-size: clamp(18px, 4.6vw, 24px);
+  font-size: clamp(15px, 4vw, 18px);
   font-weight: 900;
   border: none;
-  border-radius: 22px;
+  border-radius: 18px;
   cursor: pointer;
   font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 8px;
+  padding: 0 6px;
 }
 
 .tabActive {
   background: linear-gradient(#A7E74B, #4DBB4F);
   color: white;
-  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 5px 0 #2f8d2f;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 4px 0 #2f8d2f;
 }
 
 .tabInactive {
@@ -95,16 +98,16 @@ const STYLES = `
 }
 
 .fieldLabel {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.12em;
   color: #1F5132;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   display: block;
 }
 
 .fieldRow {
-  margin-bottom: 24px;
+  margin-bottom: 14px;
 }
 
 .inputWrap {
@@ -112,12 +115,12 @@ const STYLES = `
 }
 
 .input {
-  height: 58px;
-  border-radius: 20px;
-  border: 3px solid #FFD94D;
+  height: 46px;
+  border-radius: 16px;
+  border: 2px solid #FFD94D;
   background: rgba(255, 255, 255, 0.6);
-  font-size: 16px;
-  padding: 0 18px;
+  font-size: 15px;
+  padding: 0 14px;
   width: 100%;
   color: #4B2D14;
   outline: none;
@@ -125,38 +128,38 @@ const STYLES = `
   box-sizing: border-box;
 }
 
-.inputWithLeftIcon { padding-left: 52px; }
-.inputWithBothIcons { padding-left: 52px; padding-right: 52px; }
+.inputWithLeftIcon { padding-left: 44px; }
+.inputWithBothIcons { padding-left: 44px; padding-right: 44px; }
 
 .iconLeft {
   position: absolute;
-  left: 18px;
+  left: 14px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 20px;
+  font-size: 16px;
   opacity: 0.65;
   pointer-events: none;
 }
 
 .iconRight {
   position: absolute;
-  right: 10px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 20px;
+  font-size: 16px;
   opacity: 0.65;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 8px;
+  padding: 6px;
 }
 
 .passwordRow {
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .forgot {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 900;
   color: #1F5132;
   text-decoration: underline;
@@ -167,21 +170,21 @@ const STYLES = `
   cursor: pointer;
   width: 100%;
   font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
-  margin-bottom: 24px;
+  margin-bottom: 14px;
   padding: 0;
 }
 
 .bigBtn {
   width: 100%;
   max-width: 480px;
-  height: 70px;
-  border-radius: 28px;
+  height: 54px;
+  border-radius: 22px;
   display: block;
-  margin: 0 auto 24px;
+  margin: 0 auto 14px;
   background: linear-gradient(#B8FF22, #25B934);
-  border: 5px solid #FFD94D;
-  box-shadow: 0 7px 0 #704415, 0 14px 24px rgba(75, 45, 20, 0.28);
-  font-size: 24px;
+  border: 3px solid #FFD94D;
+  box-shadow: 0 5px 0 #704415, 0 10px 18px rgba(75, 45, 20, 0.24);
+  font-size: 19px;
   font-weight: 900;
   color: white;
   cursor: pointer;
@@ -189,8 +192,8 @@ const STYLES = `
 }
 
 .helper {
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.4;
   color: #1F5132;
   text-align: center;
   max-width: 480px;
@@ -235,22 +238,11 @@ const STYLES = `
 
 @media (min-width: 900px) {
   .loginPage {
-    padding-top: 360px;
+    align-items: center;
+    padding: 24px 16px;
   }
   .loginCard {
-    max-width: 720px;
-    padding: 70px 42px 42px;
-  }
-  .loginLogo {
-    top: -330px;
-    width: 480px;
-  }
-  .loginTitle {
-    font-size: 34px;
-    margin-bottom: 26px;
-  }
-  .tab {
-    font-size: 22px;
+    margin-top: 200px;
   }
 }
 `;
