@@ -12655,7 +12655,8 @@ function MoreParent(props) {
       <MoreMenu
         items={items}
         onPick={(k) => setSub(k)}
-        onReorder={(keys) => props.setPref?.("moreOrder", keys)}
+        savedOrder={props.currentPrefs?.moreOrder}
+        onSaveOrder={(orderByGroup) => props.setPref?.("moreOrder", orderByGroup)}
         onResetOrder={() => props.setPref?.("moreOrder", null)}
       />
     </div>
@@ -12674,47 +12675,198 @@ const MORE_GROUPS = [
   { id: "account",  emoji: "⚙️", label: "Account",            hint: "Email, privacy, export, settings" },
 ];
 
-function MoreMenu({ items, onPick }) {
-  const renderRow = (i) => (
-    <button key={i.k} onClick={() => onPick(i.k)} className="w-full mb-2 active:scale-[0.98] transition">
-      <Card className="p-4 flex items-center gap-3 text-left">
-        <div className="w-10 h-10 rounded-2xl bg-indigo-100 grid place-items-center text-indigo-600">{i.icon}</div>
-        <div className="flex-1"><div className="font-bold text-sm">{i.label}</div><div className="text-[11px] text-slate-400">{i.sub}</div></div>
-        <ChevronLeft size={16} className="rotate-180 text-slate-300" />
-      </Card>
-    </button>
-  );
-  const byGroup = { null: [], memories: [], setup: [], account: [] };
-  for (const it of items) {
-    const g = it.group || null;
-    if (!byGroup[g]) byGroup[g] = [];
-    byGroup[g].push(it);
-  }
+// MoreMenu — grouped layout with per-section reorder. Each parent
+// can drag items up/down within a section (or use ↑/↓ buttons in
+// edit mode), and Reset snaps back to the curated default. Moving
+// items between sections is the next layer and isn't enabled yet.
+//
+// Saved shape on currentPrefs.moreOrder:
+//   { top: [k,k,k], memories: [k,k], setup: [k,k], account: [k,k] }
+// A null / missing value means "use the default order". A null entry
+// in any one section also falls back to default for that section.
+function MoreMenu({ items, onPick, savedOrder, onSaveOrder, onResetOrder }) {
+  const [editMode, setEditMode] = useState(false);
+  const [dragKey, setDragKey] = useState(null);
+
+  // Default-by-group, in the order MoreParent's items[] declares them.
+  const defaultByGroup = useMemo(() => {
+    const out = { top: [], memories: [], setup: [], account: [] };
+    for (const it of items) {
+      const g = it.group || "top";
+      if (!out[g]) out[g] = [];
+      out[g].push(it);
+    }
+    return out;
+  }, [items]);
+
+  // Apply the saved per-section order. Items in savedOrder come first
+  // (in saved order); items not in savedOrder slot in at the end of
+  // their section in default order. New entries added in a future
+  // ship auto-appear at the bottom without a parent having to re-edit.
+  const orderedByGroup = useMemo(() => {
+    const out = {};
+    for (const g of Object.keys(defaultByGroup)) {
+      const def = defaultByGroup[g];
+      const saved = (savedOrder && Array.isArray(savedOrder[g])) ? savedOrder[g] : null;
+      if (!saved) { out[g] = def; continue; }
+      const byKey = Object.fromEntries(def.map((i) => [i.k, i]));
+      const seen = new Set();
+      const arr = [];
+      for (const k of saved) {
+        if (byKey[k] && !seen.has(k)) { arr.push(byKey[k]); seen.add(k); }
+      }
+      for (const i of def) {
+        if (!seen.has(i.k)) { arr.push(i); seen.add(i.k); }
+      }
+      out[g] = arr;
+    }
+    return out;
+  }, [defaultByGroup, savedOrder]);
+
+  // Find the group key for a given item key — used to constrain drag
+  // operations to within a section.
+  const groupOf = (k) => {
+    for (const g of Object.keys(orderedByGroup)) {
+      if (orderedByGroup[g].some((i) => i.k === k)) return g;
+    }
+    return null;
+  };
+
+  // Persist a new order for ONE group. Other groups keep their saved
+  // order (or stay at default if they had no saved order).
+  const commitGroup = (groupId, nextRows) => {
+    const next = { ...(savedOrder || {}) };
+    next[groupId] = nextRows.map((i) => i.k);
+    onSaveOrder?.(next);
+  };
+
+  const move = (groupId, from, to) => {
+    const rows = orderedByGroup[groupId] || [];
+    if (from === to || to < 0 || to >= rows.length) return;
+    const next = rows.slice();
+    const [m] = next.splice(from, 1);
+    next.splice(to, 0, m);
+    commitGroup(groupId, next);
+  };
+
+  const renderRow = (i, idx, rows, groupId) => {
+    if (!editMode) {
+      return (
+        <button key={i.k} onClick={() => onPick(i.k)} className="w-full mb-2 active:scale-[0.98] transition">
+          <Card className="p-4 flex items-center gap-3 text-left">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-100 grid place-items-center text-indigo-600">{i.icon}</div>
+            <div className="flex-1"><div className="font-bold text-sm">{i.label}</div><div className="text-[11px] text-slate-400">{i.sub}</div></div>
+            <ChevronLeft size={16} className="rotate-180 text-slate-300" />
+          </Card>
+        </button>
+      );
+    }
+    return (
+      <div
+        key={i.k}
+        draggable
+        onDragStart={(e) => {
+          setDragKey(i.k);
+          e.dataTransfer.effectAllowed = "move";
+          try { e.dataTransfer.setData("text/plain", i.k); } catch {}
+        }}
+        onDragOver={(e) => {
+          if (!dragKey || dragKey === i.k) return;
+          // Constrain: only allow drop within the same group.
+          if (groupOf(dragKey) !== groupId) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (!dragKey || dragKey === i.k) return;
+          if (groupOf(dragKey) !== groupId) return;
+          const from = rows.findIndex((x) => x.k === dragKey);
+          const to = rows.findIndex((x) => x.k === i.k);
+          move(groupId, from, to);
+          setDragKey(null);
+        }}
+        onDragEnd={() => setDragKey(null)}
+        className={dragKey === i.k ? "opacity-50" : ""}
+      >
+        <Card className="p-3 mb-2 flex items-center gap-2">
+          <div className="text-slate-400 cursor-grab active:cursor-grabbing select-none px-1" title="Drag to reorder within this section">☰</div>
+          <div className="w-9 h-9 rounded-2xl bg-indigo-100 grid place-items-center text-indigo-600 shrink-0">{i.icon}</div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm truncate">{i.label}</div>
+            <div className="text-[11px] text-slate-400 truncate">{i.sub}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => move(groupId, idx, idx - 1)}
+            disabled={idx === 0}
+            className={`w-8 h-8 rounded-lg grid place-items-center ${idx === 0 ? "text-slate-200" : "text-slate-500 hover:bg-slate-100"}`}
+            title="Move up"
+          >▲</button>
+          <button
+            type="button"
+            onClick={() => move(groupId, idx, idx + 1)}
+            disabled={idx === rows.length - 1}
+            className={`w-8 h-8 rounded-lg grid place-items-center ${idx === rows.length - 1 ? "text-slate-200" : "text-slate-500 hover:bg-slate-100"}`}
+            title="Move down"
+          >▼</button>
+        </Card>
+      </div>
+    );
+  };
+
+  const renderSection = (g) => {
+    const rows = orderedByGroup[g.id] || [];
+    if (rows.length === 0) return null;
+    return (
+      <div key={g.id} className="mt-4">
+        <div className="flex items-baseline gap-2 px-1 mb-1.5">
+          <span className="text-base">{g.emoji}</span>
+          <div className="flex-1">
+            <div className="text-[12px] font-extrabold uppercase tracking-wider text-slate-700">{g.label}</div>
+            <div className="text-[10px] text-slate-400 leading-snug">{g.hint}</div>
+          </div>
+        </div>
+        {rows.map((i, idx) => renderRow(i, idx, rows, g.id))}
+      </div>
+    );
+  };
+
+  const topRows = orderedByGroup.top || [];
   return (
     <>
       <div className="flex items-center justify-between mb-2 px-1">
         <h2 className="font-extrabold text-lg">{i18nTOf("more_header", "More")}</h2>
+        <div className="flex items-center gap-2">
+          {editMode && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(i18nTOf("more_reset_confirm", "Reset the More menu to the default order?"))) {
+                  onResetOrder?.();
+                }
+              }}
+              className="text-[11px] font-bold text-slate-500"
+            >
+              {i18nTOf("more_reset", "Reset")}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setEditMode((v) => !v)}
+            className={`text-[12px] font-bold px-3 py-1.5 rounded-full ${editMode ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-700"}`}
+          >
+            {editMode ? i18nTOf("act_done", "Done") : i18nTOf("more_edit_order", "Edit order")}
+          </button>
+        </div>
       </div>
-      {byGroup[null].map(renderRow)}
-      {MORE_GROUPS.map((g) => {
-        const rows = byGroup[g.id] || [];
-        if (rows.length === 0) return null;
-        return (
-          <div key={g.id} className="mt-4">
-            <div className="flex items-baseline gap-2 px-1 mb-1.5">
-              <span className="text-base">{g.emoji}</span>
-              <div className="flex-1">
-                <div className="text-[12px] font-extrabold uppercase tracking-wider text-slate-700">{g.label}</div>
-                <div className="text-[10px] text-slate-400 leading-snug">{g.hint}</div>
-              </div>
-            </div>
-            {rows.map(renderRow)}
-          </div>
-        );
-      })}
-      <div className="text-[10px] text-slate-400 px-1 mt-4 leading-snug">
-        Custom layouts (move / regroup / reorder like an iPhone home screen) coming soon.
-      </div>
+      {editMode && (
+        <div className="text-[11px] text-slate-500 px-1 mb-2 leading-snug">
+          {i18nTOf("more_reorder_hint_grouped", "Drag the ☰ handle (or tap ↑ / ↓) to reorder WITHIN a section. Moving items between sections is coming next. Reset snaps everything back.")}
+        </div>
+      )}
+      {topRows.map((i, idx) => renderRow(i, idx, topRows, "top"))}
+      {MORE_GROUPS.map(renderSection)}
     </>
   );
 }
