@@ -921,8 +921,8 @@ What went wrong / what could be better:
   border-radius: 28px;
   border: 3px solid #FFD94D;
   background: rgba(255, 248, 220, 0.96);
-  padding: 28px 20px 20px;
-  margin-top: 175px;
+  padding: 40px 20px 20px;
+  margin-top: 200px;
   box-shadow: 0 14px 32px rgba(75, 45, 20, 0.22);
   box-sizing: border-box;
 }
@@ -930,11 +930,11 @@ What went wrong / what could be better:
 .loginLogo {
   position: absolute;
   left: 50%;
-  top: -200px;
+  top: -210px;
   transform: translateX(-50%);
-  width: 72vw;
-  max-width: 280px;
-  aspect-ratio: 1024 / 960;
+  width: 88vw;
+  max-width: 380px;
+  aspect-ratio: 1024 / 780;
   height: auto;
   z-index: 5;
   pointer-events: none;
