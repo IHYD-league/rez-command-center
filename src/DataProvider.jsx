@@ -158,9 +158,15 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
             const { error: cfErr } = await supabase.rpc("create_family", {
               p_parent_name: intent.parentName || "Parent",
               p_family_name: intent.familyName || null,
+              p_invite_code: intent.inviteCode || null,
             });
-            window.localStorage.removeItem("lyf_new_family_intent");
-            if (!cfErr) claimedNewFamily = true;
+            // On success, clear the stash. On failure (e.g. wrong invite
+            // code typed at signup), keep it so they can retry on the next
+            // sign-in once they have the right code.
+            if (!cfErr) {
+              window.localStorage.removeItem("lyf_new_family_intent");
+              claimedNewFamily = true;
+            }
           }
         } catch (_) { /* malformed JSON or storage error — fall through */ }
 

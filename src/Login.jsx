@@ -251,6 +251,7 @@ export default function Login() {
   const [mode, setMode] = useState("signin");
   const [name, setName] = useState("");
   const [familyName, setFamilyName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -292,6 +293,7 @@ export default function Login() {
             window.localStorage.setItem("lyf_new_family_intent", JSON.stringify({
               parentName: name.trim(),
               familyName: familyName.trim() || null,
+              inviteCode: inviteCode.trim() || null,
             }));
           } catch (_) {}
           setInfo("Account created. Check your email to confirm, then sign in and your family will be set up.");
@@ -305,6 +307,7 @@ export default function Login() {
         const { error: rpcErr } = await supabase.rpc("create_family", {
           p_parent_name: name.trim(),
           p_family_name: familyName.trim() || null,
+          p_invite_code: inviteCode.trim() || null,
         });
         if (rpcErr) { setErr(rpcErr.message); return; }
       } else {
@@ -400,6 +403,25 @@ export default function Login() {
                   onChange={(e) => setFamilyName(e.target.value)}
                   placeholder="Your family name"
                   className="input"
+                />
+              </div>
+            </div>
+          )}
+
+          {mode === "newfamily" && (
+            <div className="fieldRow">
+              <label className="fieldLabel">INVITE CODE</label>
+              <div className="inputWrap">
+                <span className="iconLeft">🔑</span>
+                <input
+                  type="text"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  required
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  placeholder="Code from the person who invited you"
+                  className="input inputWithLeftIcon"
                 />
               </div>
             </div>
