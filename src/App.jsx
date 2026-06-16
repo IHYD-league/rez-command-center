@@ -12685,9 +12685,9 @@ const MORE_GROUPS = [
 // Defaults below; per-parent override lives at currentPrefs.moreColors
 // keyed by section id ("top" | "memories" | "setup" | "account").
 const MORE_DEFAULT_COLORS = {
-  top:      "amber",
+  top:      "sky",
   memories: "violet",
-  setup:    "sky",
+  setup:    "indigo",
   account:  "slate",
 };
 
@@ -12695,43 +12695,51 @@ const MORE_DEFAULT_COLORS = {
 // static class strings (the purger doesn't follow template strings),
 // so each token maps to a pre-baked classes bundle. Adding a new
 // token = one entry in MORE_COLOR_CLASSES.
-const MORE_COLOR_TOKENS = ["amber", "rose", "violet", "indigo", "sky", "emerald", "teal", "slate"];
+//
+// Amber is intentionally omitted per Mike's preference 2026-06-15:
+// "I don't like the yellow for reading, music etc... I'd like that
+// to be a cool blue. Let's not use that yellow color at all." If a
+// parent had previously saved "amber" as a section color, the lookup
+// falls back to that section's curated default instead of breaking.
+const MORE_COLOR_TOKENS = ["sky", "indigo", "violet", "rose", "emerald", "teal", "slate"];
 const MORE_COLOR_LABELS = {
-  amber:   "Amber",
-  rose:    "Rose",
-  violet:  "Violet",
-  indigo:  "Indigo",
   sky:     "Sky",
+  indigo:  "Indigo",
+  violet:  "Violet",
+  rose:    "Rose",
   emerald: "Emerald",
   teal:    "Teal",
   slate:   "Slate",
 };
 const MORE_COLOR_DOT = {
-  amber:   "#f59e0b",
-  rose:    "#f43f5e",
-  violet:  "#8b5cf6",
-  indigo:  "#6366f1",
   sky:     "#0ea5e9",
+  indigo:  "#6366f1",
+  violet:  "#8b5cf6",
+  rose:    "#f43f5e",
   emerald: "#10b981",
   teal:    "#14b8a6",
   slate:   "#64748b",
 };
 const MORE_COLOR_CLASSES = {
-  amber:   { card: "bg-amber-50 border-amber-100",     iconBg: "bg-amber-100",    iconText: "text-amber-600",    headerText: "text-amber-700" },
-  rose:    { card: "bg-rose-50 border-rose-100",       iconBg: "bg-rose-100",     iconText: "text-rose-600",     headerText: "text-rose-700" },
-  violet:  { card: "bg-violet-50 border-violet-100",   iconBg: "bg-violet-100",   iconText: "text-violet-600",   headerText: "text-violet-700" },
-  indigo:  { card: "bg-indigo-50 border-indigo-100",   iconBg: "bg-indigo-100",   iconText: "text-indigo-600",   headerText: "text-indigo-700" },
   sky:     { card: "bg-sky-50 border-sky-100",         iconBg: "bg-sky-100",      iconText: "text-sky-600",      headerText: "text-sky-700" },
+  indigo:  { card: "bg-indigo-50 border-indigo-100",   iconBg: "bg-indigo-100",   iconText: "text-indigo-600",   headerText: "text-indigo-700" },
+  violet:  { card: "bg-violet-50 border-violet-100",   iconBg: "bg-violet-100",   iconText: "text-violet-600",   headerText: "text-violet-700" },
+  rose:    { card: "bg-rose-50 border-rose-100",       iconBg: "bg-rose-100",     iconText: "text-rose-600",     headerText: "text-rose-700" },
   emerald: { card: "bg-emerald-50 border-emerald-100", iconBg: "bg-emerald-100",  iconText: "text-emerald-600",  headerText: "text-emerald-700" },
   teal:    { card: "bg-teal-50 border-teal-100",       iconBg: "bg-teal-100",     iconText: "text-teal-600",     headerText: "text-teal-700" },
   slate:   { card: "bg-slate-50 border-slate-100",     iconBg: "bg-slate-100",    iconText: "text-slate-600",    headerText: "text-slate-700" },
 };
 const colorForGroup = (colors, group) => {
-  const token = (colors && colors[group]) || MORE_DEFAULT_COLORS[group] || "slate";
+  const saved = colors && colors[group];
+  const fallback = MORE_DEFAULT_COLORS[group] || "slate";
+  const token = saved && MORE_COLOR_CLASSES[saved] ? saved : fallback;
   return MORE_COLOR_CLASSES[token] || MORE_COLOR_CLASSES.slate;
 };
-const colorTokenForGroup = (colors, group) =>
-  (colors && colors[group]) || MORE_DEFAULT_COLORS[group] || "slate";
+const colorTokenForGroup = (colors, group) => {
+  const saved = colors && colors[group];
+  if (saved && MORE_COLOR_CLASSES[saved]) return saved;
+  return MORE_DEFAULT_COLORS[group] || "slate";
+};
 
 // MoreMenu — grouped layout with per-section reorder. Each parent
 // can drag items up/down within a section (or use ↑/↓ buttons in
