@@ -120,6 +120,15 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
   const [familyId, setFamilyId] = useState(null);
   const [currentProfileId, setCurrentProfileId] = useState(null);
   const debounceRefs = useRef({});
+  // Per-entity Set of ids this tab has seen on the server. Populated on
+  // first load, updated after every sync. The sync layer uses this to
+  // detect what the USER actually removed (in snapshot, not in client)
+  // vs what is simply unknown to this tab (on server, not in snapshot) —
+  // the latter is another tab's write and must NEVER be deleted by absence.
+  // Production data-loss incident 2026-06-15: a stale tab synced and wiped
+  // a book added by a fresh tab because the old "delete every row not in
+  // my array" pattern treated absence as a delete signal.
+  const snapshotRef = useRef({});
   // Sync-error surfacing — when a sync upsert / delete fails, push the
   // detail here so a red banner appears at the top of the app. Without
   // this every failure was a silent console.error, invisible to the
@@ -238,6 +247,17 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
 
         setCurrentProfileId(myProfile?.id ?? null);
 
+        // Seed the per-entity snapshot — what THIS tab knows the server
+        // had at load time. Sync uses these sets to bound deletes to ids
+        // the user actually removed (in snapshot, not in client) — rows
+        // added by other tabs since this load aren't in the snapshot and
+        // therefore can never be deleted by this tab.
+        const initSnapshot = {};
+        for (const k of Object.keys(ENTITIES)) {
+          initSnapshot[k] = new Set((loaded[k] || []).map((r) => r.id));
+        }
+        snapshotRef.current = initSnapshot;
+
         setData(loaded);
         setStatus("ready");
       } catch (e) {
@@ -329,18 +349,61 @@ export default function DataProvider({ session, children, signOut, sessionEmail 
           return;
         }
         const rows = (value || []).map(def.toDb(familyId));
-        const keepIds = rows.map((r) => r[def.key]);
+        const clientIds = new Set(rows.map((r) => r[def.key]));
 
-        // Delete rows no longer present, then upsert the current set.
-        const del = supabase
-          .from(def.table)
-          .delete()
-          .eq("family_id", familyId);
-        const delQ = keepIds.length
-          ? del.not(def.key, "in", `(${keepIds.map((id) => `"${id}"`).join(",")})`)
-          : del;
-        const { error: dErr } = await delQ;
-        if (dErr) { console.error(`${def.table} delete:`, dErr.message); pushSyncError(def.table, "delete", dErr.message); }
+        // Stale-tab guard + snapshot-bounded delete.
+        //
+        // Old code did "delete every row in this family that isn't in my
+        // client array." That destroys data when another tab/device has
+        // added rows since this tab loaded — the old client has no idea
+        // those rows exist and the delete-by-absence wipes them.
+        //
+        // New rule: only delete ids that THIS tab knew about (in snapshot)
+        // AND the user has since removed (not in clientIds) AND the server
+        // still has (so we don't blow up on already-gone rows). Server ids
+        // we DON'T know about are another tab's writes — they survive
+        // untouched, and we fold them into our snapshot so we know about
+        // them going forward.
+        let serverIds = null;
+        try {
+          const { data: srvRows, error: srvErr } = await supabase
+            .from(def.table)
+            .select(def.key)
+            .eq("family_id", familyId);
+          if (srvErr) throw srvErr;
+          serverIds = new Set((srvRows || []).map((r) => r[def.key]));
+        } catch (e) {
+          // If we can't read the server, we must NOT delete anything —
+          // we have no way to know what we'd be destroying. Skip the
+          // delete step, still upsert. Surfaces as a sync error banner.
+          console.warn(`${def.table} stale-check read failed: ${e.message || e}`);
+          pushSyncError(def.table, "stale-check", e.message || String(e));
+        }
+
+        if (serverIds) {
+          const lastKnown = snapshotRef.current[key] || new Set();
+          const idsToDelete = [];
+          for (const id of lastKnown) {
+            if (!clientIds.has(id) && serverIds.has(id)) {
+              idsToDelete.push(id);
+            }
+          }
+          if (idsToDelete.length) {
+            const { error: dErr } = await supabase
+              .from(def.table)
+              .delete()
+              .eq("family_id", familyId)
+              .in(def.key, idsToDelete);
+            if (dErr) { console.error(`${def.table} delete:`, dErr.message); pushSyncError(def.table, "delete", dErr.message); }
+          }
+          // Refresh snapshot to reflect what the server will hold after
+          // this sync: client rows + server rows we preserved.
+          const preservedServer = [];
+          for (const id of serverIds) {
+            if (!idsToDelete.includes(id)) preservedServer.push(id);
+          }
+          snapshotRef.current[key] = new Set([...clientIds, ...preservedServer]);
+        }
 
         if (rows.length) {
           // Resilience: batch upsert first (fast path); on failure
