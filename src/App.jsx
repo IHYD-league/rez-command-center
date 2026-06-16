@@ -2299,6 +2299,11 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
             onPickActivity={() => { setSearchOpen(false); setPendingMoreSub("activities"); setTab("more"); }}
             onPickBook={() => { setSearchOpen(false); setPendingMoreSub("library"); setTab("more"); }}
             onPickSong={() => { setSearchOpen(false); setPendingMoreSub("music_library"); setTab("more"); }}
+            onPickPage={(p) => {
+              setSearchOpen(false);
+              if (p.kind === "more") { setPendingMoreSub(p.key); setTab("more"); }
+              else if (p.kind === "tab") { setTab(p.key); }
+            }}
           />
         )}
         {openTask && (
@@ -12604,74 +12609,323 @@ function MoreParent(props) {
   if (sub === "music_library") return <BackWrap title={i18nTOf("more_music_library", "Music Library")} onBack={() => setSub("menu")}><MusicLibrary {...props} /></BackWrap>;
   if (sub === "export") return <BackWrap title={i18nTOf("more_export", "Export Data")} onBack={() => setSub("menu")}><DataExport {...props} /></BackWrap>;
   if (sub === "slideshow") return <BackWrap title={i18nTOf("more_slideshow", "Milestone Slideshows")} onBack={() => setSub("menu")}><MilestoneSlideshow {...props} /></BackWrap>;
+  // Each item carries a `group`: null = top-of-page (no header),
+  // "memories" | "setup" | "account" = a named section header. Mike's
+  // 2026-06-15 directive: "I'm struggling here. Help me figure this
+  // out." Top-level items are the daily-use ones; the three named
+  // groups bundle the rarely-touched stuff so the page doesn't read
+  // as a wall of options. Customization (move / regroup / reorder) is
+  // a separate follow-up — for now this is the new fixed layout.
   const items = [
-    { k: "portfolio",    icon: <ImageIcon size={18} />,      label: i18nTOf("more_portfolio", "Progress Portfolio"),         sub: i18nTOf("more_portfolio_sub", "Photos, art & writing over time") },
-    { k: "weekly",       icon: <ClipboardList size={18} />,  label: i18nTOf("more_weekly", "Weekly Summary"),                sub: i18nTOf("more_weekly_sub", "Minutes, wins, needs attention") },
-    { k: "handoff",      icon: <Users size={18} />,          label: i18nTOf("more_handoff", "Handoff Notes"),                sub: i18nTOf("more_handoff_sub", "What the next adult needs to know") },
-    { k: "skills",       icon: <GraduationCap size={18} />,  label: i18nTOf("more_skills", "Learning Goals"),                sub: i18nTOf("more_skills_sub", "Grade-level skill tracker (early)") },
-    { k: "people",       icon: <Users size={18} />,          label: i18nTOf("more_people", "Family & Helpers"),              sub: i18nTOf("more_people_sub", "Add people · set access & limits") },
-    { k: "activities",   icon: <Palette size={18} />,        label: i18nTOf("more_activities", "Activities & Status"),       sub: i18nTOf("more_activities_sub", "Add activities · breaks/seasons · colors") },
-    { k: "tasks",        icon: <ClipboardList size={18} />,  label: i18nTOf("more_tasks", "Tasks & Chores"),                 sub: i18nTOf("more_tasks_sub", "Add · edit · pause · remove") },
-    { k: "library",      icon: <BookOpen size={18} />,       label: i18nTOf("more_library", "Reading Library"),              sub: i18nTOf("more_library_sub", "Books · level · reading pace") },
-    { k: "grades",       icon: <Trophy size={18} />,         label: i18nTOf("more_grades", "Grade Goals"),                   sub: i18nTOf("more_grades_sub", "Grades 1–6 · world's best standards") },
-    { k: "recap",        icon: <Share2 size={18} />,         label: i18nTOf("more_recap", "Recap & Memories"),               sub: i18nTOf("more_recap_sub", "Weekly/monthly export · anniversaries") },
-    { k: "awards",       icon: <Medal size={18} />,          label: i18nTOf("more_awards", "Accomplishments"),               sub: i18nTOf("more_awards_sub", "Report cards · belts · certificates") },
-    { k: "board_plan",   icon: <ClipboardList size={18} />,  label: i18nTOf("more_board_plan", "Daily Adventure Board · Plan"), sub: i18nTOf("more_board_plan_sub", "Today's Top 8 · weekly default · à la carte") },
-    { k: "board_theme",  icon: <MapIcon size={18} />,        label: i18nTOf("more_board_theme", "Adventure Board"),          sub: i18nTOf("more_board_theme_sub", "Daily target · theme · controls") },
-    { k: "gallery",      icon: <Camera size={18} />,         label: i18nTOf("more_gallery", "Photo Gallery"),                sub: i18nTOf("more_gallery_sub", "Every photo · sort by date · filter by activity") },
-    { k: "insights",     icon: <TrendingUp size={18} />,     label: i18nTOf("more_insights", "Insights"),                    sub: i18nTOf("more_insights_sub", "Practice time · songs · books · counts") },
-    { k: "music_library",icon: <Music size={18} />,          label: i18nTOf("more_music_library", "Music Library"),          sub: i18nTOf("more_music_library_sub", "Every song · sort · edit titles / artists / albums / covers") },
-    { k: "export",       icon: <Download size={18} />,       label: i18nTOf("more_export", "Export Data"),                   sub: i18nTOf("more_export_sub", "CSV downloads — own your data") },
-    { k: "slideshow",    icon: <Play size={18} />,           label: i18nTOf("more_slideshow", "Milestone Slideshows"),       sub: i18nTOf("more_slideshow_sub", "Monthly · 6-month · 1-year recaps") },
-    { k: "audit",        icon: <AlertCircle size={18} />,    label: i18nTOf("more_audit", "Data audit"),                     sub: i18nTOf("more_audit_sub", "Check the math · find drift · spot orphans") },
-    { k: "privacy",      icon: <Lock size={18} />,           label: i18nTOf("more_privacy", "Privacy & Safety"),             sub: i18nTOf("more_privacy_sub", "Family isolation · what's stored · own your data") },
-    { k: "languages",    icon: <GraduationCap size={18} />,  label: i18nTOf("more_languages", "Languages"),                  sub: i18nTOf("more_languages_sub", "English / Spanish / Both — for the whole family") },
-    { k: "siri",         icon: <Music size={18} />,          label: "Siri Shortcuts",                                        sub: "Hey Siri, mark Drums done — one tap per task" },
-    { k: "practice",     icon: <Play size={18} />,           label: "Practice Timer",                                        sub: "Time a session · record a 30s clip · listen back later" },
-    { k: "shopping",     icon: <ClipboardList size={18} />,  label: "Shopping List",                                         sub: "Shared family list · add at the store · check off at home" },
-    { k: "email",        icon: <Share2 size={18} />,         label: "Email Setup",                                           sub: "Friday digest · pick who gets it · test send" },
+    // Daily-use, no group
+    { k: "library",      group: null,       icon: <BookOpen size={18} />,       label: i18nTOf("more_library", "Reading Library"),              sub: i18nTOf("more_library_sub", "Books · level · reading pace") },
+    { k: "music_library",group: null,       icon: <Music size={18} />,          label: i18nTOf("more_music_library", "Music Library"),          sub: i18nTOf("more_music_library_sub", "Every song · sort · edit titles / artists / albums / covers") },
+    { k: "gallery",      group: null,       icon: <Camera size={18} />,         label: i18nTOf("more_gallery", "Photo Gallery"),                sub: i18nTOf("more_gallery_sub", "Every photo · sort by date · filter by activity") },
+    { k: "practice",     group: null,       icon: <Play size={18} />,           label: "Practice Timer",                                        sub: "Time a session · record a 30s clip · listen back later" },
+    { k: "shopping",     group: null,       icon: <ClipboardList size={18} />,  label: "Shopping List",                                         sub: "Shared family list · add at the store · check off at home" },
+    { k: "insights",     group: null,       icon: <TrendingUp size={18} />,     label: i18nTOf("more_insights", "Insights"),                    sub: i18nTOf("more_insights_sub", "Practice time · songs · books · counts") },
+
+    // Memories & growth
+    { k: "recap",        group: "memories", icon: <Share2 size={18} />,         label: i18nTOf("more_recap", "Recap & Memories"),               sub: i18nTOf("more_recap_sub", "Weekly/monthly export · anniversaries") },
+    { k: "slideshow",    group: "memories", icon: <Play size={18} />,           label: i18nTOf("more_slideshow", "Milestone Slideshows"),       sub: i18nTOf("more_slideshow_sub", "Monthly · 6-month · 1-year recaps") },
+    { k: "awards",       group: "memories", icon: <Medal size={18} />,          label: i18nTOf("more_awards", "Accomplishments"),               sub: i18nTOf("more_awards_sub", "Report cards · belts · certificates") },
+    { k: "skills",       group: "memories", icon: <GraduationCap size={18} />,  label: i18nTOf("more_skills", "Learning Goals"),                sub: i18nTOf("more_skills_sub", "Grade-level skill tracker (early)") },
+    { k: "grades",       group: "memories", icon: <Trophy size={18} />,         label: i18nTOf("more_grades", "Grade Goals"),                   sub: i18nTOf("more_grades_sub", "Grades 1–6 · world's best standards") },
+    { k: "portfolio",    group: "memories", icon: <ImageIcon size={18} />,      label: i18nTOf("more_portfolio", "Progress Portfolio"),         sub: i18nTOf("more_portfolio_sub", "Photos, art & writing over time") },
+    { k: "weekly",       group: "memories", icon: <ClipboardList size={18} />,  label: i18nTOf("more_weekly", "Weekly Summary"),                sub: i18nTOf("more_weekly_sub", "Minutes, wins, needs attention") },
+
+    // Set up & manage
+    { k: "board_plan",   group: "setup",    icon: <ClipboardList size={18} />,  label: i18nTOf("more_board_plan", "Daily Adventure Board · Plan"), sub: i18nTOf("more_board_plan_sub", "Today's Top 8 · weekly default · à la carte") },
+    { k: "board_theme",  group: "setup",    icon: <MapIcon size={18} />,        label: i18nTOf("more_board_theme", "Adventure Board"),          sub: i18nTOf("more_board_theme_sub", "Daily target · theme · controls") },
+    { k: "tasks",        group: "setup",    icon: <ClipboardList size={18} />,  label: i18nTOf("more_tasks", "Tasks & Chores"),                 sub: i18nTOf("more_tasks_sub", "Add · edit · pause · remove") },
+    { k: "activities",   group: "setup",    icon: <Palette size={18} />,        label: i18nTOf("more_activities", "Activities & Status"),       sub: i18nTOf("more_activities_sub", "Add activities · breaks/seasons · colors") },
+    { k: "people",       group: "setup",    icon: <Users size={18} />,          label: i18nTOf("more_people", "Family & Helpers"),              sub: i18nTOf("more_people_sub", "Add people · view-only share links · access") },
+    { k: "handoff",      group: "setup",    icon: <Users size={18} />,          label: i18nTOf("more_handoff", "Handoff Notes"),                sub: i18nTOf("more_handoff_sub", "What the next adult needs to know") },
+
+    // Account
+    { k: "email",        group: "account",  icon: <Share2 size={18} />,         label: "Email Setup",                                           sub: "Friday digest · pick who gets it · test send" },
+    { k: "siri",         group: "account",  icon: <Music size={18} />,          label: "Siri Shortcuts",                                        sub: "Hey Siri — one tap per task" },
+    { k: "languages",    group: "account",  icon: <GraduationCap size={18} />,  label: i18nTOf("more_languages", "Languages"),                  sub: i18nTOf("more_languages_sub", "English / Spanish / Both — for the whole family") },
+    { k: "privacy",      group: "account",  icon: <Lock size={18} />,           label: i18nTOf("more_privacy", "Privacy & Safety"),             sub: i18nTOf("more_privacy_sub", "Family isolation · what's stored · own your data") },
+    { k: "export",       group: "account",  icon: <Download size={18} />,       label: i18nTOf("more_export", "Export Data"),                   sub: i18nTOf("more_export_sub", "CSV downloads — own your data") },
+    { k: "audit",        group: "account",  icon: <AlertCircle size={18} />,    label: i18nTOf("more_audit", "Data audit"),                     sub: i18nTOf("more_audit_sub", "Check the math · find drift · spot orphans") },
   ];
-  // Apply per-parent saved order. Items not in the saved list slot in
-  // at the end so a new menu entry shows up automatically. The setting
-  // lives on the active profile via currentPrefs.moreOrder; each parent
-  // gets their own arrangement.
-  const savedOrder = props.currentPrefs?.moreOrder || [];
-  const orderedItems = (() => {
-    const byKey = Object.fromEntries(items.map((i) => [i.k, i]));
-    const seen = new Set();
-    const out = [];
-    for (const k of savedOrder) {
-      if (byKey[k] && !seen.has(k)) { out.push(byKey[k]); seen.add(k); }
-    }
-    for (const i of items) {
-      if (!seen.has(i.k)) { out.push(i); seen.add(i.k); }
-    }
-    return out;
-  })();
   return (
     <div className="px-4 pt-4">
       <MoreMenu
-        items={orderedItems}
+        items={items}
         onPick={(k) => setSub(k)}
-        onReorder={(keys) => props.setPref?.("moreOrder", keys)}
-        onResetOrder={() => props.setPref?.("moreOrder", null)}
+        savedOrder={props.currentPrefs?.moreOrder}
+        onSaveOrder={(orderByGroup) => props.setPref?.("moreOrder", orderByGroup)}
+        savedColors={props.currentPrefs?.moreColors}
+        onSaveColor={(groupId, token) => {
+          const next = { ...(props.currentPrefs?.moreColors || {}) };
+          next[groupId] = token;
+          props.setPref?.("moreColors", next);
+        }}
+        onResetOrder={() => { props.setPref?.("moreOrder", null); props.setPref?.("moreColors", null); }}
       />
     </div>
   );
 }
 
-// Standalone so the state for edit-mode + drag doesn't pollute
-// MoreParent (which also gates the sub-view routing above).
-function MoreMenu({ items, onPick, onReorder, onResetOrder }) {
+// Section headers for the grouped More menu. Each label is short
+// + clear so a parent skimming the page can see what's inside
+// without thinking. Order: top (no header) → memories → setup →
+// account.
+const MORE_GROUPS = [
+  { id: "memories", emoji: "🏆", label: "Memories & growth", hint: "Photos, recap, awards, goals" },
+  { id: "setup",    emoji: "🧰", label: "Set up & manage",   hint: "Board, tasks, activities, helpers" },
+  { id: "account",  emoji: "⚙️", label: "Account",            hint: "Email, privacy, export, settings" },
+];
+
+// Per-section color tokens. Mike 2026-06-15: "I love color coding, I
+// think each catagory should have a color. I don't like seeing white.
+// We should allow users to change these colors if they want to."
+// Defaults below; per-parent override lives at currentPrefs.moreColors
+// keyed by section id ("top" | "memories" | "setup" | "account").
+const MORE_DEFAULT_COLORS = {
+  top:      "sky",
+  memories: "violet",
+  setup:    "indigo",
+  account:  "slate",
+};
+
+// Available color choices for the section picker. Tailwind requires
+// static class strings (the purger doesn't follow template strings),
+// so each token maps to a pre-baked classes bundle. Adding a new
+// token = one entry in MORE_COLOR_CLASSES.
+//
+// Amber is intentionally omitted per Mike's preference 2026-06-15:
+// "I don't like the yellow for reading, music etc... I'd like that
+// to be a cool blue. Let's not use that yellow color at all." If a
+// parent had previously saved "amber" as a section color, the lookup
+// falls back to that section's curated default instead of breaking.
+const MORE_COLOR_TOKENS = ["sky", "indigo", "violet", "rose", "emerald", "teal", "slate"];
+const MORE_COLOR_LABELS = {
+  sky:     "Sky",
+  indigo:  "Indigo",
+  violet:  "Violet",
+  rose:    "Rose",
+  emerald: "Emerald",
+  teal:    "Teal",
+  slate:   "Slate",
+};
+const MORE_COLOR_DOT = {
+  sky:     "#0ea5e9",
+  indigo:  "#6366f1",
+  violet:  "#8b5cf6",
+  rose:    "#f43f5e",
+  emerald: "#10b981",
+  teal:    "#14b8a6",
+  slate:   "#64748b",
+};
+const MORE_COLOR_CLASSES = {
+  sky:     { card: "bg-sky-50 border-sky-100",         iconBg: "bg-sky-100",      iconText: "text-sky-600",      headerText: "text-sky-700" },
+  indigo:  { card: "bg-indigo-50 border-indigo-100",   iconBg: "bg-indigo-100",   iconText: "text-indigo-600",   headerText: "text-indigo-700" },
+  violet:  { card: "bg-violet-50 border-violet-100",   iconBg: "bg-violet-100",   iconText: "text-violet-600",   headerText: "text-violet-700" },
+  rose:    { card: "bg-rose-50 border-rose-100",       iconBg: "bg-rose-100",     iconText: "text-rose-600",     headerText: "text-rose-700" },
+  emerald: { card: "bg-emerald-50 border-emerald-100", iconBg: "bg-emerald-100",  iconText: "text-emerald-600",  headerText: "text-emerald-700" },
+  teal:    { card: "bg-teal-50 border-teal-100",       iconBg: "bg-teal-100",     iconText: "text-teal-600",     headerText: "text-teal-700" },
+  slate:   { card: "bg-slate-50 border-slate-100",     iconBg: "bg-slate-100",    iconText: "text-slate-600",    headerText: "text-slate-700" },
+};
+const colorForGroup = (colors, group) => {
+  const saved = colors && colors[group];
+  const fallback = MORE_DEFAULT_COLORS[group] || "slate";
+  const token = saved && MORE_COLOR_CLASSES[saved] ? saved : fallback;
+  return MORE_COLOR_CLASSES[token] || MORE_COLOR_CLASSES.slate;
+};
+const colorTokenForGroup = (colors, group) => {
+  const saved = colors && colors[group];
+  if (saved && MORE_COLOR_CLASSES[saved]) return saved;
+  return MORE_DEFAULT_COLORS[group] || "slate";
+};
+
+// MoreMenu — grouped layout with per-section reorder. Each parent
+// can drag items up/down within a section (or use ↑/↓ buttons in
+// edit mode), and Reset snaps back to the curated default. Moving
+// items between sections is the next layer and isn't enabled yet.
+//
+// Saved shape on currentPrefs.moreOrder:
+//   { top: [k,k,k], memories: [k,k], setup: [k,k], account: [k,k] }
+// A null / missing value means "use the default order". A null entry
+// in any one section also falls back to default for that section.
+function MoreMenu({ items, onPick, savedOrder, onSaveOrder, savedColors, onSaveColor, onResetOrder }) {
   const [editMode, setEditMode] = useState(false);
   const [dragKey, setDragKey] = useState(null);
-  const move = (from, to) => {
-    if (from === to || to < 0 || to >= items.length) return;
-    const next = items.slice();
+
+  // Default-by-group, in the order MoreParent's items[] declares them.
+  const defaultByGroup = useMemo(() => {
+    const out = { top: [], memories: [], setup: [], account: [] };
+    for (const it of items) {
+      const g = it.group || "top";
+      if (!out[g]) out[g] = [];
+      out[g].push(it);
+    }
+    return out;
+  }, [items]);
+
+  // Apply the saved per-section order. Items in savedOrder come first
+  // (in saved order); items not in savedOrder slot in at the end of
+  // their section in default order. New entries added in a future
+  // ship auto-appear at the bottom without a parent having to re-edit.
+  const orderedByGroup = useMemo(() => {
+    const out = {};
+    for (const g of Object.keys(defaultByGroup)) {
+      const def = defaultByGroup[g];
+      const saved = (savedOrder && Array.isArray(savedOrder[g])) ? savedOrder[g] : null;
+      if (!saved) { out[g] = def; continue; }
+      const byKey = Object.fromEntries(def.map((i) => [i.k, i]));
+      const seen = new Set();
+      const arr = [];
+      for (const k of saved) {
+        if (byKey[k] && !seen.has(k)) { arr.push(byKey[k]); seen.add(k); }
+      }
+      for (const i of def) {
+        if (!seen.has(i.k)) { arr.push(i); seen.add(i.k); }
+      }
+      out[g] = arr;
+    }
+    return out;
+  }, [defaultByGroup, savedOrder]);
+
+  // Find the group key for a given item key — used to constrain drag
+  // operations to within a section.
+  const groupOf = (k) => {
+    for (const g of Object.keys(orderedByGroup)) {
+      if (orderedByGroup[g].some((i) => i.k === k)) return g;
+    }
+    return null;
+  };
+
+  // Persist a new order for ONE group. Other groups keep their saved
+  // order (or stay at default if they had no saved order).
+  const commitGroup = (groupId, nextRows) => {
+    const next = { ...(savedOrder || {}) };
+    next[groupId] = nextRows.map((i) => i.k);
+    onSaveOrder?.(next);
+  };
+
+  const move = (groupId, from, to) => {
+    const rows = orderedByGroup[groupId] || [];
+    if (from === to || to < 0 || to >= rows.length) return;
+    const next = rows.slice();
     const [m] = next.splice(from, 1);
     next.splice(to, 0, m);
-    onReorder(next.map((i) => i.k));
+    commitGroup(groupId, next);
   };
+
+  const renderRow = (i, idx, rows, groupId) => {
+    const c = colorForGroup(savedColors, groupId);
+    if (!editMode) {
+      return (
+        <button key={i.k} onClick={() => onPick(i.k)} className="w-full mb-2 active:scale-[0.98] transition">
+          <div className={`rounded-2xl border p-4 flex items-center gap-3 text-left ${c.card}`}>
+            <div className={`w-10 h-10 rounded-2xl grid place-items-center ${c.iconBg} ${c.iconText}`}>{i.icon}</div>
+            <div className="flex-1"><div className="font-bold text-sm">{i.label}</div><div className="text-[11px] text-slate-500">{i.sub}</div></div>
+            <ChevronLeft size={16} className="rotate-180 text-slate-300" />
+          </div>
+        </button>
+      );
+    }
+    return (
+      <div
+        key={i.k}
+        draggable
+        onDragStart={(e) => {
+          setDragKey(i.k);
+          e.dataTransfer.effectAllowed = "move";
+          try { e.dataTransfer.setData("text/plain", i.k); } catch {}
+        }}
+        onDragOver={(e) => {
+          if (!dragKey || dragKey === i.k) return;
+          if (groupOf(dragKey) !== groupId) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (!dragKey || dragKey === i.k) return;
+          if (groupOf(dragKey) !== groupId) return;
+          const from = rows.findIndex((x) => x.k === dragKey);
+          const to = rows.findIndex((x) => x.k === i.k);
+          move(groupId, from, to);
+          setDragKey(null);
+        }}
+        onDragEnd={() => setDragKey(null)}
+        className={dragKey === i.k ? "opacity-50" : ""}
+      >
+        <div className={`rounded-2xl border p-3 mb-2 flex items-center gap-2 ${c.card}`}>
+          <div className="text-slate-400 cursor-grab active:cursor-grabbing select-none px-1" title="Drag to reorder within this section">☰</div>
+          <div className={`w-9 h-9 rounded-2xl grid place-items-center shrink-0 ${c.iconBg} ${c.iconText}`}>{i.icon}</div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm truncate">{i.label}</div>
+            <div className="text-[11px] text-slate-500 truncate">{i.sub}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => move(groupId, idx, idx - 1)}
+            disabled={idx === 0}
+            className={`w-8 h-8 rounded-lg grid place-items-center ${idx === 0 ? "text-slate-200" : "text-slate-500 hover:bg-white"}`}
+            title="Move up"
+          >▲</button>
+          <button
+            type="button"
+            onClick={() => move(groupId, idx, idx + 1)}
+            disabled={idx === rows.length - 1}
+            className={`w-8 h-8 rounded-lg grid place-items-center ${idx === rows.length - 1 ? "text-slate-200" : "text-slate-500 hover:bg-white"}`}
+            title="Move down"
+          >▼</button>
+        </div>
+      </div>
+    );
+  };
+
+  // Inline color-picker row, shown in edit mode under each section
+  // header (and the top-of-page header) so a parent can tint the
+  // section to anything they like. Click a dot to save instantly;
+  // the active token gets a thicker ring.
+  const renderColorPicker = (groupId) => {
+    const activeToken = colorTokenForGroup(savedColors, groupId);
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 px-1 mb-2">
+        <span className="text-[10px] text-slate-500 mr-1">Color:</span>
+        {MORE_COLOR_TOKENS.map((tok) => (
+          <button
+            key={tok}
+            type="button"
+            onClick={() => onSaveColor?.(groupId, tok)}
+            className={`w-6 h-6 rounded-full transition active:scale-90 ${activeToken === tok ? "ring-2 ring-slate-700 ring-offset-2 ring-offset-white" : ""}`}
+            style={{ background: MORE_COLOR_DOT[tok] }}
+            aria-label={MORE_COLOR_LABELS[tok]}
+            title={MORE_COLOR_LABELS[tok]}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  const renderSection = (g) => {
+    const rows = orderedByGroup[g.id] || [];
+    if (rows.length === 0) return null;
+    const c = colorForGroup(savedColors, g.id);
+    return (
+      <div key={g.id} className="mt-4">
+        <div className="flex items-baseline gap-2 px-1 mb-1.5">
+          <span className="text-base">{g.emoji}</span>
+          <div className="flex-1">
+            <div className={`text-[12px] font-extrabold uppercase tracking-wider ${c.headerText}`}>{g.label}</div>
+            <div className="text-[10px] text-slate-400 leading-snug">{g.hint}</div>
+          </div>
+        </div>
+        {editMode && renderColorPicker(g.id)}
+        {rows.map((i, idx) => renderRow(i, idx, rows, g.id))}
+      </div>
+    );
+  };
+
+  const topRows = orderedByGroup.top || [];
+  const topColor = colorForGroup(savedColors, "top");
   return (
     <>
       <div className="flex items-center justify-between mb-2 px-1">
@@ -12700,72 +12954,22 @@ function MoreMenu({ items, onPick, onReorder, onResetOrder }) {
         </div>
       </div>
       {editMode && (
-        <div className="text-[11px] text-slate-500 px-1 mb-2">
-          {i18nTOf("more_reorder_hint", "Drag the ☰ handle to reorder, or tap ↑ / ↓. Changes save instantly.")}
+        <div className="text-[11px] text-slate-500 px-1 mb-2 leading-snug">
+          {i18nTOf("more_reorder_hint_grouped", "Drag the ☰ handle (or tap ↑ / ↓) to reorder within a section. Tap a color dot to retint that section. Moving items between sections is coming next. Reset snaps everything back.")}
         </div>
       )}
-      {items.map((i, idx) => (
-        <div
-          key={i.k}
-          draggable={editMode}
-          onDragStart={(e) => {
-            if (!editMode) return;
-            setDragKey(i.k);
-            e.dataTransfer.effectAllowed = "move";
-            // Firefox needs setData to actually start the drag.
-            try { e.dataTransfer.setData("text/plain", i.k); } catch {}
-          }}
-          onDragOver={(e) => {
-            if (!editMode || !dragKey || dragKey === i.k) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "move";
-          }}
-          onDrop={(e) => {
-            if (!editMode) return;
-            e.preventDefault();
-            if (!dragKey || dragKey === i.k) return;
-            const from = items.findIndex((x) => x.k === dragKey);
-            const to = items.findIndex((x) => x.k === i.k);
-            move(from, to);
-            setDragKey(null);
-          }}
-          onDragEnd={() => setDragKey(null)}
-          className={dragKey === i.k ? "opacity-50" : ""}
-        >
-          {editMode ? (
-            <Card className="p-3 mb-2 flex items-center gap-2">
-              <div className="text-slate-400 cursor-grab active:cursor-grabbing select-none px-1" title="Drag to reorder">☰</div>
-              <div className="w-9 h-9 rounded-2xl bg-indigo-100 grid place-items-center text-indigo-600 shrink-0">{i.icon}</div>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-sm truncate">{i.label}</div>
-                <div className="text-[11px] text-slate-400 truncate">{i.sub}</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => move(idx, idx - 1)}
-                disabled={idx === 0}
-                className={`w-8 h-8 rounded-lg grid place-items-center ${idx === 0 ? "text-slate-200" : "text-slate-500 hover:bg-slate-100"}`}
-                title="Move up"
-              >▲</button>
-              <button
-                type="button"
-                onClick={() => move(idx, idx + 1)}
-                disabled={idx === items.length - 1}
-                className={`w-8 h-8 rounded-lg grid place-items-center ${idx === items.length - 1 ? "text-slate-200" : "text-slate-500 hover:bg-slate-100"}`}
-                title="Move down"
-              >▼</button>
-            </Card>
-          ) : (
-            <button onClick={() => onPick(i.k)} className="w-full mb-2 active:scale-[0.98] transition">
-              <Card className="p-4 flex items-center gap-3 text-left">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-100 grid place-items-center text-indigo-600">{i.icon}</div>
-                <div className="flex-1"><div className="font-bold text-sm">{i.label}</div><div className="text-[11px] text-slate-400">{i.sub}</div></div>
-                <ChevronLeft size={16} className="rotate-180 text-slate-300" />
-              </Card>
-            </button>
-          )}
+      {editMode && topRows.length > 0 && (
+        <div className="flex items-baseline gap-2 px-1 mb-1.5">
+          <span className="text-base">⭐</span>
+          <div className="flex-1">
+            <div className={`text-[12px] font-extrabold uppercase tracking-wider ${topColor.headerText}`}>Top of page</div>
+            <div className="text-[10px] text-slate-400 leading-snug">Your daily-use shortcuts</div>
+          </div>
         </div>
-      ))}
+      )}
+      {editMode && topRows.length > 0 && renderColorPicker("top")}
+      {topRows.map((i, idx) => renderRow(i, idx, topRows, "top"))}
+      {MORE_GROUPS.map(renderSection)}
     </>
   );
 }
@@ -14621,7 +14825,7 @@ function People({ user, users, addUser, updateUser, removeUser, familyId, pendin
                 between "easy onboarding" and "needs Mike's help." */}
             <EmailEditor user={u} onSave={(email) => updateUser(u.id, { email })} />
             <InviteTextButton user={u} familyName={user?.familyName} />
-            {u.role === "kid" && <GrandparentShareLink kidId={u.id} kidName={u.name} />}
+            {u.role === "kid" && <ViewOnlyShareLink kidId={u.id} kidName={u.name} />}
             <BirthdayEditor user={u} onSave={(birthday) => updateUser(u.id, { birthday })} />
             {!locked(u) && (
               <AccessEditor
@@ -14769,11 +14973,17 @@ function AccessEditor({ user, onSave }) {
 // Inline editor for a profile's login email. Saving an email lets that
 // person sign in via Supabase Auth with that address — the
 // claim_profile_by_email RPC stamps auth_user_id on their first login.
-// Per-kid grandparent share link control. Parent taps to mint or
-// rotate a UUID token via the SECURITY DEFINER RPC, copy it as a
-// /share/<token> URL, or revoke. The shared page (SharedKidView)
-// shows kid name, streaks, this-week stars, and recent wins — no
-// rewards economy, no other family members, no addresses.
+// Per-kid view-only share link. Was named GrandparentShareLink first
+// but Mike caught the bias 2026-06-15: "Some people might not have
+// grandparents and only have a friend like our Aunt Sara or a
+// babysitter... Some dads might use it. Some people don't have dads."
+// Renamed to be honest about what it is — a read-only link for any
+// loved one or helper who doesn't want or need a login. Parent taps
+// to mint or rotate a UUID token via the SECURITY DEFINER RPC, copy
+// it as a /share/<token> URL, or revoke. The shared page
+// (SharedKidView) shows kid name, streaks, this-week stars, and
+// recent wins — no rewards economy, no other family members, no
+// addresses.
 // Inline birthday editor + a tiny "🎂 in N days" badge for People rows.
 // Showing the badge ONLY when ≤ 7 days out so it doesn't compete with
 // the streak data parents care about most. Per Mike's rule: streak
@@ -14952,7 +15162,7 @@ function BirthdayEditor({ user, onSave }) {
   );
 }
 
-function GrandparentShareLink({ kidId, kidName }) {
+function ViewOnlyShareLink({ kidId, kidName }) {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -15031,9 +15241,9 @@ function GrandparentShareLink({ kidId, kidName }) {
   if (loading) return null;
   return (
     <div className="mt-2 rounded-xl bg-slate-50 border border-slate-100 p-2.5">
-      <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1">🔗 Share with grandma</div>
+      <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1">🔗 Share a view-only link</div>
       <div className="text-[10px] text-slate-500 leading-snug mb-2">
-        Read-only link to {kidName || "this kid"}'s progress (streaks, recent wins, this week's stars). No sign-up needed. Revocable any time.
+        Send to grandparents, aunts, babysitters — anyone who just needs to peek at {kidName || "this kid"}'s progress (streaks, recent wins, this week's stars). No sign-up, no editing. Revocable any time.
       </div>
       {!token ? (
         <button onClick={generate} disabled={busy} className="text-[11px] font-bold px-3 py-1.5 rounded-full bg-indigo-600 text-white active:scale-95">
@@ -16273,7 +16483,41 @@ function CareInfo({ users = [] }) {
 // for: tasks, books, songs, activities, rewards, events, shopping
 // items, recent completions. Tap a result → close modal + navigate
 // to the right place via the parent-supplied onPick handlers.
-function SearchSheet({ onClose, tasks = [], activities = [], books = [], songs = [], rewards = [], events = [], shoppingItems = [], completions = [], users = [], onPickTask, onPickCompletion, onPickEvent, onPickShopping, onPickReward, onPickActivity, onPickBook, onPickSong }) {
+// Pages searchable from the global TopBar search. Krissie's quote
+// 2026-06-15: "the global search should include all our more options.
+// We have so many options now it can get lost easy. Take too long to
+// scroll." Each entry routes through the existing pendingMoreSub +
+// setTab flow so we don't need a new navigator — onPickPage in App
+// fans out by kind.
+const SEARCH_PAGES = [
+  { key: "library",        kind: "more", label: "Reading Library",        keywords: "books read reading" },
+  { key: "music_library",  kind: "more", label: "Music Library",          keywords: "songs music tracks album" },
+  { key: "gallery",        kind: "more", label: "Photo Gallery",          keywords: "photos pictures images memories" },
+  { key: "practice",       kind: "more", label: "Practice Timer",         keywords: "timer stopwatch session minutes" },
+  { key: "shopping",       kind: "more", label: "Shopping List",          keywords: "grocery store list" },
+  { key: "insights",       kind: "more", label: "Insights",               keywords: "stats analytics charts trends" },
+  { key: "recap",          kind: "more", label: "Recap & Memories",       keywords: "memories summary anniversary recap" },
+  { key: "awards",         kind: "more", label: "Accomplishments",        keywords: "awards trophies belts certificates report card" },
+  { key: "skills",         kind: "more", label: "Learning Goals",         keywords: "skills learning goals progress" },
+  { key: "grades",         kind: "more", label: "Grade Goals",            keywords: "standards school common core grades" },
+  { key: "board_plan",     kind: "more", label: "Daily Adventure Board · Plan", keywords: "plan top eight today's plan" },
+  { key: "board_theme",    kind: "more", label: "Adventure Board",        keywords: "board game theme volcano dino" },
+  { key: "tasks",          kind: "more", label: "Tasks & Chores",         keywords: "chores tasks todo" },
+  { key: "activities",     kind: "more", label: "Activities & Status",    keywords: "activities drums swim soccer" },
+  { key: "people",         kind: "more", label: "Family & Helpers",       keywords: "family people helpers invite share view-only grandparents grandma babysitter aunt uncle dad mom" },
+  { key: "slideshow",      kind: "more", label: "Milestone Slideshows",   keywords: "slideshow milestones anniversary" },
+  { key: "email",          kind: "more", label: "Email Setup",            keywords: "email digest newsletter friday" },
+  { key: "siri",           kind: "more", label: "Siri Shortcuts",         keywords: "siri voice shortcut hey siri" },
+  { key: "privacy",        kind: "more", label: "Privacy & Safety",       keywords: "privacy password lock safety" },
+  { key: "audit",          kind: "more", label: "Data Audit",             keywords: "audit check drift orphans" },
+  { key: "languages",      kind: "more", label: "Languages",              keywords: "language spanish english bilingual" },
+  { key: "export",         kind: "more", label: "Data Export",            keywords: "export csv download backup" },
+  { key: "portfolio",      kind: "more", label: "Progress Portfolio",     keywords: "portfolio photos writing art" },
+  { key: "weekly",         kind: "more", label: "Weekly Summary",         keywords: "weekly summary recap" },
+  { key: "handoff",        kind: "more", label: "Handoff Notes",          keywords: "handoff notes next adult babysitter" },
+];
+
+function SearchSheet({ onClose, tasks = [], activities = [], books = [], songs = [], rewards = [], events = [], shoppingItems = [], completions = [], users = [], onPickTask, onPickCompletion, onPickEvent, onPickShopping, onPickReward, onPickActivity, onPickBook, onPickSong, onPickPage }) {
   const [q, setQ] = useState("");
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -16295,6 +16539,7 @@ function SearchSheet({ onClose, tasks = [], activities = [], books = [], songs =
   const results = useMemo(() => {
     if (!q.trim()) return null;
     const buckets = {
+      Pages:     [],
       Tasks:     [],
       Books:     [],
       Songs:     [],
@@ -16304,6 +16549,20 @@ function SearchSheet({ onClose, tasks = [], activities = [], books = [], songs =
       "Shopping list": [],
       "Recent completions": [],
     };
+
+    // Pages first — Krissie's frustration was that she'd lose time
+    // scrolling More to find a page she knew the name of. Searching
+    // "reading library" or "shopping" now jumps her straight there.
+    for (const p of SEARCH_PAGES) {
+      const s = match(p.label) ?? match(p.keywords);
+      if (s != null) buckets.Pages.push({
+        score: s,
+        label: p.label,
+        sub: i18nTOf("search_open_page", "Open page"),
+        color: "#6366f1",
+        onPick: () => onPickPage && onPickPage(p),
+      });
+    }
 
     for (const t of tasks) {
       const s = match(t.title);
