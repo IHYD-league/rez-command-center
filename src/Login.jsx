@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { supabase } from "./lib/supabase.js";
 
-// My Family HQ brand palette — single source of truth used inline.
+// My Family HQ brand palette.
 const BRAND = {
   skyBlue:        "#6FD3FF",
   deepBlue:       "#1E7BCF",
@@ -9,13 +9,13 @@ const BRAND = {
   warmOrange:     "#FF9A3C",
   limeGreen:      "#A7E74B",
   forestGreen:    "#4DBB4F",
+  deepGreen:      "#1F5132",
   chocolateBrown: "#7A4A22",
   darkCocoa:      "#4B2D14",
   creamWhite:     "#FFF6D8",
   softPink:       "#FF7FAE",
 };
 
-// Asset paths under public/. Vite serves /public/* at the site root.
 const ASSETS = {
   bg:              "/Sign-in/MFHQ-background-sign-in.png",
   logo:            "/Sign-in/my-family-hq-clean-logo.png",
@@ -25,21 +25,9 @@ const ASSETS = {
   newFamilyActive: "/Sign-in/new-family-button.png",
 };
 
-// The background asset is drawn at mobile aspect ratio. On desktop the
-// previous build was using backgroundSize: cover on the FULL viewport
-// which stretched + cropped it horribly. Confining the image to a
-// fixed-width "phone shell" column (440px on desktop, full width on
-// mobile) gives Mike's mockup proportions — the gradient handles the
-// extra desktop space behind it. Per Mike: "the background image is
-// made for mobile like the app. Don't zoom it to fit the desktop."
 const PHONE_SHELL_MAX = 440;
 
 export default function Login() {
-  // Four branches:
-  //   signin     — existing account signing back in
-  //   register   — joining an existing family
-  //   newfamily  — starting a brand-new family
-  //   forgot     — request a password-reset email
   const [mode, setMode] = useState("signin");
   const [name, setName] = useState("");
   const [familyName, setFamilyName] = useState("");
@@ -64,7 +52,6 @@ export default function Login() {
         if (error) setErr(error.message);
         return;
       }
-
       if (mode === "forgot") {
         if (!email.trim()) { setErr("Enter your email first."); return; }
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
@@ -74,13 +61,11 @@ export default function Login() {
         setInfo("Reset link sent. Check your email — you can close this tab once you've reset.");
         return;
       }
-
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
       });
       if (error) { setErr(error.message); return; }
-
       if (!data?.session) {
         if (mode === "newfamily") {
           try {
@@ -88,7 +73,7 @@ export default function Login() {
               parentName: name.trim(),
               familyName: familyName.trim() || null,
             }));
-          } catch (_) { /* private mode — they'll re-enter on sign-in */ }
+          } catch (_) {}
           setInfo("Account created. Check your email to confirm, then sign in and your family will be set up.");
         } else {
           setInfo("Account created. Check your email to confirm, then sign in. A parent will need to approve you before you can use the app.");
@@ -96,7 +81,6 @@ export default function Login() {
         setMode("signin");
         return;
       }
-
       if (mode === "newfamily") {
         const { error: rpcErr } = await supabase.rpc("create_family", {
           p_parent_name: name.trim(),
@@ -117,7 +101,6 @@ export default function Login() {
     setInfo("");
   };
 
-  // Mode-aware CTA: big button reflects the current mode's action.
   const ctaAsset = mode === "register"
     ? ASSETS.joinActive
     : mode === "newfamily"
@@ -133,13 +116,11 @@ export default function Login() {
     border: `2px solid ${BRAND.sunshineYellow}`,
     color: BRAND.darkCocoa,
   };
-  const inputClass = "w-full rounded-2xl pl-12 pr-3 py-3.5 text-base font-semibold placeholder:text-amber-700/40 focus:outline-none focus:ring-2 focus:ring-amber-300";
+  const inputClass = "w-full rounded-2xl pl-12 pr-3 py-3 text-base font-semibold placeholder:text-amber-700/40 focus:outline-none focus:ring-2 focus:ring-amber-300";
 
-  // Tab cell — the strip is h-24 (96px) tall so the active image
-  // renders at a proper game-button size. Active uses image with
-  // h-full w-auto so the visible pill scales up to fill the cell
-  // vertically. Inactive uses plain forest-green text — keeps all
-  // three tabs visually consistent when they're in the inactive state.
+  // Tab cell — active mode renders the polished button image at the
+  // strip's full height; inactive renders plain dark-green text exactly
+  // like the mockup.
   const Tab = ({ value, label, activeAsset, tabIndex }) => {
     const isActive = mode === value || (value === "signin" && mode === "forgot");
     return (
@@ -159,8 +140,8 @@ export default function Login() {
           />
         ) : (
           <span
-            className="text-lg font-extrabold"
-            style={{ color: BRAND.forestGreen, fontFamily: 'ui-rounded, "SF Pro Rounded", system-ui, sans-serif' }}
+            className="text-base font-extrabold"
+            style={{ color: BRAND.deepGreen, fontFamily: 'ui-rounded, "SF Pro Rounded", system-ui, sans-serif' }}
           >
             {label}
           </span>
@@ -177,13 +158,6 @@ export default function Login() {
         fontFamily: 'ui-rounded, "SF Pro Rounded", system-ui, sans-serif',
       }}
     >
-      {/* PHONE SHELL — mobile-width column with the scenic backdrop
-          confined to it. NO vertical centering: content stacks from
-          the top so the logo (which is rendered first) is always the
-          first thing the viewport shows. Previous build's
-          `justify-center` was pushing the logo off-screen above when
-          content overflowed the viewport — Mike: "why is the logo
-          still off the screen?" */}
       <div
         className="mx-auto w-full min-h-screen"
         style={{
@@ -195,58 +169,63 @@ export default function Login() {
         }}
       >
         <div className="px-4 pt-4 pb-8 flex flex-col items-stretch">
-          {/* Logo — sized large, rendered first in flow so it's at the
-              top of the visible area on every viewport. */}
+          {/* Logo — height-capped at 180px so the asset's transparent
+              padding can't blow it up. Centered, overlaps card top via
+              negative margin on the form. */}
           <img
             src={ASSETS.logo}
             alt="My Family HQ"
-            className="w-[88%] max-w-[380px] mx-auto relative z-10 drop-shadow-2xl pointer-events-none select-none"
+            className="mx-auto block relative z-10 drop-shadow-2xl pointer-events-none select-none"
+            style={{
+              height: "180px",
+              width: "auto",
+              maxWidth: "92%",
+            }}
             draggable={false}
           />
 
-          {/* Form is pulled UP under the logo with a fixed-pixel
-              negative margin and given a generous top padding so the
-              "Family sign-in" title clears the logo bottom. Fixed
-              pixels rather than percentages so the overlap is
-              predictable regardless of parent width. */}
+          {/* Card — compact. Top padding clears the overlapped logo. */}
           <form
             onSubmit={submit}
-            className="w-full rounded-[28px] pb-6 px-5"
+            className="w-full rounded-[28px] pb-5 px-5"
             style={{
-              marginTop: "-110px",
-              paddingTop: "150px",
+              marginTop: "-50px",
+              paddingTop: "65px",
               background: BRAND.creamWhite,
               border: `3px solid ${BRAND.sunshineYellow}`,
               boxShadow:
-                "0 20px 40px -16px rgba(122, 74, 34, 0.4), 0 0 40px rgba(255, 217, 77, 0.5)",
+                "0 20px 40px -16px rgba(122, 74, 34, 0.4), 0 0 36px rgba(255, 217, 77, 0.5)",
             }}
           >
             <h1
               className="text-center text-2xl font-extrabold mb-4"
-              style={{ color: BRAND.darkCocoa }}
+              style={{ color: BRAND.deepGreen }}
             >
               {mode === "forgot" ? "Reset your password" : "Family sign-in"}
             </h1>
 
-            {/* Tab strip — h-24 (96px). Inner padding is small so each
-                cell's flex-1 lets the active image fill nearly the full
-                height. */}
+            {/* Tab strip — restored. Three tabs, active shows polished
+                image button; inactive shows plain dark-green text. */}
             <div
-              className="flex items-center gap-1 mb-5 rounded-2xl px-1.5 py-1 h-24"
-              style={{ background: "rgba(255, 217, 77, 0.18)", border: `2px solid rgba(255, 217, 77, 0.45)` }}
+              className="flex items-center gap-1 mb-4 rounded-2xl px-1.5 py-1"
+              style={{
+                background: "rgba(255, 217, 77, 0.18)",
+                border: `2px solid rgba(255, 217, 77, 0.45)`,
+                height: "60px",
+              }}
             >
               <Tab value="signin"    label="Sign in"    activeAsset={ASSETS.signInActive}    tabIndex={-1} />
               <Tab value="register"  label="Join"       activeAsset={ASSETS.joinActive}      tabIndex={5} />
               <Tab value="newfamily" label="New family" activeAsset={ASSETS.newFamilyActive} tabIndex={6} />
             </div>
 
-            {/* Name + family-name fields for join / new-family flows */}
+            {/* Name + family-name fields (join / new-family flows only) */}
             {(mode === "register" || mode === "newfamily") && (
               <>
-                <label className="block text-[11px] uppercase tracking-wider font-extrabold mb-1.5" style={{ color: BRAND.forestGreen }}>
+                <label className="block text-[11px] uppercase tracking-wider font-extrabold mb-1.5" style={{ color: BRAND.deepGreen }}>
                   Your name
                 </label>
-                <div className="relative w-full mb-4">
+                <div className="relative w-full mb-3">
                   <input
                     type="text"
                     autoComplete="name"
@@ -263,10 +242,10 @@ export default function Login() {
 
             {mode === "newfamily" && (
               <>
-                <label className="block text-[11px] uppercase tracking-wider font-extrabold mb-1.5" style={{ color: BRAND.forestGreen }}>
+                <label className="block text-[11px] uppercase tracking-wider font-extrabold mb-1.5" style={{ color: BRAND.deepGreen }}>
                   Family name <span style={{ color: BRAND.chocolateBrown, opacity: 0.7 }}>(optional)</span>
                 </label>
-                <div className="relative w-full mb-4">
+                <div className="relative w-full mb-3">
                   <input
                     type="text"
                     value={familyName}
@@ -280,10 +259,10 @@ export default function Login() {
             )}
 
             {/* Email */}
-            <label className="block text-[11px] uppercase tracking-wider font-extrabold mb-1.5" style={{ color: BRAND.forestGreen }}>
+            <label className="block text-[11px] uppercase tracking-wider font-extrabold mb-1.5" style={{ color: BRAND.deepGreen }}>
               Email
             </label>
-            <div className="relative w-full mb-4">
+            <div className="relative w-full mb-3">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xl" style={{ color: BRAND.chocolateBrown, opacity: 0.6 }}>✉️</span>
               <input
                 type="email"
@@ -303,10 +282,10 @@ export default function Login() {
             {/* Password */}
             {mode !== "forgot" && (
               <>
-                <label className="block text-[11px] uppercase tracking-wider font-extrabold mb-1.5" style={{ color: BRAND.forestGreen }}>
+                <label className="block text-[11px] uppercase tracking-wider font-extrabold mb-1.5" style={{ color: BRAND.deepGreen }}>
                   Password
                 </label>
-                <div className="relative w-full mb-2">
+                <div className="relative w-full mb-1">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xl" style={{ color: BRAND.chocolateBrown, opacity: 0.6 }}>🔒</span>
                   <input
                     type={showPassword ? "text" : "password"}
@@ -332,13 +311,13 @@ export default function Login() {
                 </div>
 
                 {mode === "signin" && (
-                  <div className="flex justify-end mt-1 mb-3">
+                  <div className="flex justify-end mt-1 mb-2">
                     <button
                       type="button"
                       onClick={() => swap("forgot")}
                       tabIndex={4}
                       className="text-sm font-extrabold underline underline-offset-2"
-                      style={{ color: BRAND.forestGreen }}
+                      style={{ color: BRAND.deepGreen }}
                     >
                       Forgot password?
                     </button>
@@ -349,7 +328,7 @@ export default function Login() {
 
             {err && (
               <div
-                className="text-sm font-semibold rounded-xl px-3 py-2 mb-3"
+                className="text-sm font-semibold rounded-xl px-3 py-2 mb-2"
                 role="alert"
                 style={{ background: "#FEE2E2", color: "#B91C1C", border: "1px solid #FCA5A5" }}
               >
@@ -358,7 +337,7 @@ export default function Login() {
             )}
             {info && (
               <div
-                className="text-sm font-semibold rounded-xl px-3 py-2 mb-3"
+                className="text-sm font-semibold rounded-xl px-3 py-2 mb-2"
                 role="status"
                 style={{ background: "#DCFCE7", color: "#15803D", border: "1px solid #86EFAC" }}
               >
@@ -366,12 +345,12 @@ export default function Login() {
               </div>
             )}
 
-            {/* Big CTA — w-full, image w-full h-auto, no caps anywhere. */}
+            {/* Big CTA — full inner-card width */}
             <button
               type="submit"
               disabled={busy}
               tabIndex={3}
-              className="block w-full mt-2 active:scale-[0.98] transition disabled:opacity-70"
+              className="block w-full mt-1 active:scale-[0.98] transition disabled:opacity-70"
               aria-label={submitLabel}
             >
               <img
@@ -388,12 +367,13 @@ export default function Login() {
               </div>
             )}
 
+            {/* Helper text below button */}
             <p
-              className="text-center text-[12px] mt-5 leading-snug"
+              className="text-center text-[13px] mt-4 leading-snug"
               style={{ color: BRAND.darkCocoa }}
             >
               {mode === "signin" && (
-                <>Don't have an account? Tap <strong style={{ color: BRAND.forestGreen }}>Join</strong> (existing family) or <strong style={{ color: BRAND.forestGreen }}>New family</strong> (start your own).</>
+                <>Don't have an account? Tap <strong style={{ color: BRAND.deepGreen }}>Join</strong> (existing family) or <strong style={{ color: BRAND.deepGreen }}>New family</strong> (start your own).</>
               )}
               {mode === "newfamily" && "You'll be the founding parent. You can add your kid's profile next."}
               {mode === "forgot" && "We'll email you a link to reset your password."}
@@ -405,7 +385,7 @@ export default function Login() {
                 type="button"
                 onClick={() => swap("signin")}
                 className="mx-auto mt-3 block text-sm font-extrabold underline underline-offset-2"
-                style={{ color: BRAND.forestGreen }}
+                style={{ color: BRAND.deepGreen }}
               >
                 ← Back to sign in
               </button>
