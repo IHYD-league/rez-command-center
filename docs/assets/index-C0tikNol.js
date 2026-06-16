@@ -930,11 +930,11 @@ What went wrong / what could be better:
 .loginLogo {
   position: absolute;
   left: 50%;
-  top: -210px;
+  top: -220px;
   transform: translateX(-50%);
   width: 88vw;
   max-width: 380px;
-  aspect-ratio: 1024 / 780;
+  aspect-ratio: 778 / 487;
   height: auto;
   z-index: 5;
   pointer-events: none;
