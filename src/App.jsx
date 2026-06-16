@@ -13768,6 +13768,44 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     setScanResults(null);
     setScanning(true);
     try {
+      // PR1 barcode hybrid: for product scans only, try the free
+      // cross-platform decoder + Open Food Facts BEFORE the paid
+      // vision call. On a hit, populate the preview directly and
+      // return. On no-decode / OFF miss / timeout / error, fall
+      // through SILENTLY to the existing vision-parse path below —
+      // no error toast, no banner, no UX hiccup. The written-list
+      // kind always goes straight to vision.
+      if (scanKind === "shopping_product") {
+        let upc = null;
+        try {
+          const { decodeBarcode } = await import("./lib/barcodeScan.js");
+          upc = await decodeBarcode(file);
+        } catch { upc = null; }
+        if (upc) {
+          let offStatus = "error";
+          let offBody = null;
+          try {
+            const r = await fetch("/api/lookup-upc", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ upc }),
+            });
+            offBody = await r.json().catch(() => null);
+            offStatus = offBody?.status || "error";
+          } catch { offStatus = "error"; }
+          if (offStatus === "ok" && offBody?.title) {
+            // eslint-disable-next-line no-console
+            console.log(`[barcode] upc=${upc} decoded=yes off=hit source=off`);
+            setScanResults({ items: [{ title: offBody.title, brand: offBody.brand || "", picked: true }] });
+            return;
+          }
+          // eslint-disable-next-line no-console
+          console.log(`[barcode] upc=${upc} decoded=yes off=${offStatus === "ok" ? "miss" : offStatus} source=vision`);
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(`[barcode] upc=null decoded=no off=skip source=vision`);
+        }
+      }
       const { scanImage } = await import("./lib/visionScan.js");
       const j = await scanImage({ file, kind: scanKind });
       if (j.status === "vision_not_configured") {
@@ -14011,6 +14049,10 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
             📷 Scan a product
           </span>
         </label>
+      </div>
+
+      <div className="text-[10px] text-slate-500 text-center mb-3">
+        Scan the barcode, or photograph the front of the product.
       </div>
 
       {scanning && (
