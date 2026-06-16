@@ -684,6 +684,13 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // No cap on length — Top 8 is the default expectation but parents
   // can add ad-hoc items in the editor so the board grows when needed.
   const [topPriorities, setTopPriorities] = familySetting("topPriorities", { weekly: {}, daily: {} });
+  // dailyRequiredCount — how many "must-do today" tasks the family
+  // expects per day. Default 8 matches Lynch's historical "Top 8"
+  // framing, but Mike's directive 2026-06-15: "instead of forcing a
+  // top 8 we should have the parent choose how many they want." So
+  // every Top-N copy site reads from this number, and onboarding
+  // exposes an inline picker for empty-state families.
+  const [dailyRequiredCount, setDailyRequiredCount] = familySetting("dailyRequiredCount", 8);
   // taskNaDays: per-ISO-date list of task IDs marked N/A — Reznor was
   // sick, traveling, or the task genuinely doesn't apply. Distinct from
   // priorities (which describe importance) and topPriorities (which
@@ -2210,6 +2217,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
+    dailyRequiredCount, setDailyRequiredCount,
   };
 
   // First-run gate: a freshly-created family has a parent profile (from
@@ -7438,8 +7446,79 @@ function MostPlayedSongs({ songs, songPlays, removeSongPlay, updateSongPlay, rol
   );
 }
 
+// StillTodoOnboarding — fills the "Still to do" slot when the family
+// has no Top N curated yet. Mike's bug 2026-06-15: the section was
+// happily declaring "✨ Top 8 complete — treasure ready to open!" on
+// an account with literally zero tasks set up — a false celebration
+// that confuses brand-new parents and breaks trust. Instead this card
+// walks them straight to the two places they need to go (chores,
+// activities) plus lets them set HOW MANY required tasks per day in
+// one tap, so they don't have to leave to find a settings page.
+function StillTodoOnboarding({ tasks = [], activities = [], dailyRequiredCount, setDailyRequiredCount, setTab, setPendingMoreSub }) {
+  const hasTasks = (tasks || []).length > 0;
+  const hasActiveActivities = (activities || []).some((a) => a.status === "active");
+  const go = (subKey) => { setPendingMoreSub?.(subKey); setTab?.("more"); };
+  const countChoices = [3, 5, 7, 8, 10];
+  return (
+    <Card className="p-4 mb-3 bg-gradient-to-br from-amber-50 to-rose-50 border-amber-200">
+      <div className="flex items-start gap-2 mb-2">
+        <span className="text-2xl shrink-0">🌱</span>
+        <div>
+          <div className="font-extrabold text-sm">Let's set up today's to-dos</div>
+          <div className="text-[11px] text-slate-600 leading-snug mt-0.5">
+            Add some chores and activities so your kid has a real list to work through. You can always change these later.
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <button
+          type="button"
+          onClick={() => go("tasks")}
+          className={`text-left rounded-xl px-3 py-2.5 border ${hasTasks ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200"} active:scale-[0.98]`}
+        >
+          <div className="text-lg leading-none mb-1">{hasTasks ? "✅" : "🧹"}</div>
+          <div className="text-[12px] font-extrabold">Add chores &amp; tasks</div>
+          <div className="text-[10px] text-slate-500 leading-snug">Daily missions that earn stars.</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => go("activities")}
+          className={`text-left rounded-xl px-3 py-2.5 border ${hasActiveActivities ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200"} active:scale-[0.98]`}
+        >
+          <div className="text-lg leading-none mb-1">{hasActiveActivities ? "✅" : "🎯"}</div>
+          <div className="text-[12px] font-extrabold">Add activities</div>
+          <div className="text-[10px] text-slate-500 leading-snug">Drums, swim, anything regular.</div>
+        </button>
+      </div>
+      <div className="mt-3 rounded-xl bg-white/70 border border-amber-200 p-2.5">
+        <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1.5">
+          How many to-dos per day?
+        </div>
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {countChoices.map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setDailyRequiredCount?.(n)}
+              className={`text-[12px] font-extrabold px-3 py-1.5 rounded-full ${dailyRequiredCount === n ? "bg-amber-500 text-white" : "bg-white border border-amber-200 text-amber-700"}`}
+            >
+              {n}
+            </button>
+          ))}
+          <span className="text-[10px] text-slate-500 ml-1">
+            (currently {dailyRequiredCount})
+          </span>
+        </div>
+        <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">
+          This is the count we celebrate as "complete." Easy to change anytime — just tap a different number.
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub, dailyCheckins = [] }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub, dailyCheckins = [], dailyRequiredCount = 8, setDailyRequiredCount }) {
   const [showAddPicker, setShowAddPicker] = useState(false);
   // Reorder mode is per-section so flipping it on for Bonus
   // doesn't add nudge buttons to Still-to-do too. Same pattern as
@@ -7767,9 +7846,20 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
               </div>
             )}
             {mustDo.length === 0 ? (
-              <Card className="p-3 mb-2 text-center text-xs text-emerald-700 bg-emerald-50 border-emerald-200 font-bold">
-                {i18nTOf("pt_top8_complete", "✨ Top 8 complete — treasure ready to open!")}
-              </Card>
+              todaysTopEight.length === 0 ? (
+                <StillTodoOnboarding
+                  tasks={tasks}
+                  activities={activities}
+                  dailyRequiredCount={dailyRequiredCount}
+                  setDailyRequiredCount={setDailyRequiredCount}
+                  setTab={setTab}
+                  setPendingMoreSub={setPendingMoreSub}
+                />
+              ) : (
+                <Card className="p-3 mb-2 text-center text-xs text-emerald-700 bg-emerald-50 border-emerald-200 font-bold">
+                  {i18nTOf("pt_top_complete", "✨ Top {n} complete — treasure ready to open!").replaceAll("{n}", dailyRequiredCount)}
+                </Card>
+              )
             ) : (
               reorderMustDo
                 ? mustDo.map((t, idx) => renderEditRow(t, "mustDo", idx, mustDo))
@@ -15160,22 +15250,47 @@ const ACTIVITY_PRESET_PACKS = [
   },
 ];
 
-function PresetPicker({ existingIds, onAdd, onClose }) {
+// PresetPicker now answers Mike's onboarding ask: "When adding them
+// for onboarding it should ask, add this to daily to-do? or pick a
+// day that it repeats, or is this a bonus? help them get started so
+// there are less steps." One shared choice for the whole batch —
+// "Daily must-do" by default, with "Specific days" / "Bonus" /
+// "Just the activity" as alternates. Submit creates activities AND
+// matching tasks in one round-trip.
+const SCHEDULE_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const SCHEDULE_DAY_SHORT = { Sunday: "Sun", Monday: "Mon", Tuesday: "Tue", Wednesday: "Wed", Thursday: "Thu", Friday: "Fri", Saturday: "Sat" };
+
+function PresetPicker({ existingIds, onAdd, onClose, dailyRequiredCount = 8 }) {
   const [picked, setPicked] = useState(() => new Set());
+  // Schedule mode for the whole batch. Default "daily" because that's
+  // the highest-fit answer for a brand-new family adding their first
+  // activities — "Add drums and put it on my kid's plan today" is the
+  // 90% case.
+  const [scheduleMode, setScheduleMode] = useState("daily"); // 'daily' | 'weekly' | 'bonus' | 'none'
+  const [days, setDays] = useState([]);
   const isExisting = (name) => existingIds.has(name.toLowerCase());
   const togglePick = (key) => setPicked((prev) => {
     const next = new Set(prev);
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
+  const toggleDay = (d) => setDays((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+
+  // Build a stable id seed once per submit so the activity + its
+  // matching task share a millisecond and don't collide.
   const submit = () => {
-    const adds = [];
+    const stamp = Date.now().toString(36);
+    const acts = [];
+    const tasks = [];
+    let i = 0;
     for (const pack of ACTIVITY_PRESET_PACKS) {
       for (const item of pack.items) {
         const key = pack.pack + ":" + item.name;
         if (!picked.has(key)) continue;
-        adds.push({
-          id: "a_" + item.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 20) + "_" + Date.now().toString(36),
+        const slug = item.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 20);
+        const actId = "a_" + slug + "_" + stamp + "_" + i;
+        acts.push({
+          id: actId,
           name: item.name,
           short: item.short,
           color: item.color,
@@ -15187,18 +15302,38 @@ function PresetPicker({ existingIds, onAdd, onClose }) {
           weeklySchedule: false,
           weeklyTarget: null,
         });
+        if (scheduleMode !== "none") {
+          const task = {
+            id: "t_" + slug + "_" + stamp + "_" + i,
+            title: item.name,
+            category: pack.pack,
+            activityType: item.name,
+            activityId: actId,
+            required: scheduleMode === "daily" || scheduleMode === "weekly",
+            starValue: scheduleMode === "bonus" ? 3 : 5,
+            proofRequired: false,
+            proofType: null,
+            approvalRequired: true,
+            mode: "both",
+            minutes: 15,
+          };
+          if (scheduleMode === "weekly" && days.length > 0) task.days = [...days];
+          tasks.push(task);
+        }
+        i += 1;
       }
     }
-    if (adds.length > 0) onAdd(adds);
+    if (acts.length > 0) onAdd(acts, tasks);
     onClose();
   };
+
   return (
     <Card className="p-4 mb-2">
       <div className="flex items-center justify-between mb-2">
         <div className="font-bold text-sm">Add from presets</div>
         <button onClick={onClose} className="text-slate-400 text-xs font-bold">Close</button>
       </div>
-      <div className="text-[11px] text-slate-400 mb-3">Tap any you want. They'll be added in active status — you can rename, archive, or set schedules afterward.</div>
+      <div className="text-[11px] text-slate-400 mb-3">Tap any you want. You'll choose how they show up on the daily plan in one shot below.</div>
       {ACTIVITY_PRESET_PACKS.map((pack) => (
         <div key={pack.pack} className="mb-3">
           <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-1.5">{pack.pack}</div>
@@ -15227,12 +15362,58 @@ function PresetPicker({ existingIds, onAdd, onClose }) {
           </div>
         </div>
       ))}
+      {picked.size > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 mb-3">
+          <div className="text-[11px] uppercase tracking-wider font-bold text-amber-700 mb-2">
+            How should {picked.size === 1 ? "it" : "they"} show up?
+          </div>
+          <div className="space-y-1.5">
+            {[
+              { id: "daily",  emoji: "📅", label: "Daily must-do",         hint: `On the Top ${dailyRequiredCount} every day` },
+              { id: "weekly", emoji: "🗓️", label: "Specific days only",     hint: "Pick which weekdays" },
+              { id: "bonus",  emoji: "✨", label: "Bonus",                  hint: `Optional — not on the Top ${dailyRequiredCount}` },
+              { id: "none",   emoji: "🌱", label: "Just the activity",      hint: "Skip the task for now" },
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setScheduleMode(opt.id)}
+                className={`w-full flex items-start gap-2 rounded-xl px-2.5 py-2 text-left border-2 transition ${scheduleMode === opt.id ? "bg-white border-amber-500" : "bg-white/60 border-transparent"}`}
+              >
+                <span className="text-base shrink-0">{opt.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-extrabold text-slate-800">{opt.label}</div>
+                  <div className="text-[10px] text-slate-500 leading-snug">{opt.hint}</div>
+                </div>
+                <span className={`w-4 h-4 rounded-full border-2 shrink-0 mt-0.5 ${scheduleMode === opt.id ? "bg-amber-500 border-amber-500" : "border-slate-300"}`} />
+              </button>
+            ))}
+          </div>
+          {scheduleMode === "weekly" && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {SCHEDULE_DAYS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => toggleDay(d)}
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${days.includes(d) ? "bg-amber-500 text-white" : "bg-white border border-amber-200 text-amber-700"}`}
+                >
+                  {SCHEDULE_DAY_SHORT[d]}
+                </button>
+              ))}
+            </div>
+          )}
+          {scheduleMode === "weekly" && days.length === 0 && (
+            <div className="text-[10px] text-rose-600 mt-1.5">Pick at least one day, or switch to another option.</div>
+          )}
+        </div>
+      )}
       <div className="flex gap-2 mt-3">
         <button onClick={onClose} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs">Cancel</button>
         <button
-          disabled={picked.size === 0}
+          disabled={picked.size === 0 || (scheduleMode === "weekly" && days.length === 0)}
           onClick={submit}
-          className={`flex-1 py-2 rounded-xl font-bold text-xs text-white ${picked.size === 0 ? "bg-slate-300" : "bg-indigo-600"}`}
+          className={`flex-1 py-2 rounded-xl font-bold text-xs text-white ${(picked.size === 0 || (scheduleMode === "weekly" && days.length === 0)) ? "bg-slate-300" : "bg-indigo-600"}`}
         >
           Add {picked.size} {picked.size === 1 ? "activity" : "activities"}
         </button>
@@ -15241,17 +15422,20 @@ function PresetPicker({ existingIds, onAdd, onClose }) {
   );
 }
 
-function ManageActivities({ activities, addActivity, updateActivity, addTask, streaks, setStreak, stopStreak, bumpStreak, setProgressActId }) {
+function ManageActivities({ activities, addActivity, updateActivity, addTask, streaks, setStreak, stopStreak, bumpStreak, setProgressActId, dailyRequiredCount = 8 }) {
   const [adding, setAdding] = useState(false);
   const [presetting, setPresetting] = useState(false);
   const existingNames = useMemo(
     () => new Set((activities || []).map((a) => (a.name || "").toLowerCase())),
     [activities]
   );
-  const addManyPresets = (items) => {
-    for (const a of items) {
-      addActivity(a);
-    }
+  // The preset picker now returns BOTH activities and matching tasks
+  // (per Mike's "less steps" onboarding directive). We fan them into
+  // the corresponding setters here so the activity row + the task row
+  // land in the same sync batch.
+  const addManyPresets = (acts, tasks = []) => {
+    for (const a of acts) addActivity(a);
+    for (const t of tasks) addTask(t);
   };
   const archived = activities.filter((a) => a.status === "archived");
   return (
@@ -15314,8 +15498,40 @@ function ManageActivities({ activities, addActivity, updateActivity, addTask, st
           <button onClick={() => setAdding(true)} className="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-2"><Plus size={16} /> {i18nTOf("manage_act_add", "Custom")}</button>
         </div>
       )}
-      {presetting && <PresetPicker existingIds={existingNames} onAdd={addManyPresets} onClose={() => setPresetting(false)} />}
-      {adding && <AddActivityForm onCancel={() => setAdding(false)} onAdd={(a, asTask) => { addActivity(a); if (asTask) addTask({ id: "t_" + Date.now(), title: a.name, category: a.pillar, activityType: a.name, activityId: a.id, required: false, starValue: a.starValue || 5, proofRequired: false, proofType: null, approvalRequired: true, mode: "both", minutes: 30 }); setAdding(false); }} />}
+      {presetting && <PresetPicker existingIds={existingNames} onAdd={addManyPresets} onClose={() => setPresetting(false)} dailyRequiredCount={dailyRequiredCount} />}
+      {adding && (
+        <AddActivityForm
+          dailyRequiredCount={dailyRequiredCount}
+          onCancel={() => setAdding(false)}
+          onAdd={(a, taskSpec) => {
+            addActivity(a);
+            // taskSpec.mode: 'daily' | 'weekly' | 'bonus' | 'none'.
+            // 'none' skips task creation; the rest build a task that
+            // lands on the daily plan with the right required / days /
+            // star value. Same shape the PresetPicker emits, so the
+            // sync layer treats them identically.
+            if (taskSpec && taskSpec.mode !== "none") {
+              const task = {
+                id: "t_" + Date.now(),
+                title: a.name,
+                category: a.pillar,
+                activityType: a.name,
+                activityId: a.id,
+                required: taskSpec.mode === "daily" || taskSpec.mode === "weekly",
+                starValue: taskSpec.stars || (taskSpec.mode === "bonus" ? 3 : 5),
+                proofRequired: false,
+                proofType: null,
+                approvalRequired: true,
+                mode: "both",
+                minutes: 15,
+              };
+              if (taskSpec.mode === "weekly" && Array.isArray(taskSpec.days) && taskSpec.days.length > 0) task.days = [...taskSpec.days];
+              addTask(task);
+            }
+            setAdding(false);
+          }}
+        />
+      )}
       <div className="text-[11px] text-slate-400 px-1 mt-3">{i18nTOf("manage_act_hint", "Edit, pause, archive, or add anything — hockey, rugby, whatever's next. Each activity carries its own color strip and can track a daily streak.")}</div>
     </>
   );
@@ -15411,14 +15627,18 @@ function ActivityRow({ a, onUpdate, streaks, setStreak, stopStreak, bumpStreak, 
   );
 }
 
-function AddActivityForm({ onCancel, onAdd }) {
+function AddActivityForm({ onCancel, onAdd, dailyRequiredCount = 8 }) {
   const [name, setName] = useState("");
   const [color, setColor] = useState("#7c3aed");
   const [pillar, setPillar] = useState("brain");
-  const [asTask, setAsTask] = useState(true);
+  // Replaces the old asTask on/off toggle with the same 4-option
+  // schedule picker the PresetPicker uses — Mike's onboarding ask.
+  const [scheduleMode, setScheduleMode] = useState("daily"); // 'daily' | 'weekly' | 'bonus' | 'none'
+  const [days, setDays] = useState([]);
   const [stars, setStars] = useState(5);
   const [address, setAddress] = useState("");
-  const ready = name.trim().length > 0;
+  const toggleDay = (d) => setDays((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+  const ready = name.trim().length > 0 && (scheduleMode !== "weekly" || days.length > 0);
   return (
     <Card className="p-4 mt-2">
       <div className="font-bold text-sm mb-2">Add an activity</div>
@@ -15428,14 +15648,76 @@ function AddActivityForm({ onCancel, onAdd }) {
       <div className="grid grid-cols-3 gap-2">{Object.entries(PILLARS).map(([k, p]) => <button key={k} onClick={() => setPillar(k)} className={`py-2 rounded-xl text-xs font-semibold ${pillar === k ? "text-white" : "bg-slate-100 text-slate-500"}`} style={pillar === k ? { background: p.color } : {}}>{p.emoji} {p.label}</button>)}</div>
       <div className="mt-3 text-xs font-semibold text-slate-500 mb-1">Color strip</div>
       <div className="flex flex-wrap gap-1.5">{ACT_PALETTE.map((c) => <button key={c} onClick={() => setColor(c)} className="w-8 h-8 rounded-lg" style={{ background: c, outline: color === c ? "2px solid #1e293b" : "none", outlineOffset: "1px" }} />)}</div>
-      <button onClick={() => setAsTask((v) => !v)} className="mt-3 w-full flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2.5">
-        <span className="text-sm font-semibold">Add to daily missions (earns stars)</span>
-        <span className={`w-10 h-6 rounded-full p-0.5 transition shrink-0 ${asTask ? "bg-emerald-500" : "bg-slate-300"}`}><span className={`block w-5 h-5 bg-white rounded-full transition ${asTask ? "translate-x-4" : ""}`} /></span>
-      </button>
-      {asTask && <div className="mt-2 flex items-center gap-2"><span className="text-xs text-slate-500">Stars:</span>{[3, 5, 10].map((n) => <button key={n} onClick={() => setStars(n)} className={`px-3 py-1 rounded-lg text-sm font-bold ${stars === n ? "bg-amber-400 text-white" : "bg-slate-100 text-slate-500"}`}>{n}⭐</button>)}</div>}
+      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+        <div className="text-[11px] uppercase tracking-wider font-bold text-amber-700 mb-2">
+          How should it show up?
+        </div>
+        <div className="space-y-1.5">
+          {[
+            { id: "daily",  emoji: "📅", label: "Daily must-do",       hint: `On the Top ${dailyRequiredCount} every day` },
+            { id: "weekly", emoji: "🗓️", label: "Specific days only",   hint: "Pick which weekdays" },
+            { id: "bonus",  emoji: "✨", label: "Bonus",                hint: `Optional — not on the Top ${dailyRequiredCount}` },
+            { id: "none",   emoji: "🌱", label: "Just the activity",    hint: "Skip the task for now" },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setScheduleMode(opt.id)}
+              className={`w-full flex items-start gap-2 rounded-xl px-2.5 py-2 text-left border-2 transition ${scheduleMode === opt.id ? "bg-white border-amber-500" : "bg-white/60 border-transparent"}`}
+            >
+              <span className="text-base shrink-0">{opt.emoji}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] font-extrabold text-slate-800">{opt.label}</div>
+                <div className="text-[10px] text-slate-500 leading-snug">{opt.hint}</div>
+              </div>
+              <span className={`w-4 h-4 rounded-full border-2 shrink-0 mt-0.5 ${scheduleMode === opt.id ? "bg-amber-500 border-amber-500" : "border-slate-300"}`} />
+            </button>
+          ))}
+        </div>
+        {scheduleMode === "weekly" && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {SCHEDULE_DAYS.map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => toggleDay(d)}
+                className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${days.includes(d) ? "bg-amber-500 text-white" : "bg-white border border-amber-200 text-amber-700"}`}
+              >
+                {SCHEDULE_DAY_SHORT[d]}
+              </button>
+            ))}
+          </div>
+        )}
+        {scheduleMode === "weekly" && days.length === 0 && (
+          <div className="text-[10px] text-rose-600 mt-1.5">Pick at least one day, or switch to another option.</div>
+        )}
+        {scheduleMode !== "none" && (
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-xs text-slate-500">Stars:</span>
+            {[3, 5, 10].map((n) => (
+              <button
+                key={n}
+                onClick={() => setStars(n)}
+                className={`px-3 py-1 rounded-lg text-sm font-bold ${stars === n ? "bg-amber-400 text-white" : "bg-white border border-amber-200 text-amber-700"}`}
+              >
+                {n}⭐
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="flex gap-2 mt-4">
         <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-sm">Cancel</button>
-        <button disabled={!ready} onClick={() => onAdd({ id: "a_" + Date.now(), name: name.trim(), short: name.trim().split(" ")[0], color, pillar, status: "active", note: "", address: address.trim(), schedule: [], starValue: stars }, asTask)} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${ready ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}>Add</button>
+        <button
+          disabled={!ready}
+          onClick={() => onAdd(
+            { id: "a_" + Date.now(), name: name.trim(), short: name.trim().split(" ")[0], color, pillar, status: "active", note: "", address: address.trim(), schedule: [], starValue: stars },
+            { mode: scheduleMode, days, stars }
+          )}
+          className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white ${ready ? "bg-indigo-600" : "bg-slate-200 text-slate-400"}`}
+        >
+          Add
+        </button>
       </div>
     </Card>
   );
