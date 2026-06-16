@@ -12657,7 +12657,13 @@ function MoreParent(props) {
         onPick={(k) => setSub(k)}
         savedOrder={props.currentPrefs?.moreOrder}
         onSaveOrder={(orderByGroup) => props.setPref?.("moreOrder", orderByGroup)}
-        onResetOrder={() => props.setPref?.("moreOrder", null)}
+        savedColors={props.currentPrefs?.moreColors}
+        onSaveColor={(groupId, token) => {
+          const next = { ...(props.currentPrefs?.moreColors || {}) };
+          next[groupId] = token;
+          props.setPref?.("moreColors", next);
+        }}
+        onResetOrder={() => { props.setPref?.("moreOrder", null); props.setPref?.("moreColors", null); }}
       />
     </div>
   );
@@ -12666,14 +12672,66 @@ function MoreParent(props) {
 // Section headers for the grouped More menu. Each label is short
 // + clear so a parent skimming the page can see what's inside
 // without thinking. Order: top (no header) → memories → setup →
-// account. Customization (move / regroup / reorder) is a follow-up
-// — for now this is the new fixed layout per Mike's 2026-06-15
-// directive ("help me figure this out... let's make it easy").
+// account.
 const MORE_GROUPS = [
   { id: "memories", emoji: "🏆", label: "Memories & growth", hint: "Photos, recap, awards, goals" },
   { id: "setup",    emoji: "🧰", label: "Set up & manage",   hint: "Board, tasks, activities, helpers" },
   { id: "account",  emoji: "⚙️", label: "Account",            hint: "Email, privacy, export, settings" },
 ];
+
+// Per-section color tokens. Mike 2026-06-15: "I love color coding, I
+// think each catagory should have a color. I don't like seeing white.
+// We should allow users to change these colors if they want to."
+// Defaults below; per-parent override lives at currentPrefs.moreColors
+// keyed by section id ("top" | "memories" | "setup" | "account").
+const MORE_DEFAULT_COLORS = {
+  top:      "amber",
+  memories: "violet",
+  setup:    "sky",
+  account:  "slate",
+};
+
+// Available color choices for the section picker. Tailwind requires
+// static class strings (the purger doesn't follow template strings),
+// so each token maps to a pre-baked classes bundle. Adding a new
+// token = one entry in MORE_COLOR_CLASSES.
+const MORE_COLOR_TOKENS = ["amber", "rose", "violet", "indigo", "sky", "emerald", "teal", "slate"];
+const MORE_COLOR_LABELS = {
+  amber:   "Amber",
+  rose:    "Rose",
+  violet:  "Violet",
+  indigo:  "Indigo",
+  sky:     "Sky",
+  emerald: "Emerald",
+  teal:    "Teal",
+  slate:   "Slate",
+};
+const MORE_COLOR_DOT = {
+  amber:   "#f59e0b",
+  rose:    "#f43f5e",
+  violet:  "#8b5cf6",
+  indigo:  "#6366f1",
+  sky:     "#0ea5e9",
+  emerald: "#10b981",
+  teal:    "#14b8a6",
+  slate:   "#64748b",
+};
+const MORE_COLOR_CLASSES = {
+  amber:   { card: "bg-amber-50 border-amber-100",     iconBg: "bg-amber-100",    iconText: "text-amber-600",    headerText: "text-amber-700" },
+  rose:    { card: "bg-rose-50 border-rose-100",       iconBg: "bg-rose-100",     iconText: "text-rose-600",     headerText: "text-rose-700" },
+  violet:  { card: "bg-violet-50 border-violet-100",   iconBg: "bg-violet-100",   iconText: "text-violet-600",   headerText: "text-violet-700" },
+  indigo:  { card: "bg-indigo-50 border-indigo-100",   iconBg: "bg-indigo-100",   iconText: "text-indigo-600",   headerText: "text-indigo-700" },
+  sky:     { card: "bg-sky-50 border-sky-100",         iconBg: "bg-sky-100",      iconText: "text-sky-600",      headerText: "text-sky-700" },
+  emerald: { card: "bg-emerald-50 border-emerald-100", iconBg: "bg-emerald-100",  iconText: "text-emerald-600",  headerText: "text-emerald-700" },
+  teal:    { card: "bg-teal-50 border-teal-100",       iconBg: "bg-teal-100",     iconText: "text-teal-600",     headerText: "text-teal-700" },
+  slate:   { card: "bg-slate-50 border-slate-100",     iconBg: "bg-slate-100",    iconText: "text-slate-600",    headerText: "text-slate-700" },
+};
+const colorForGroup = (colors, group) => {
+  const token = (colors && colors[group]) || MORE_DEFAULT_COLORS[group] || "slate";
+  return MORE_COLOR_CLASSES[token] || MORE_COLOR_CLASSES.slate;
+};
+const colorTokenForGroup = (colors, group) =>
+  (colors && colors[group]) || MORE_DEFAULT_COLORS[group] || "slate";
 
 // MoreMenu — grouped layout with per-section reorder. Each parent
 // can drag items up/down within a section (or use ↑/↓ buttons in
@@ -12684,7 +12742,7 @@ const MORE_GROUPS = [
 //   { top: [k,k,k], memories: [k,k], setup: [k,k], account: [k,k] }
 // A null / missing value means "use the default order". A null entry
 // in any one section also falls back to default for that section.
-function MoreMenu({ items, onPick, savedOrder, onSaveOrder, onResetOrder }) {
+function MoreMenu({ items, onPick, savedOrder, onSaveOrder, savedColors, onSaveColor, onResetOrder }) {
   const [editMode, setEditMode] = useState(false);
   const [dragKey, setDragKey] = useState(null);
 
@@ -12750,14 +12808,15 @@ function MoreMenu({ items, onPick, savedOrder, onSaveOrder, onResetOrder }) {
   };
 
   const renderRow = (i, idx, rows, groupId) => {
+    const c = colorForGroup(savedColors, groupId);
     if (!editMode) {
       return (
         <button key={i.k} onClick={() => onPick(i.k)} className="w-full mb-2 active:scale-[0.98] transition">
-          <Card className="p-4 flex items-center gap-3 text-left">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-100 grid place-items-center text-indigo-600">{i.icon}</div>
-            <div className="flex-1"><div className="font-bold text-sm">{i.label}</div><div className="text-[11px] text-slate-400">{i.sub}</div></div>
+          <div className={`rounded-2xl border p-4 flex items-center gap-3 text-left ${c.card}`}>
+            <div className={`w-10 h-10 rounded-2xl grid place-items-center ${c.iconBg} ${c.iconText}`}>{i.icon}</div>
+            <div className="flex-1"><div className="font-bold text-sm">{i.label}</div><div className="text-[11px] text-slate-500">{i.sub}</div></div>
             <ChevronLeft size={16} className="rotate-180 text-slate-300" />
-          </Card>
+          </div>
         </button>
       );
     }
@@ -12772,7 +12831,6 @@ function MoreMenu({ items, onPick, savedOrder, onSaveOrder, onResetOrder }) {
         }}
         onDragOver={(e) => {
           if (!dragKey || dragKey === i.k) return;
-          // Constrain: only allow drop within the same group.
           if (groupOf(dragKey) !== groupId) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
@@ -12789,28 +12847,52 @@ function MoreMenu({ items, onPick, savedOrder, onSaveOrder, onResetOrder }) {
         onDragEnd={() => setDragKey(null)}
         className={dragKey === i.k ? "opacity-50" : ""}
       >
-        <Card className="p-3 mb-2 flex items-center gap-2">
+        <div className={`rounded-2xl border p-3 mb-2 flex items-center gap-2 ${c.card}`}>
           <div className="text-slate-400 cursor-grab active:cursor-grabbing select-none px-1" title="Drag to reorder within this section">☰</div>
-          <div className="w-9 h-9 rounded-2xl bg-indigo-100 grid place-items-center text-indigo-600 shrink-0">{i.icon}</div>
+          <div className={`w-9 h-9 rounded-2xl grid place-items-center shrink-0 ${c.iconBg} ${c.iconText}`}>{i.icon}</div>
           <div className="flex-1 min-w-0">
             <div className="font-bold text-sm truncate">{i.label}</div>
-            <div className="text-[11px] text-slate-400 truncate">{i.sub}</div>
+            <div className="text-[11px] text-slate-500 truncate">{i.sub}</div>
           </div>
           <button
             type="button"
             onClick={() => move(groupId, idx, idx - 1)}
             disabled={idx === 0}
-            className={`w-8 h-8 rounded-lg grid place-items-center ${idx === 0 ? "text-slate-200" : "text-slate-500 hover:bg-slate-100"}`}
+            className={`w-8 h-8 rounded-lg grid place-items-center ${idx === 0 ? "text-slate-200" : "text-slate-500 hover:bg-white"}`}
             title="Move up"
           >▲</button>
           <button
             type="button"
             onClick={() => move(groupId, idx, idx + 1)}
             disabled={idx === rows.length - 1}
-            className={`w-8 h-8 rounded-lg grid place-items-center ${idx === rows.length - 1 ? "text-slate-200" : "text-slate-500 hover:bg-slate-100"}`}
+            className={`w-8 h-8 rounded-lg grid place-items-center ${idx === rows.length - 1 ? "text-slate-200" : "text-slate-500 hover:bg-white"}`}
             title="Move down"
           >▼</button>
-        </Card>
+        </div>
+      </div>
+    );
+  };
+
+  // Inline color-picker row, shown in edit mode under each section
+  // header (and the top-of-page header) so a parent can tint the
+  // section to anything they like. Click a dot to save instantly;
+  // the active token gets a thicker ring.
+  const renderColorPicker = (groupId) => {
+    const activeToken = colorTokenForGroup(savedColors, groupId);
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 px-1 mb-2">
+        <span className="text-[10px] text-slate-500 mr-1">Color:</span>
+        {MORE_COLOR_TOKENS.map((tok) => (
+          <button
+            key={tok}
+            type="button"
+            onClick={() => onSaveColor?.(groupId, tok)}
+            className={`w-6 h-6 rounded-full transition active:scale-90 ${activeToken === tok ? "ring-2 ring-slate-700 ring-offset-2 ring-offset-white" : ""}`}
+            style={{ background: MORE_COLOR_DOT[tok] }}
+            aria-label={MORE_COLOR_LABELS[tok]}
+            title={MORE_COLOR_LABELS[tok]}
+          />
+        ))}
       </div>
     );
   };
@@ -12818,21 +12900,24 @@ function MoreMenu({ items, onPick, savedOrder, onSaveOrder, onResetOrder }) {
   const renderSection = (g) => {
     const rows = orderedByGroup[g.id] || [];
     if (rows.length === 0) return null;
+    const c = colorForGroup(savedColors, g.id);
     return (
       <div key={g.id} className="mt-4">
         <div className="flex items-baseline gap-2 px-1 mb-1.5">
           <span className="text-base">{g.emoji}</span>
           <div className="flex-1">
-            <div className="text-[12px] font-extrabold uppercase tracking-wider text-slate-700">{g.label}</div>
+            <div className={`text-[12px] font-extrabold uppercase tracking-wider ${c.headerText}`}>{g.label}</div>
             <div className="text-[10px] text-slate-400 leading-snug">{g.hint}</div>
           </div>
         </div>
+        {editMode && renderColorPicker(g.id)}
         {rows.map((i, idx) => renderRow(i, idx, rows, g.id))}
       </div>
     );
   };
 
   const topRows = orderedByGroup.top || [];
+  const topColor = colorForGroup(savedColors, "top");
   return (
     <>
       <div className="flex items-center justify-between mb-2 px-1">
@@ -12862,9 +12947,19 @@ function MoreMenu({ items, onPick, savedOrder, onSaveOrder, onResetOrder }) {
       </div>
       {editMode && (
         <div className="text-[11px] text-slate-500 px-1 mb-2 leading-snug">
-          {i18nTOf("more_reorder_hint_grouped", "Drag the ☰ handle (or tap ↑ / ↓) to reorder WITHIN a section. Moving items between sections is coming next. Reset snaps everything back.")}
+          {i18nTOf("more_reorder_hint_grouped", "Drag the ☰ handle (or tap ↑ / ↓) to reorder within a section. Tap a color dot to retint that section. Moving items between sections is coming next. Reset snaps everything back.")}
         </div>
       )}
+      {editMode && topRows.length > 0 && (
+        <div className="flex items-baseline gap-2 px-1 mb-1.5">
+          <span className="text-base">⭐</span>
+          <div className="flex-1">
+            <div className={`text-[12px] font-extrabold uppercase tracking-wider ${topColor.headerText}`}>Top of page</div>
+            <div className="text-[10px] text-slate-400 leading-snug">Your daily-use shortcuts</div>
+          </div>
+        </div>
+      )}
+      {editMode && topRows.length > 0 && renderColorPicker("top")}
       {topRows.map((i, idx) => renderRow(i, idx, topRows, "top"))}
       {MORE_GROUPS.map(renderSection)}
     </>
