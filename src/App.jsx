@@ -2250,31 +2250,38 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
 
   return (
     <div
-      className="min-h-screen flex justify-center"
+      className="flex justify-center"
       style={{
-        // Themed page surface (Customization Hub Phase 2). Inline style
-        // wins over the old `bg-slate-50` class — the "white" theme's
-        // bg is slate-50 so default behaviour is preserved.
+        // App-shell layout (2026-06-16). Outer container is locked to the
+        // visible viewport with overflow:hidden so the BODY itself can't
+        // scroll on iOS Safari — that body-scroll was letting users drag
+        // the whole shell up and exposed a gap below the BottomNav. The
+        // ONLY scrolling region in the whole tree is the flex-1 middle
+        // inside the shell.
+        height: "100dvh",
+        overflow: "hidden",
         background: (THEMES[currentPrefs.theme] || THEMES.white).bg,
         color: (THEMES[currentPrefs.theme] || THEMES.white).fg,
         fontFamily: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
       }}
     >
       <div
-        className="w-full max-w-md h-screen flex flex-col relative shadow-xl overflow-hidden"
+        className="w-full max-w-md flex flex-col relative shadow-xl overflow-hidden"
         style={{
           background: (THEMES[currentPrefs.theme] || THEMES.white).bg,
-          // 100dvh wins on modern Safari/Chrome (dynamic viewport — adjusts
-          // when iOS Safari's URL bar shows/hides). h-screen class is the
-          // fallback for browsers that don't know dvh. Clamping height here
-          // is what makes BottomNav stay at the viewport bottom: now only
-          // the inner content area scrolls, not the whole page.
+          // 100dvh = dynamic viewport, tracks iOS Safari URL-bar show/hide.
+          // Locking the shell to exactly viewport height + flex-column means
+          // TopBar (first child) sits at the top, BottomNav (last child)
+          // sits at the bottom, and the flex-1 middle absorbs the rest.
+          // No position:fixed, no position:sticky — just flex flow. iOS
+          // Safari's position:fixed visual-viewport bug doesn't apply
+          // because nothing depends on it for the bars.
           height: "100dvh",
         }}
       >
         <TopBar user={user} mode={mode} onSwitch={() => { setCurrentUserId(null); }} onSignOut={signOut} sessionEmail={sessionEmail} onOpenHub={() => setHubOpen(true)} onOpenSearch={() => setSearchOpen(true)} />
         <PracticeTimerBanner activities={activities} onOpen={() => { setPendingMoreSub("practice"); setTab("more"); }} />
-        <div className="flex-1 overflow-y-auto pb-24">
+        <div className="flex-1 overflow-y-auto">
           <Router tab={tab} {...shared} />
         </div>
         <BottomNav user={user} tab={tab} setTab={setTab} langs={langs} />
@@ -2979,8 +2986,13 @@ function CoachModeRoute(props) {
 
 // ===================== SHARED UI =====================
 function TopBar({ user, mode, onSwitch, onSignOut, sessionEmail, onOpenHub, onOpenSearch }) {
+  // Layout-wise this is the first flex-child of the 100dvh shell. No
+  // sticky/fixed positioning needed — flex flow keeps it at the top
+  // of the viewport and the middle scrolls under it. Kept z-20 only
+  // so search/modal overlays inside the middle never paint above the
+  // TopBar's border.
   return (
-    <div className="sticky top-0 z-20 bg-white border-b border-slate-100 px-3 py-3 flex items-center justify-between gap-2">
+    <div className="relative z-20 flex-shrink-0 bg-white border-b border-slate-100 px-3 py-3 flex items-center justify-between gap-2">
       <div className="flex items-center gap-2 min-w-0 flex-1">
         <Avatar user={user} size={36} />
         <div className="min-w-0">
@@ -16738,14 +16750,15 @@ function BottomNav({ user, tab, setTab, langs = ["en"] }) {
   const items = sets[user.role] || sets.helper;
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 flex justify-around px-2 py-2"
-      // FIXED + z-50: BoardGame chips were rendering OVER the nav on
-      // scroll because they're absolutely positioned inside the scroll
-      // container and the nav was sibling-absolute at the same stacking
-      // level. Pinning to viewport with a hard z-index means the game
-      // ALWAYS scrolls UNDER the nav — non-negotiable per the AAA brief.
-      // Honor the iPhone home-indicator safe area so the nav floats above
-      // the gesture bar instead of sitting under it.
+      className="relative flex-shrink-0 bg-white border-t border-slate-100 flex justify-around px-2 py-2"
+      // App-shell rebuild 2026-06-16: BottomNav is now the last flex-child
+      // of the 100dvh shell instead of position:fixed. Flex flow guarantees
+      // it sits at the viewport bottom on EVERY page length — short pages
+      // no longer drift it mid-screen, long pages no longer let iOS Safari's
+      // visual-viewport quirk slide it off-screen during URL-bar transitions.
+      // Kept z-50 so any scroll-container children (BoardGame chips, etc.)
+      // paint UNDER the nav, not over it. Honor the iPhone home-indicator
+      // safe area so the nav floats above the gesture bar.
       style={{
         zIndex: 50,
         paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
