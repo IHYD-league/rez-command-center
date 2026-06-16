@@ -910,7 +910,7 @@ What went wrong / what could be better:
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 165px 22px 28px;
+  padding: 290px 22px 28px;
   font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
 }
 
@@ -921,7 +921,7 @@ What went wrong / what could be better:
   border-radius: 38px;
   border: 4px solid #FFD94D;
   background: rgba(255, 248, 220, 0.96);
-  padding: 165px 28px 38px;
+  padding: 60px 28px 38px;
   box-shadow: 0 18px 40px rgba(75, 45, 20, 0.22);
   box-sizing: border-box;
 }
@@ -929,9 +929,9 @@ What went wrong / what could be better:
 .loginLogo {
   position: absolute;
   left: 50%;
-  top: -105px;
+  top: -270px;
   transform: translateX(-50%);
-  width: min(500px, 78vw);
+  width: min(540px, 84vw);
   height: auto;
   z-index: 5;
   pointer-events: none;
@@ -1127,15 +1127,15 @@ What went wrong / what could be better:
 
 @media (min-width: 900px) {
   .loginPage {
-    padding-top: 210px;
+    padding-top: 360px;
   }
   .loginCard {
     max-width: 720px;
-    padding: 150px 42px 42px;
+    padding: 70px 42px 42px;
   }
   .loginLogo {
-    top: -115px;
-    width: 430px;
+    top: -330px;
+    width: 480px;
   }
   .loginTitle {
     font-size: 34px;
