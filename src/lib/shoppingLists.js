@@ -151,6 +151,69 @@ export function countItemsByList(items) {
 }
 
 /**
+ * Resolve the current active list key from family_settings.
+ *
+ * Reads family_settings.lastActiveListKey (chapter 1b), validates that
+ * it still corresponds to an entry in the registry (defends against
+ * stale references to a deleted list — which 1d will produce), and
+ * falls back to "grocery" when missing or invalid. The fallback is
+ * also what brand-new families see on first open.
+ *
+ * Pure: no side effects.
+ */
+export function getActiveListKey(familySettings) {
+  const stored = familySettings?.lastActiveListKey;
+  const registry = readRegistry(familySettings);
+  if (
+    typeof stored === "string" &&
+    stored.length > 0 &&
+    registry.some((e) => e.key === stored)
+  ) {
+    return stored;
+  }
+  return DEFAULT_LIST_KEY;
+}
+
+/**
+ * Resolve the current active list entry (key + display name + dates)
+ * from family_settings. Used by ShoppingList's lazy state initializer
+ * to land Krissie on the right tab on mount.
+ *
+ * Always returns a usable entry — falls back to a synthesized
+ * Grocery default if the registry is empty (shouldn't happen after
+ * readRegistry but defensive).
+ */
+export function getActiveListEntry(familySettings) {
+  const key = getActiveListKey(familySettings);
+  const registry = readRegistry(familySettings);
+  return (
+    registry.find((e) => e.key === key) || {
+      key: DEFAULT_LIST_KEY,
+      name: DEFAULT_LIST_NAME,
+      createdAt: null,
+      lastUsedAt: null,
+    }
+  );
+}
+
+/**
+ * Build a new family_settings object with lastActiveListKey set to the
+ * normalized form of the input. Accepts either a display name
+ * ("Costco") or a pre-normalized key ("costco") — both end up at
+ * "costco".
+ *
+ * Pure: caller persists via setFamilySettings.
+ */
+export function settingsAfterSetActive(familySettings, displayNameOrKey) {
+  const normalized =
+    normalizeListKey(displayNameOrKey) || DEFAULT_LIST_KEY;
+  return {
+    ...(familySettings || {}),
+    lastActiveListKey: normalized,
+  };
+}
+
+/**
  * Build a new family_settings object with a fresh list added to the
  * registry. Used by the "+ New list" affordance.
  *

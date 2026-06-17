@@ -29,6 +29,8 @@ import {
   filterItemsForList as shoppingFilterItemsForList,
   countItemsByList as shoppingCountItemsByList,
   settingsAfterCreateList as shoppingSettingsAfterCreateList,
+  getActiveListEntry as shoppingGetActiveListEntry,
+  settingsAfterSetActive as shoppingSettingsAfterSetActive,
 } from "./lib/shoppingLists.js";
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { searchOpenLibrary } from "./lib/enrichBook.js";
@@ -13633,7 +13635,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [editBrandDraft, setEditBrandDraft] = useState("");
   const [editSectionDraft, setEditSectionDraft] = useState("");
 
-  // Lists + sections (chapter 1a — see docs/SHOPPING-LISTS-CHAPTER-1-PLAN.md).
+  // Lists + sections (chapter 1a/1b — see docs/SHOPPING-LISTS-CHAPTER-1-PLAN.md).
   // activeList holds the DISPLAY label of the tab Krissie is on.
   // activeListKey is the normalized storage key used for filtering and
   // for item writes — that's the contract Green's RS-1 chooser inherits
@@ -13641,11 +13643,32 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   // availableLists is the SORTED registry (lastUsedAt desc → createdAt
   // desc → name asc) read from family_settings.shoppingLists; empty
   // lists survive because the registry is independent of items.
-  const [activeList, setActiveList] = useState(SHOPPING_DEFAULT_LIST_NAME);
+  //
+  // 1b — last-active memory across sessions: the initial value is
+  // resolved from family_settings.lastActiveListKey via
+  // getActiveListEntry, with a Grocery fallback for missing/invalid/
+  // stale keys. setActiveAndPersist writes the new key back to
+  // family_settings so the next open lands on the same tab.
+  const [activeList, setActiveList] = useState(
+    () => shoppingGetActiveListEntry(familySettings).name
+  );
   const [newListEditing, setNewListEditing] = useState(false);
   const [newListName, setNewListName] = useState("");
   const [commitListError, setCommitListError] = useState("");
   const activeListKey = shoppingNormalizeListKey(activeList) || SHOPPING_DEFAULT_LIST_KEY;
+
+  // Tab-switch handler — updates local state AND persists the new key
+  // to family_settings.lastActiveListKey so a hard refresh / app
+  // reopen lands on the same tab. Safe-no-op if setFamilySettings
+  // isn't wired (defensive for test renders).
+  const setActiveAndPersist = (displayName) => {
+    setActiveList(displayName);
+    if (setFamilySettings) {
+      setFamilySettings((prev) =>
+        shoppingSettingsAfterSetActive(prev, displayName)
+      );
+    }
+  };
 
   const availableLists = useMemo(
     () => shoppingGetOrderedLists(familySettings),
@@ -13931,7 +13954,14 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
       setCommitListError("");
       return;
     }
-    setFamilySettings(() => result.settings);
+    // 1b — single-shot family_settings write: the new registry entry
+    // AND lastActiveListKey both land in one update so a hard refresh
+    // immediately after creating Costco lands back on Costco.
+    const settingsWithActive = shoppingSettingsAfterSetActive(
+      result.settings,
+      result.key
+    );
+    setFamilySettings(() => settingsWithActive);
     // The display name preserves the family's chosen casing; key is
     // what storage uses. activeList stays a string for backward compat
     // with the rest of the component; activeListKey re-derives.
@@ -13972,7 +14002,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
             <button
               key={entry.key}
               type="button"
-              onClick={() => { setActiveList(entry.name); setCommitListError(""); }}
+              onClick={() => { setActiveAndPersist(entry.name); setCommitListError(""); }}
               className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1.5 ${isActive ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"}`}
             >
               <span>{entry.name}</span>
