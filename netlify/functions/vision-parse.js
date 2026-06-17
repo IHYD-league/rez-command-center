@@ -75,6 +75,39 @@ Return ONLY a JSON object in this exact shape, nothing else:
 }
 
 If the image isn't a schedule, return { "events": [] } and nothing else.`,
+
+  receipt: `You're reading a grocery, pharmacy, or general-store receipt. Extract:
+
+- store_name: store as printed ("Costco Wholesale", "Trader Joe's #178", "CVS/pharmacy")
+- store_chain: normalized lowercase short form. Prefer: "costco" / "trader_joes" / "vons" / "ralphs" / "whole_foods" / "walmart" / "target" / "cvs" / "sprouts" / "kroger" / "safeway" / "albertsons" / "publix" / "wegmans" / "aldi" / "heb" / "walgreens" / "rite_aid". For anything not on this list, lowercase the chain name and replace spaces with underscores ("rainbow_grocery", "smart_and_final"). If unidentifiable, use "other".
+- purchased_at: date and time on the receipt, ISO 8601. "YYYY-MM-DDTHH:MM" if time visible, "YYYY-MM-DD" if only date.
+- subtotal, tax, total: numeric values in USD as printed. null if not visible.
+
+Plus an items array. For each PURCHASED PRODUCT line:
+- title: generic product name a parent would write on a list ("Whipped Dressing", "Goldfish XL"), NOT the receipt's terse code ("GV WHP DRSG", "GLD FISH XL"). Translate abbreviations.
+- brand: brand or store-brand label printed or abbreviated. Store-brand examples: Costco "KS" or "KIRKLAND" → "Kirkland"; Trader Joe's items → "Trader Joe's"; Great Value items → "Great Value". null if unclear.
+- qty: quantity if visible; default 1.
+- unit: "lb" / "oz" / "ea" if shown; null otherwise.
+- unit_price: price per unit if printed.
+- line_total: total for this line as printed.
+
+Skip non-product lines: subtotals, tax rows, "savings", coupons, discounts, "TOTAL" row, store address, cashier ID, payment lines, signatures, footers, "thank you" copy.
+
+Return ONLY a JSON object in this exact shape, nothing else:
+{
+  "store_name": "Costco Wholesale",
+  "store_chain": "costco",
+  "purchased_at": "2026-06-12T18:23",
+  "subtotal": 142.45,
+  "tax": 7.12,
+  "total": 149.57,
+  "items": [
+    { "title": "Whipped Dressing", "brand": "Great Value", "qty": 1, "unit": "ea", "unit_price": 4.99, "line_total": 4.99 },
+    { "title": "Goldfish XL", "brand": "Pepperidge Farm", "qty": 2, "unit": "ea", "unit_price": 7.49, "line_total": 14.98 }
+  ]
+}
+
+If the image isn't a receipt, return { "items": [] } and nothing else.`,
 };
 
 export default async (req) => {
