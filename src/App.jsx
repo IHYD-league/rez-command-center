@@ -21,6 +21,15 @@ import { uploadFamilyPhoto, useSignedUrl, uploadFamilyAudio } from "./lib/storag
 import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
+import {
+  DEFAULT_LIST_KEY as SHOPPING_DEFAULT_LIST_KEY,
+  DEFAULT_LIST_NAME as SHOPPING_DEFAULT_LIST_NAME,
+  normalizeListKey as shoppingNormalizeListKey,
+  getOrderedLists as shoppingGetOrderedLists,
+  filterItemsForList as shoppingFilterItemsForList,
+  countItemsByList as shoppingCountItemsByList,
+  settingsAfterCreateList as shoppingSettingsAfterCreateList,
+} from "./lib/shoppingLists.js";
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { searchOpenLibrary } from "./lib/enrichBook.js";
 import { searchGoogleBooks } from "./lib/enrichBookGoogle.js";
@@ -2215,6 +2224,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     pendingMoreSub, setPendingMoreSub,
     practiceSessions, addPracticeSession, removePracticeSession,
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
+    familySettings, setFamilySettings,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
     dailyRequiredCount, setDailyRequiredCount,
@@ -12607,7 +12617,7 @@ function MoreParent(props) {
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
-  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} /></BackWrap>;
+  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
@@ -13612,7 +13622,7 @@ function EmailSetup(props) {
 // long-press / pencil to rename, X to remove. Strikethrough on
 // checked items sinks them to the bottom. One-tap "Clear bought"
 // when the trip's over. The whole point is being faster than texting.
-function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null }) {
+function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null, familySettings = {}, setFamilySettings = null }) {
   const isKid = user?.role === "kid";
   const isParent = user?.role === "parent" || user?.role === "helper" || user?.role === "grandparent";
   const [draft, setDraft] = useState("");
@@ -13623,30 +13633,41 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [editBrandDraft, setEditBrandDraft] = useState("");
   const [editSectionDraft, setEditSectionDraft] = useState("");
 
-  // v2: lists + sections. activeList drives the per-list filter; the
-  // tabs at the top let parents flip between "Grocery" and "Costco"
-  // (or anything else they add). New empty lists land via the "+ New"
-  // button, which holds the name in pendingNewListName until the user
-  // adds the first item — at that point the list is real (because at
-  // least one item carries that list_name).
-  const [activeList, setActiveList] = useState("Grocery");
+  // Lists + sections (chapter 1a — see docs/SHOPPING-LISTS-CHAPTER-1-PLAN.md).
+  // activeList holds the DISPLAY label of the tab Krissie is on.
+  // activeListKey is the normalized storage key used for filtering and
+  // for item writes — that's the contract Green's RS-1 chooser inherits
+  // (any add must pass listName: shoppingNormalizeListKey(activeList)).
+  // availableLists is the SORTED registry (lastUsedAt desc → createdAt
+  // desc → name asc) read from family_settings.shoppingLists; empty
+  // lists survive because the registry is independent of items.
+  const [activeList, setActiveList] = useState(SHOPPING_DEFAULT_LIST_NAME);
   const [newListEditing, setNewListEditing] = useState(false);
   const [newListName, setNewListName] = useState("");
+  const [commitListError, setCommitListError] = useState("");
+  const activeListKey = shoppingNormalizeListKey(activeList) || SHOPPING_DEFAULT_LIST_KEY;
 
-  const availableLists = useMemo(() => {
-    const s = new Set(["Grocery"]);
-    for (const it of (shoppingItems || [])) {
-      if (it.listName) s.add(it.listName);
-    }
-    return Array.from(s);
-  }, [shoppingItems]);
+  const availableLists = useMemo(
+    () => shoppingGetOrderedLists(familySettings),
+    [familySettings]
+  );
 
-  // Items filtered to the active list. Everything downstream
-  // (history, favorites, partitions) reads from this slice so each
-  // list behaves like its own little world.
+  // Per-list item tallies for the pill badges. {total, unchecked} per
+  // normalized key. Per the no-hidden-info rule, the badge shows the
+  // unchecked count (the "still to buy" number).
+  const listCounts = useMemo(
+    () => shoppingCountItemsByList(shoppingItems),
+    [shoppingItems]
+  );
+
+  // Items filtered to the active list, case-insensitively so pre-
+  // chapter-1 "Grocery" capital-G items still match the "grocery" key
+  // without a backfill. Everything downstream (history, favorites,
+  // partitions) reads from this slice so each list stays its own
+  // little world.
   const listItems = useMemo(
-    () => (shoppingItems || []).filter((it) => (it.listName || "Grocery") === activeList),
-    [shoppingItems, activeList]
+    () => shoppingFilterItemsForList(shoppingItems, activeListKey),
+    [shoppingItems, activeListKey]
   );
 
   // Smart-add: history map keyed by lowercased title. Surfaces
@@ -13883,11 +13904,42 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     setShowSmartSuggestions(true);
   };
   const commitNewList = () => {
-    const name = (newListName || "").trim().slice(0, 24);
-    if (!name) return;
-    setActiveList(name);
+    // Chapter 1a — write into family_settings.shoppingLists registry
+    // via the pure helper. Collision is ALWAYS surfaced (never silent
+    // merge) per Mike's directive. Empty input is rejected silently.
+    const raw = (newListName || "").trim();
+    if (!raw) return;
+    if (!setFamilySettings) {
+      // Defensive: if the prop isn't wired (e.g. unit test render),
+      // fall back to the legacy in-memory tab switch so we don't crash.
+      setActiveList(raw.slice(0, 24));
+      setNewListEditing(false);
+      setNewListName("");
+      setCommitListError("");
+      return;
+    }
+    const result = shoppingSettingsAfterCreateList(familySettings, raw);
+    if (result.error === "collision") {
+      // Surface the conflict — caller can tap the existing pill to
+      // switch. Keep the input editable so they can adjust the name.
+      setCommitListError(
+        `"${result.existing.name}" already exists — tap it above to switch.`
+      );
+      return;
+    }
+    if (result.error === "empty") {
+      setCommitListError("");
+      return;
+    }
+    setFamilySettings(() => result.settings);
+    // The display name preserves the family's chosen casing; key is
+    // what storage uses. activeList stays a string for backward compat
+    // with the rest of the component; activeListKey re-derives.
+    const created = result.settings.shoppingLists.find((e) => e.key === result.key);
+    setActiveList(created?.name || raw.slice(0, 24));
     setNewListEditing(false);
     setNewListName("");
+    setCommitListError("");
   };
   const finishEdit = () => {
     if (editingId) {
@@ -13906,43 +13958,62 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const findName = (pid) => users.find((u) => u.id === pid)?.name;
   return (
     <>
-      {/* v2: list-selector tabs. "Grocery" is always present;
-          additional lists derive from existing items + a "+ New" tab
-          to create a fresh one. */}
+      {/* Chapter 1a list-selector tabs. Reads from the family_settings
+          registry (lastUsedAt desc → createdAt desc → name asc) so every
+          named list shows even with zero items — empty-list survival.
+          Pill badge is the unchecked count, or a small dot when empty.
+          Rename / delete are 1d (not in this commit). */}
       <div className="flex items-center gap-1.5 mb-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-        {availableLists.map((name) => (
-          <button
-            key={name}
-            type="button"
-            onClick={() => setActiveList(name)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition ${activeList === name ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"}`}
-          >
-            {name}
-          </button>
-        ))}
+        {availableLists.map((entry) => {
+          const isActive = activeListKey === entry.key;
+          const tally = listCounts.get(entry.key);
+          const unchecked = tally?.unchecked ?? 0;
+          return (
+            <button
+              key={entry.key}
+              type="button"
+              onClick={() => { setActiveList(entry.name); setCommitListError(""); }}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1.5 ${isActive ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"}`}
+            >
+              <span>{entry.name}</span>
+              {unchecked > 0 ? (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/25 text-white" : "bg-slate-200 text-slate-500"}`}>
+                  {unchecked}
+                </span>
+              ) : (
+                <span className={`text-[10px] ${isActive ? "text-white/60" : "text-slate-400"}`} aria-label="empty list">·</span>
+              )}
+            </button>
+          );
+        })}
         {!newListEditing ? (
           <button
             type="button"
-            onClick={() => { setNewListEditing(true); setNewListName(""); }}
+            onClick={() => { setNewListEditing(true); setNewListName(""); setCommitListError(""); }}
             className="shrink-0 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-50 text-slate-500 border border-dashed border-slate-300"
           >
-            + New
+            + New list
           </button>
         ) : (
           <span className="shrink-0 flex items-center gap-1">
             <input
               value={newListName}
-              onChange={(e) => setNewListName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") commitNewList(); if (e.key === "Escape") { setNewListEditing(false); setNewListName(""); } }}
+              onChange={(e) => { setNewListName(e.target.value); setCommitListError(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") commitNewList(); if (e.key === "Escape") { setNewListEditing(false); setNewListName(""); setCommitListError(""); } }}
               placeholder="Costco, Target…"
               autoFocus
               className="border border-indigo-200 rounded-full px-2.5 py-1 text-xs font-bold w-32"
             />
             <button onClick={commitNewList} disabled={!newListName.trim()} className={`px-2 py-1 rounded-full text-[10px] font-bold ${newListName.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}>Go</button>
-            <button onClick={() => { setNewListEditing(false); setNewListName(""); }} className="px-1 text-[10px] font-bold text-slate-400">Cancel</button>
+            <button onClick={() => { setNewListEditing(false); setNewListName(""); setCommitListError(""); }} className="px-1 text-[10px] font-bold text-slate-400">Cancel</button>
           </span>
         )}
       </div>
+      {commitListError ? (
+        <div className="mb-2 px-1 text-[11px] font-semibold text-rose-600">
+          {commitListError}
+        </div>
+      ) : null}
 
       {/* 🔁 Maybe running low — items past their usual restock cadence
           based on this family's own history. Pure client-side smarts;
