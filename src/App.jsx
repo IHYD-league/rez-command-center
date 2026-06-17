@@ -21,6 +21,7 @@ import { uploadFamilyPhoto, useSignedUrl, uploadFamilyAudio } from "./lib/storag
 import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
+import ReceiptScanner from "./ReceiptScanner.jsx";
 import {
   DEFAULT_LIST_KEY as SHOPPING_DEFAULT_LIST_KEY,
   DEFAULT_LIST_NAME as SHOPPING_DEFAULT_LIST_NAME,
@@ -13649,6 +13650,13 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [editDraft, setEditDraft] = useState("");
   const [editBrandDraft, setEditBrandDraft] = useState("");
   const [editSectionDraft, setEditSectionDraft] = useState("");
+  // RS-1 Commit B — kind-chooser sheet replaces the prior 2-button
+  // grid. chooserOpen drives the bottom sheet; receiptScannerOpen
+  // drives the (still-stubbed) ReceiptScanner overlay mount. The
+  // mount is the wiring — full receipt UX comes in a follow-up PR
+  // where ReceiptScanner.jsx grows past its current `return null`.
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [receiptScannerOpen, setReceiptScannerOpen] = useState(false);
 
   // Lists + sections (chapter 1a/1b — see docs/SHOPPING-LISTS-CHAPTER-1-PLAN.md).
   // activeList holds the DISPLAY label of the tab Krissie is on.
@@ -14436,24 +14444,94 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
         )}
       </form>
 
-      <div className="grid grid-cols-2 gap-2 mb-3">
-        <label className="block">
-          <input type="file" accept="image/*" onChange={(e) => { setScanKind("shopping_list"); onScanFile(e); }} className="hidden" />
-          <span className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-bold text-[11px] cursor-pointer active:scale-[0.99]">
-            📷 Scan a written list
-          </span>
-        </label>
-        <label className="block">
-          <input type="file" accept="image/*" onChange={(e) => { setScanKind("shopping_product"); onScanFile(e); }} className="hidden" />
-          <span className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-violet-50 border border-violet-200 text-violet-800 font-bold text-[11px] cursor-pointer active:scale-[0.99]">
-            📷 Scan a product
-          </span>
-        </label>
-      </div>
+      {/* RS-1 Commit B: kind-chooser sheet entry point. Replaces the
+          prior 2-button grid (list/product). Receipt is the third
+          kind; its tile mounts ReceiptScanner.jsx (currently a stub).
+          Scales as more kinds arrive without crowding the scan area. */}
+      <button
+        type="button"
+        onClick={() => setChooserOpen(true)}
+        className="w-full py-2 mb-3 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 font-bold text-[12px] inline-flex items-center justify-center gap-1.5 active:scale-[0.99]"
+      >
+        📷 Scan
+      </button>
 
-      <div className="text-[10px] text-slate-500 text-center mb-3">
-        Scan the barcode, or photograph the front of the product.
-      </div>
+      {chooserOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-end"
+          onClick={() => setChooserOpen(false)}
+        >
+          <div className="absolute inset-0 bg-black/30" />
+          <div
+            className="relative w-full bg-white rounded-t-2xl p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center font-bold text-sm mb-3 text-slate-700">Scan to add</div>
+            <div className="space-y-2">
+              <label className="block">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => { setChooserOpen(false); setScanKind("shopping_list"); onScanFile(e); }}
+                  className="hidden"
+                />
+                <div className="cursor-pointer active:scale-[0.99] p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-3">
+                  <div className="text-2xl">📝</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm text-amber-800">A written list</div>
+                    <div className="text-[11px] text-amber-700">Handwritten or typed shopping list</div>
+                  </div>
+                </div>
+              </label>
+              <label className="block">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => { setChooserOpen(false); setScanKind("shopping_product"); onScanFile(e); }}
+                  className="hidden"
+                />
+                <div className="cursor-pointer active:scale-[0.99] p-3 rounded-xl bg-violet-50 border border-violet-200 flex items-center gap-3">
+                  <div className="text-2xl">📦</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm text-violet-800">A product</div>
+                    <div className="text-[11px] text-violet-700">Scan the barcode, or photograph the front of the product</div>
+                  </div>
+                </div>
+              </label>
+              <button
+                type="button"
+                onClick={() => { setChooserOpen(false); setReceiptScannerOpen(true); }}
+                className="w-full cursor-pointer active:scale-[0.99] p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-3 text-left"
+              >
+                <div className="text-2xl">🧾</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm text-emerald-800">A receipt</div>
+                  <div className="text-[11px] text-emerald-700">Capture what was bought, where, and how much</div>
+                </div>
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setChooserOpen(false)}
+              className="w-full mt-3 py-2 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt scanner mount. ReceiptScanner.jsx is a stub today
+          (returns null), so picking the receipt tile is a no-op
+          visually. The wiring + activeListKey contract are landed
+          here so the follow-up PR that implements the receipt UX
+          inherits the right scaffold. */}
+      {receiptScannerOpen && (
+        <ReceiptScanner
+          onClose={() => setReceiptScannerOpen(false)}
+          activeListKey={activeListKey}
+        />
+      )}
 
       {scanning && (
         <Card className="p-3 mb-3 bg-slate-50 text-center">
