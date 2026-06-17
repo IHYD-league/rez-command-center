@@ -13654,7 +13654,13 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   );
   const [newListEditing, setNewListEditing] = useState(false);
   const [newListName, setNewListName] = useState("");
-  const [commitListError, setCommitListError] = useState("");
+  // 1c — structured collision state instead of a string error. Holds
+  // the EXISTING registry entry when a create attempt hit a duplicate
+  // key (case-insensitive). The render row uses this to surface a
+  // one-tap "Switch to <Name>" button so Krissie doesn't have to
+  // scroll back to find the existing pill — closes the create-loop
+  // in place. null = no collision, normal state.
+  const [commitListCollision, setCommitListCollision] = useState(null);
   const activeListKey = shoppingNormalizeListKey(activeList) || SHOPPING_DEFAULT_LIST_KEY;
 
   // Tab-switch handler — updates local state AND persists the new key
@@ -13938,20 +13944,20 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
       setActiveList(raw.slice(0, 24));
       setNewListEditing(false);
       setNewListName("");
-      setCommitListError("");
+      setCommitListCollision(null);
       return;
     }
     const result = shoppingSettingsAfterCreateList(familySettings, raw);
     if (result.error === "collision") {
-      // Surface the conflict — caller can tap the existing pill to
-      // switch. Keep the input editable so they can adjust the name.
-      setCommitListError(
-        `"${result.existing.name}" already exists — tap it above to switch.`
-      );
+      // 1c — store the EXISTING entry (not just a string) so the inline
+      // error row can render a one-tap "Switch to <Name>" button.
+      // case-insensitive normalize means "costco" / "COSTCO" / "Costco"
+      // all land here pointing at the same existing entry.
+      setCommitListCollision(result.existing);
       return;
     }
     if (result.error === "empty") {
-      setCommitListError("");
+      setCommitListCollision(null);
       return;
     }
     // 1b — single-shot family_settings write: the new registry entry
@@ -13969,7 +13975,18 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     setActiveList(created?.name || raw.slice(0, 24));
     setNewListEditing(false);
     setNewListName("");
-    setCommitListError("");
+    setCommitListCollision(null);
+  };
+
+  // 1c — close the collision loop in place. Switches active list to
+  // the existing entry (via the 1b persistence path) and clears the
+  // create-input state so Krissie's done in one tap.
+  const switchToExisting = (entry) => {
+    if (!entry || !entry.name) return;
+    setActiveAndPersist(entry.name);
+    setCommitListCollision(null);
+    setNewListEditing(false);
+    setNewListName("");
   };
   const finishEdit = () => {
     if (editingId) {
@@ -14002,7 +14019,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
             <button
               key={entry.key}
               type="button"
-              onClick={() => { setActiveAndPersist(entry.name); setCommitListError(""); }}
+              onClick={() => { setActiveAndPersist(entry.name); setCommitListCollision(null); }}
               className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1.5 ${isActive ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"}`}
             >
               <span>{entry.name}</span>
@@ -14019,7 +14036,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
         {!newListEditing ? (
           <button
             type="button"
-            onClick={() => { setNewListEditing(true); setNewListName(""); setCommitListError(""); }}
+            onClick={() => { setNewListEditing(true); setNewListName(""); setCommitListCollision(null); }}
             className="shrink-0 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-50 text-slate-500 border border-dashed border-slate-300"
           >
             + New list
@@ -14028,20 +14045,27 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
           <span className="shrink-0 flex items-center gap-1">
             <input
               value={newListName}
-              onChange={(e) => { setNewListName(e.target.value); setCommitListError(""); }}
-              onKeyDown={(e) => { if (e.key === "Enter") commitNewList(); if (e.key === "Escape") { setNewListEditing(false); setNewListName(""); setCommitListError(""); } }}
+              onChange={(e) => { setNewListName(e.target.value); setCommitListCollision(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") commitNewList(); if (e.key === "Escape") { setNewListEditing(false); setNewListName(""); setCommitListCollision(null); } }}
               placeholder="Costco, Target…"
               autoFocus
               className="border border-indigo-200 rounded-full px-2.5 py-1 text-xs font-bold w-32"
             />
             <button onClick={commitNewList} disabled={!newListName.trim()} className={`px-2 py-1 rounded-full text-[10px] font-bold ${newListName.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}>Go</button>
-            <button onClick={() => { setNewListEditing(false); setNewListName(""); setCommitListError(""); }} className="px-1 text-[10px] font-bold text-slate-400">Cancel</button>
+            <button onClick={() => { setNewListEditing(false); setNewListName(""); setCommitListCollision(null); }} className="px-1 text-[10px] font-bold text-slate-400">Cancel</button>
           </span>
         )}
       </div>
-      {commitListError ? (
-        <div className="mb-2 px-1 text-[11px] font-semibold text-rose-600">
-          {commitListError}
+      {commitListCollision ? (
+        <div className="mb-2 px-1 text-[11px] font-semibold text-rose-600 flex items-center gap-2 flex-wrap">
+          <span>"{commitListCollision.name}" already exists.</span>
+          <button
+            type="button"
+            onClick={() => switchToExisting(commitListCollision)}
+            className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold"
+          >
+            Switch to {commitListCollision.name}
+          </button>
         </div>
       ) : null}
 
