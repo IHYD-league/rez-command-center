@@ -13894,7 +13894,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const renameScan = (i, v) => setScanResults((s) => ({ ...s, items: s.items.map((it, idx) => idx === i ? { ...it, title: v } : it) }));
   const commitScan = () => {
     const picked = (scanResults?.items || []).filter((it) => it.picked);
-    for (const it of picked) addShoppingItem(it.title, "", { brand: it.brand || "", listName: activeList });
+    for (const it of picked) addShoppingItem(it.title, "", { brand: it.brand || "", listName: activeListKey });
     setScanResults(null);
   };
   // Partition the ACTIVE-LIST items into pending / on-the-list /
@@ -13934,7 +13934,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [declineReasonDraft, setDeclineReasonDraft] = useState("");
   const submit = (e) => {
     e?.preventDefault?.();
-    addShoppingItem(draft, "", { brand: draftBrand, listName: activeList });
+    addShoppingItem(draft, "", { brand: draftBrand, listName: activeListKey });
     setDraft("");
     setDraftBrand("");
     setShowSmartSuggestions(true);
@@ -13942,7 +13942,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   // One-tap quick-add from favorites / suggestions: pulls the saved
   // brand pref along so Krissie gets "Jif" not generic peanut butter.
   const quickAdd = (entry) => {
-    addShoppingItem(entry.title, "", { brand: entry.brand || "", listName: activeList });
+    addShoppingItem(entry.title, "", { brand: entry.brand || "", listName: activeListKey });
     setDraft("");
     setDraftBrand("");
     setShowSmartSuggestions(true);
