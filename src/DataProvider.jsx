@@ -30,6 +30,7 @@ const ENTITIES = {
   events:          { table: "events",           toApp: toApp.event,          toDb: toDb.event,          key: "id"   },
   handoffNotes:    { table: "handoff_notes",    toApp: toApp.handoffNote,    toDb: toDb.handoffNote,    key: "id"   },
   albumPhotos:     { table: "album_photos",     toApp: toApp.albumPhoto,     toDb: toDb.albumPhoto,     key: "id"   },
+  receipts:        { table: "receipts",         toApp: toApp.receipt,        toDb: toDb.receipt,        key: "id"   },
 };
 
 async function loadFamilyId() {

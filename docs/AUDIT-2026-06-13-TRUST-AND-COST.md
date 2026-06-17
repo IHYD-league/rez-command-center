@@ -47,6 +47,28 @@ When a book, song, gift, or completion is removed, the photo path stays in stora
 
 **Fix:** Each `remove*` checks for paths in the deleted row and calls `supabase.storage.from("family-photos").remove(paths)`. Same for `undoTask` and `removeCompletionPhoto`.
 
+### 6. `vision-parse` Netlify function has no auth gate
+
+**Added 2026-06-17 alongside RS-1 (receipt scanner). Closes BEFORE any non-Lynch family uses the receipt feature.**
+
+`netlify/functions/vision-parse.js` accepts POST requests from anyone with the public URL. No Supabase JWT verification, no family-membership check, no rate limit beyond Netlify defaults. This was acceptable for the original `shopping_list` and `shopping_product` kinds because grocery wish lists carry low sensitivity and the API-key burn was small. **Receipts change the threat model:**
+
+- Receipts encode store, location, dates, dollar amounts, and payment patterns. Sending arbitrary images claiming to be receipts gets free OCR using the Lynch family's Anthropic key — a hostile actor could use the endpoint as a free OCR-as-a-service while draining `ANTHROPIC_API_KEY` budget.
+- An invite-coded multi-family rollout (`feat/easy-family-invites`, `feat/magic-link-invites`, `Gate "New family" signup behind an invite code`) means non-Lynch users will be hitting this endpoint imminently. The current state would let a non-family member with any URL trigger OCR billable to Mike.
+
+**Trigger to close (not "fix at some point", a hard precondition):** before any non-Lynch family uses the receipt-scan flow. RS-1 ships behind a private deploy used only by the Lynch family; multi-family is the line.
+
+**Fix shape (NOT in RS-1, sketched so it isn't forgotten):**
+1. Pull the `Authorization: Bearer <jwt>` header from the request.
+2. Verify the JWT against Supabase's JWT secret (env var, same one the DB uses for auth).
+3. Reject if invalid or missing `sub` claim.
+4. Cross-check the auth user has a `public.profiles` row (the family-membership gate). For receipts specifically, requiring a profile is the right bar.
+5. Add a per-auth-user rate limit (Netlify Edge Config or a Supabase counter table) to bound the Anthropic burn rate even for legitimate users.
+
+**Blast radius of the fix:** small — single file (`netlify/functions/vision-parse.js`), additive guards at the top of the handler. The existing kind-dispatch logic is untouched. Zero schema change.
+
+**Honest limitation of the current state:** even without this fix, the endpoint's only exposed verb is POST, requires a base64 image in the body, returns JSON only. There's no data exfiltration path beyond billing. But the bill itself is the risk.
+
 ---
 
 ## 🟡 Important — fix before scale

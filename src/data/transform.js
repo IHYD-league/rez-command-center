@@ -323,6 +323,28 @@ export const toApp = {
       : "",
     postedAt: r.posted_at,
   }),
+
+  // RS-1 receipts — image pointer + parsed payload + soft-delete.
+  // ocrRaw carries the load-bearing items_reviewed contract that RS-2
+  // reads to mint purchase rows. Pass through unmodified; the
+  // scanner UI is the only writer.
+  receipt: (r) => ({
+    id: r.id,
+    imagePath: r.image_path,
+    storeName: r.store_name ?? "",
+    storeChain: r.store_chain ?? "",
+    storeLabel: r.store_label ?? "",
+    purchasedAt: r.purchased_at,
+    subtotal: r.subtotal,
+    tax: r.tax,
+    total: r.total,
+    currency: r.currency ?? "USD",
+    ocrRaw: r.ocr_raw ?? {},
+    parsedStatus: r.parsed_status ?? "parsed",
+    uploadedBy: r.uploaded_by ?? null,
+    createdAt: r.created_at,
+    deletedAt: r.deleted_at ?? null,
+  }),
 };
 
 export const toDb = {
@@ -632,5 +654,26 @@ export const toDb = {
     author_id: o.authorId ?? null,
     note: o.note,
     pinned: o.pinned ?? false,
+  }),
+
+  // RS-1 receipts — see toApp.receipt for the round-trip shape.
+  // currency / parsed_status fall back to sensible defaults rather
+  // than NULL because the table requires them NOT NULL.
+  receipt: (familyId) => (o) => ({
+    id: o.id,
+    family_id: familyId,
+    image_path: o.imagePath,
+    store_name: o.storeName || null,
+    store_chain: o.storeChain || null,
+    store_label: o.storeLabel || null,
+    purchased_at: o.purchasedAt,
+    subtotal: o.subtotal ?? null,
+    tax: o.tax ?? null,
+    total: o.total ?? null,
+    currency: o.currency || "USD",
+    ocr_raw: o.ocrRaw ?? {},
+    parsed_status: o.parsedStatus || "parsed",
+    uploaded_by: o.uploadedBy ?? null,
+    deleted_at: o.deletedAt ?? null,
   }),
 };
