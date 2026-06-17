@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 # Auto-build docs/ when source files change so the GitHub Pages output
 # stays in sync with the committed source in a single commit.
+#
+# IMPORTANT (2026-06-17 hotfix): this hook owns exactly TWO paths under
+# docs/ — `docs/index.html` and the `docs/assets/` bundle directory.
+# Those are the only paths the `prebuild` npm script wipes and that
+# `vite build` regenerates from `src/` + `index.html`. Everything else
+# in docs/ (planning .md docs, board/sign-in/logo public-asset copies,
+# school-plans, etc.) is owned by humans or by `public/`, not by this
+# hook.
+#
+# Previously: `git add docs` was a blanket sweep that pulled ANY
+# untracked file dropped into docs/ into whatever commit happened to
+# run the hook. That collided with planning docs authored by sibling
+# agents (FOOD-HUB-VISION.md, STREAKS-FOR-ANY-ACTIVITY-PLAN.md) and
+# forced --no-verify bypasses to undo. Exact-path staging fixes that.
 set -e
 
 # Bypass: `SKIP_BUILD=1 git commit ...`
@@ -12,5 +26,8 @@ fi
 if git diff --cached --name-only | grep -qE '^(src/|index\.html$|vite\.config\.js$|package(-lock)?\.json$)'; then
   echo "pre-commit: building docs/ ..."
   npm run build --silent
-  git add docs
+  # Exact-path staging — only the build's own output. `--all` ensures
+  # deletions are picked up too (Vite renames the hashed bundle every
+  # build, so the previous index-*.js needs to be staged as deleted).
+  git add --all -- docs/index.html docs/assets
 fi
