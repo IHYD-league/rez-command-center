@@ -77,17 +77,41 @@ export function readRegistry(familySettings) {
 /**
  * Sort the registry for tab-bar render order.
  *
- * Order: lastUsedAt desc (nulls last) → createdAt desc (nulls last) →
- * name asc. The just-used list lands leftmost so Krissie's most
- * recent context is the easiest tap. The seeded Grocery default
- * (createdAt + lastUsedAt both null) lands rightmost only when no
- * other list has been used either — once any list has activity,
- * lastUsedAt wins and Grocery falls into its natural slot.
+ * Two-mode behavior (chapter 1d):
+ * * If ANY entry has a numeric `position` field set, the registry is
+ *   in MANUAL order — sort by position ascending. Manual order
+ *   overrides recency, per Mike's directive ("manual order, once
+ *   set, OVERRIDES the lastUsedAt-desc default"). Entries without a
+ *   position fall to the end, sorted by name asc as the tiebreaker
+ *   (covers newly-created lists that haven't been reordered yet).
+ * * Otherwise (the chapter 1a/1b default), sort by:
+ *     lastUsedAt desc (nulls last) → createdAt desc (nulls last) →
+ *     name asc. Just-used list is leftmost.
+ *
+ * The seeded Grocery default (createdAt + lastUsedAt both null,
+ * position null) lands rightmost in the default mode only when no
+ * other list has been used either.
  *
  * Returns a new array — does not mutate input.
  */
 export function getOrderedLists(familySettings) {
   const arr = readRegistry(familySettings);
+  const hasManualOrder = arr.some(
+    (e) => e && typeof e.position === "number"
+  );
+  if (hasManualOrder) {
+    return arr.slice().sort((a, b) => {
+      const aHas = typeof a?.position === "number";
+      const bHas = typeof b?.position === "number";
+      if (aHas && bHas) {
+        if (a.position !== b.position) return a.position - b.position;
+        return (a?.name || "").localeCompare(b?.name || "");
+      }
+      if (aHas && !bHas) return -1;
+      if (!aHas && bHas) return 1;
+      return (a?.name || "").localeCompare(b?.name || "");
+    });
+  }
   return arr.slice().sort((a, b) => {
     const aUsed = a?.lastUsedAt || "";
     const bUsed = b?.lastUsedAt || "";
@@ -242,6 +266,17 @@ export function settingsAfterCreateList(familySettings, displayName) {
   if (collision) return { error: "collision", existing: collision };
   const now = new Date().toISOString();
   const entry = { key, name, createdAt: now, lastUsedAt: now };
+  // 1d — if the registry is in manual order (anyone has a position
+  // field), new lists land at the END so Krissie's arrangement is
+  // preserved. Use max(position) + 1 to avoid colliding with an
+  // existing slot. If no manual order is set, position stays null
+  // and the entry gets the recency-default treatment.
+  const positions = current
+    .map((e) => e?.position)
+    .filter((p) => typeof p === "number");
+  if (positions.length > 0) {
+    entry.position = Math.max(...positions) + 1;
+  }
   // Preserve all other settings keys; only the shoppingLists array
   // is replaced. The Grocery default is included via readRegistry if
   // it wasn't there before — this is the moment it persists.
@@ -249,5 +284,163 @@ export function settingsAfterCreateList(familySettings, displayName) {
   return {
     settings: { ...(familySettings || {}), shoppingLists: nextLists },
     key,
+  };
+}
+
+/**
+ * Rename a list — either casing-only ("costco" → "Costco" same key)
+ * or a real key change ("Taget" → "Target", new key).
+ *
+ * Returns one of:
+ *   { settings, newKey, casingOnly: true }    — display name only
+ *   { settings, newKey, casingOnly: false }   — real rename (items
+ *                                                need batch relabel)
+ *   { error: "collision", existing, oldEntry } — new key clashes
+ *   { error: "empty" }
+ *   { error: "not_found" }
+ *
+ * On collision, the caller MUST prompt the merge ("move everything
+ * from X into Y?") per Mike's directive — never silent. The
+ * { existing, oldEntry } in the return give the caller everything
+ * needed to render that prompt; on confirm, call
+ * settingsAfterMerge separately to apply the merge.
+ *
+ * On a real (non-casing-only) rename, the caller must batch-
+ * relabel shopping_items.list_name from oldKey to newKey alongside
+ * the family_settings write — otherwise existing items orphan to
+ * the old key. Pure helpers can't do that side; the caller owns it.
+ *
+ * Pure: caller persists via setFamilySettings.
+ */
+export function settingsAfterRename(familySettings, oldKey, newDisplayName) {
+  const name = (typeof newDisplayName === "string" ? newDisplayName : "")
+    .trim()
+    .slice(0, 24);
+  if (!name) return { error: "empty" };
+  const newKey = normalizeListKey(name);
+  if (!newKey) return { error: "empty" };
+  const registry = readRegistry(familySettings);
+  const oldEntry = registry.find((e) => e.key === oldKey);
+  if (!oldEntry) return { error: "not_found" };
+
+  if (newKey === oldKey) {
+    // Casing-only change — items keep their current list_name, just
+    // update the display name on the entry.
+    const updated = registry.map((e) =>
+      e.key === oldKey ? { ...e, name } : e
+    );
+    return {
+      settings: { ...(familySettings || {}), shoppingLists: updated },
+      newKey,
+      casingOnly: true,
+    };
+  }
+
+  const existing = registry.find((e) => e.key === newKey);
+  if (existing) {
+    return { error: "collision", existing, oldEntry };
+  }
+
+  // Real rename. Update the entry's key + name; items still carry
+  // the old key in shopping_items.list_name and need a separate
+  // batch relabel from the caller.
+  const updated = registry.map((e) =>
+    e.key === oldKey ? { ...e, key: newKey, name } : e
+  );
+  const nextSettings = { ...(familySettings || {}), shoppingLists: updated };
+  // If the renamed list was the active one, update lastActiveListKey
+  // so the activated tab follows the rename.
+  if (familySettings?.lastActiveListKey === oldKey) {
+    nextSettings.lastActiveListKey = newKey;
+  }
+  return { settings: nextSettings, newKey, casingOnly: false };
+}
+
+/**
+ * Merge `fromKey` into `toKey`. Removes the from entry from the
+ * registry; the surviving to entry keeps its name/casing/position.
+ * If `fromKey` was the active list, lastActiveListKey switches to
+ * `toKey` so Krissie doesn't end up on a deleted tab.
+ *
+ * Caller MUST batch-relabel shopping_items.list_name from fromKey
+ * to toKey alongside this settings write.
+ *
+ * Pure: caller persists via setFamilySettings.
+ */
+export function settingsAfterMerge(familySettings, fromKey, toKey) {
+  const registry = readRegistry(familySettings);
+  const fromEntry = registry.find((e) => e.key === fromKey);
+  const toEntry = registry.find((e) => e.key === toKey);
+  if (!fromEntry || !toEntry) return { error: "not_found" };
+
+  const updated = registry.filter((e) => e.key !== fromKey);
+  const nextSettings = { ...(familySettings || {}), shoppingLists: updated };
+  if (familySettings?.lastActiveListKey === fromKey) {
+    nextSettings.lastActiveListKey = toKey;
+  }
+  return { settings: nextSettings, fromKey, toKey };
+}
+
+/**
+ * Delete a list. Returns the new settings + the fallback key that
+ * orphan items should move to. The caller MUST batch-relabel
+ * shopping_items.list_name from the deleted key to fallbackKey.
+ *
+ * Cannot delete the last remaining list (returns
+ * { error: "last_remaining" }) — chapter 1d's UI also hides the
+ * delete affordance when only one list remains, but the helper
+ * enforces this server-of-truth-style for safety.
+ *
+ * Pure: caller persists via setFamilySettings.
+ */
+export function settingsAfterDelete(familySettings, key) {
+  const registry = readRegistry(familySettings);
+  if (registry.length <= 1) return { error: "last_remaining" };
+  const entry = registry.find((e) => e.key === key);
+  if (!entry) return { error: "not_found" };
+
+  const updated = registry.filter((e) => e.key !== key);
+  // Items in the deleted list move to Grocery default if it still
+  // exists, otherwise the first remaining list.
+  const fallback =
+    updated.find((e) => e.key === DEFAULT_LIST_KEY) || updated[0];
+  const nextSettings = { ...(familySettings || {}), shoppingLists: updated };
+  if (familySettings?.lastActiveListKey === key) {
+    nextSettings.lastActiveListKey = fallback.key;
+  }
+  return { settings: nextSettings, fallbackKey: fallback.key };
+}
+
+/**
+ * Reorder the registry. `orderedKeys` is the array of keys in the
+ * NEW desired order. Each entry gets a position assigned matching
+ * its index. Any entry not in `orderedKeys` is appended at the end
+ * with position = length so legacy entries don't vanish.
+ *
+ * Once ANY entry has a position assigned, getOrderedLists switches
+ * to manual-order mode and the recency default is dormant until
+ * positions are cleared.
+ *
+ * Pure: caller persists via setFamilySettings.
+ */
+export function settingsAfterReorder(familySettings, orderedKeys) {
+  const registry = readRegistry(familySettings);
+  const seen = new Set();
+  const updated = [];
+  for (let i = 0; i < (orderedKeys || []).length; i++) {
+    const key = orderedKeys[i];
+    const entry = registry.find((e) => e.key === key);
+    if (!entry || seen.has(key)) continue;
+    updated.push({ ...entry, position: i });
+    seen.add(key);
+  }
+  for (const entry of registry) {
+    if (!seen.has(entry.key)) {
+      updated.push({ ...entry, position: updated.length });
+      seen.add(entry.key);
+    }
+  }
+  return {
+    settings: { ...(familySettings || {}), shoppingLists: updated },
   };
 }

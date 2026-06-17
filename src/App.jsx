@@ -31,6 +31,10 @@ import {
   settingsAfterCreateList as shoppingSettingsAfterCreateList,
   getActiveListEntry as shoppingGetActiveListEntry,
   settingsAfterSetActive as shoppingSettingsAfterSetActive,
+  settingsAfterRename as shoppingSettingsAfterRename,
+  settingsAfterMerge as shoppingSettingsAfterMerge,
+  settingsAfterDelete as shoppingSettingsAfterDelete,
+  settingsAfterReorder as shoppingSettingsAfterReorder,
 } from "./lib/shoppingLists.js";
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { searchOpenLibrary } from "./lib/enrichBook.js";
@@ -919,6 +923,16 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const clearCheckedShoppingItems = () => setShoppingItems((prev) => prev.filter((it) => !it.checked));
   const renameShoppingItem = (id, title) => setShoppingItems((prev) => prev.map((it) => it.id === id ? { ...it, title } : it));
   const updateShoppingItem = (id, patch) => setShoppingItems((prev) => prev.map((it) => it.id === id ? { ...it, ...patch } : it));
+  // 1d — bulk relabel for rename / merge / delete. Match items by
+  // normalized current listName so legacy capital-G "Grocery" items
+  // and forward-clean lowercase items both follow. One setShoppingItems
+  // call → one sync round trip. fromKey already normalized; toKey
+  // stored as-given (callers always pass a normalized key).
+  const relabelShoppingItemsByListKey = (fromKey, toKey) =>
+    setShoppingItems((prev) => prev.map((it) => {
+      const itemKey = (it.listName || "Grocery").toLowerCase().trim().replace(/\s+/g, " ");
+      return itemKey === fromKey ? { ...it, listName: toKey } : it;
+    }));
   const removePracticeSession = (id) => setPracticeSessions((prev) => {
     const target = prev.find((s) => s.id === id);
     const next = prev.filter((s) => s.id !== id);
@@ -2226,6 +2240,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     pendingMoreSub, setPendingMoreSub,
     practiceSessions, addPracticeSession, removePracticeSession,
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
+    relabelShoppingItemsByListKey,
     familySettings, setFamilySettings,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
@@ -12619,7 +12634,7 @@ function MoreParent(props) {
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
-  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} /></BackWrap>;
+  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
@@ -13624,7 +13639,7 @@ function EmailSetup(props) {
 // long-press / pencil to rename, X to remove. Strikethrough on
 // checked items sinks them to the bottom. One-tap "Clear bought"
 // when the trip's over. The whole point is being faster than texting.
-function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null, familySettings = {}, setFamilySettings = null }) {
+function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null, familySettings = {}, setFamilySettings = null, relabelShoppingItemsByListKey = null }) {
   const isKid = user?.role === "kid";
   const isParent = user?.role === "parent" || user?.role === "helper" || user?.role === "grandparent";
   const [draft, setDraft] = useState("");
@@ -13988,6 +14003,128 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     setNewListEditing(false);
     setNewListName("");
   };
+
+  // 1d — rename + delete + manual reorder UI state. The sheet is a
+  // single modal that handles all three; each row has its own
+  // edit-mode toggle for inline rename, plus up/down move buttons,
+  // plus a delete confirm. Merge-on-collision is also handled
+  // inside the sheet via the renameMergePrompt state.
+  const [manageOpen, setManageOpen] = useState(false);
+  const [renamingKey, setRenamingKey] = useState(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameMergePrompt, setRenameMergePrompt] = useState(null);
+  const [deleteConfirmKey, setDeleteConfirmKey] = useState(null);
+
+  const closeManage = () => {
+    setManageOpen(false);
+    setRenamingKey(null);
+    setRenameDraft("");
+    setRenameMergePrompt(null);
+    setDeleteConfirmKey(null);
+  };
+
+  const startRename = (entry) => {
+    setRenamingKey(entry.key);
+    setRenameDraft(entry.name);
+    setRenameMergePrompt(null);
+  };
+
+  const commitRename = (entry) => {
+    if (!setFamilySettings) return;
+    const result = shoppingSettingsAfterRename(familySettings, entry.key, renameDraft);
+    if (result.error === "empty") {
+      // No-op silently; keep editor open
+      return;
+    }
+    if (result.error === "not_found") {
+      // Entry vanished; bail out
+      setRenamingKey(null);
+      setRenameDraft("");
+      return;
+    }
+    if (result.error === "collision") {
+      // ALWAYS prompt the merge per Mike's directive — never silent.
+      setRenameMergePrompt({
+        fromEntry: result.oldEntry,
+        toEntry: result.existing,
+      });
+      return;
+    }
+    setFamilySettings(() => result.settings);
+    // Real rename → batch-relabel items from old key to new key so
+    // shopping_items.list_name follows the entry. Casing-only rename
+    // → items keep their existing list_name (storage key didn't move).
+    if (!result.casingOnly && relabelShoppingItemsByListKey) {
+      relabelShoppingItemsByListKey(entry.key, result.newKey);
+    }
+    // If the renamed entry was the active tab, update local activeList
+    // display name so the visible label stays in sync without a refresh.
+    if (activeListKey === entry.key) {
+      setActiveList(renameDraft.trim().slice(0, 24));
+    }
+    setRenamingKey(null);
+    setRenameDraft("");
+  };
+
+  const confirmMerge = () => {
+    if (!renameMergePrompt || !setFamilySettings) return;
+    const { fromEntry, toEntry } = renameMergePrompt;
+    const result = shoppingSettingsAfterMerge(familySettings, fromEntry.key, toEntry.key);
+    if (result.error) {
+      setRenameMergePrompt(null);
+      return;
+    }
+    setFamilySettings(() => result.settings);
+    if (relabelShoppingItemsByListKey) {
+      relabelShoppingItemsByListKey(fromEntry.key, toEntry.key);
+    }
+    // If the active tab was the from-list, follow the merge.
+    if (activeListKey === fromEntry.key) {
+      setActiveList(toEntry.name);
+    }
+    setRenameMergePrompt(null);
+    setRenamingKey(null);
+    setRenameDraft("");
+  };
+
+  const cancelMerge = () => {
+    setRenameMergePrompt(null);
+    // Leave rename editor open so Krissie can pick a different name.
+  };
+
+  const commitDelete = (entry) => {
+    if (!setFamilySettings) return;
+    const result = shoppingSettingsAfterDelete(familySettings, entry.key);
+    if (result.error) {
+      // last_remaining shouldn't reach here because the UI hides
+      // delete in that case, but guard anyway.
+      setDeleteConfirmKey(null);
+      return;
+    }
+    setFamilySettings(() => result.settings);
+    if (relabelShoppingItemsByListKey) {
+      relabelShoppingItemsByListKey(entry.key, result.fallbackKey);
+    }
+    if (activeListKey === entry.key) {
+      // Follow to the fallback list's display name.
+      const fallbackEntry = result.settings.shoppingLists.find((e) => e.key === result.fallbackKey);
+      if (fallbackEntry) setActiveList(fallbackEntry.name);
+    }
+    setDeleteConfirmKey(null);
+  };
+
+  const moveListBy = (currentOrderedKeys, key, delta) => {
+    const idx = currentOrderedKeys.indexOf(key);
+    if (idx < 0) return;
+    const newIdx = idx + delta;
+    if (newIdx < 0 || newIdx >= currentOrderedKeys.length) return;
+    const next = currentOrderedKeys.slice();
+    next.splice(idx, 1);
+    next.splice(newIdx, 0, key);
+    if (!setFamilySettings) return;
+    const result = shoppingSettingsAfterReorder(familySettings, next);
+    setFamilySettings(() => result.settings);
+  };
   const finishEdit = () => {
     if (editingId) {
       const patch = {};
@@ -14055,6 +14192,19 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
             <button onClick={() => { setNewListEditing(false); setNewListName(""); setCommitListCollision(null); }} className="px-1 text-[10px] font-bold text-slate-400">Cancel</button>
           </span>
         )}
+        {/* 1d — Manage button opens the rename / delete / reorder sheet.
+            Only shown when the family has any registered list (which is
+            always true after readRegistry's grocery seed). */}
+        {availableLists.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setManageOpen(true)}
+            aria-label="Manage lists"
+            className="shrink-0 px-2.5 py-1.5 rounded-full text-xs font-bold bg-slate-50 text-slate-500 border border-dashed border-slate-300"
+          >
+            ⋯
+          </button>
+        ) : null}
       </div>
       {commitListCollision ? (
         <div className="mb-2 px-1 text-[11px] font-semibold text-rose-600 flex items-center gap-2 flex-wrap">
@@ -14066,6 +14216,131 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
           >
             Switch to {commitListCollision.name}
           </button>
+        </div>
+      ) : null}
+
+      {/* 1d — Manage lists sheet. Modal overlay with one row per list:
+          up/down move buttons (manual reorder overrides recency default),
+          inline rename, delete (hidden when only one list remains). */}
+      {manageOpen ? (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-3"
+          onClick={(e) => { if (e.target === e.currentTarget) closeManage(); }}
+        >
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-base font-extrabold text-slate-800">Manage lists</div>
+              <button
+                type="button"
+                onClick={closeManage}
+                className="px-3 py-1 rounded-full bg-indigo-600 text-white text-xs font-bold"
+              >
+                Done
+              </button>
+            </div>
+            <div className="text-[11px] text-slate-400 mb-3">
+              Drag-free for now: ↑ / ↓ move a list. Manual order sticks until you reset it.
+            </div>
+            <div className="flex flex-col gap-2">
+              {availableLists.map((entry, idx) => {
+                const tally = listCounts.get(entry.key);
+                const total = tally?.total ?? 0;
+                const isRenaming = renamingKey === entry.key;
+                const canDelete = availableLists.length > 1;
+                const isFirst = idx === 0;
+                const isLast = idx === availableLists.length - 1;
+                const orderedKeys = availableLists.map((e) => e.key);
+                return (
+                  <div key={entry.key} className="rounded-xl bg-slate-50 border border-slate-200 p-2 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => moveListBy(orderedKeys, entry.key, -1)}
+                          disabled={isFirst}
+                          aria-label="Move up"
+                          className={`w-7 h-5 rounded text-[10px] font-bold ${isFirst ? "bg-slate-100 text-slate-300" : "bg-slate-200 text-slate-600"}`}
+                        >▲</button>
+                        <button
+                          type="button"
+                          onClick={() => moveListBy(orderedKeys, entry.key, 1)}
+                          disabled={isLast}
+                          aria-label="Move down"
+                          className={`w-7 h-5 rounded text-[10px] font-bold ${isLast ? "bg-slate-100 text-slate-300" : "bg-slate-200 text-slate-600"}`}
+                        >▼</button>
+                      </div>
+                      {isRenaming ? (
+                        <input
+                          autoFocus
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitRename(entry);
+                            if (e.key === "Escape") { setRenamingKey(null); setRenameDraft(""); setRenameMergePrompt(null); }
+                          }}
+                          maxLength={24}
+                          className="flex-1 border border-indigo-300 rounded-lg px-2 py-1 text-sm font-bold"
+                        />
+                      ) : (
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold text-slate-800 truncate">{entry.name}</div>
+                          <div className="text-[10px] text-slate-400">{total} item{total === 1 ? "" : "s"}</div>
+                        </div>
+                      )}
+                      {isRenaming ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={() => commitRename(entry)} disabled={!renameDraft.trim()} className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${renameDraft.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}>Save</button>
+                          <button onClick={() => { setRenamingKey(null); setRenameDraft(""); setRenameMergePrompt(null); }} className="px-1.5 text-[10px] font-bold text-slate-400">Cancel</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={() => startRename(entry)} className="px-2.5 py-1 rounded-full bg-white border border-slate-300 text-slate-600 text-[10px] font-bold">Rename</button>
+                          {canDelete ? (
+                            <button onClick={() => setDeleteConfirmKey(entry.key)} className="px-2.5 py-1 rounded-full bg-white border border-rose-300 text-rose-600 text-[10px] font-bold">Delete</button>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                    {isRenaming && renameMergePrompt && renameMergePrompt.fromEntry.key === entry.key ? (
+                      <div className="rounded-lg bg-amber-50 border border-amber-200 p-2 text-[11px] text-amber-900">
+                        <div className="font-bold mb-1">"{renameMergePrompt.toEntry.name}" already exists.</div>
+                        <div className="mb-2">
+                          Move everything from "{renameMergePrompt.fromEntry.name}" into "{renameMergePrompt.toEntry.name}"?
+                          Items keep their check state.
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={confirmMerge} className="px-3 py-1 rounded-full bg-amber-600 text-white text-[10px] font-bold">
+                            Merge into {renameMergePrompt.toEntry.name}
+                          </button>
+                          <button onClick={cancelMerge} className="px-3 py-1 rounded-full bg-white border border-amber-300 text-amber-700 text-[10px] font-bold">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    {deleteConfirmKey === entry.key ? (
+                      <div className="rounded-lg bg-rose-50 border border-rose-200 p-2 text-[11px] text-rose-900">
+                        <div className="font-bold mb-1">Delete "{entry.name}"?</div>
+                        <div className="mb-2">
+                          {total > 0
+                            ? `Its ${total} item${total === 1 ? "" : "s"} will move to ${(availableLists.find((e) => e.key === SHOPPING_DEFAULT_LIST_KEY) || availableLists.find((e) => e.key !== entry.key))?.name || "Grocery"}.`
+                            : "It's empty — nothing to move."}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => commitDelete(entry)} className="px-3 py-1 rounded-full bg-rose-600 text-white text-[10px] font-bold">
+                            Delete
+                          </button>
+                          <button onClick={() => setDeleteConfirmKey(null)} className="px-3 py-1 rounded-full bg-white border border-rose-300 text-rose-700 text-[10px] font-bold">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       ) : null}
 
