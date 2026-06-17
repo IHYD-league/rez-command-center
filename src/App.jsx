@@ -21,6 +21,21 @@ import { uploadFamilyPhoto, useSignedUrl, uploadFamilyAudio } from "./lib/storag
 import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
+import {
+  DEFAULT_LIST_KEY as SHOPPING_DEFAULT_LIST_KEY,
+  DEFAULT_LIST_NAME as SHOPPING_DEFAULT_LIST_NAME,
+  normalizeListKey as shoppingNormalizeListKey,
+  getOrderedLists as shoppingGetOrderedLists,
+  filterItemsForList as shoppingFilterItemsForList,
+  countItemsByList as shoppingCountItemsByList,
+  settingsAfterCreateList as shoppingSettingsAfterCreateList,
+  getActiveListEntry as shoppingGetActiveListEntry,
+  settingsAfterSetActive as shoppingSettingsAfterSetActive,
+  settingsAfterRename as shoppingSettingsAfterRename,
+  settingsAfterMerge as shoppingSettingsAfterMerge,
+  settingsAfterDelete as shoppingSettingsAfterDelete,
+  settingsAfterReorder as shoppingSettingsAfterReorder,
+} from "./lib/shoppingLists.js";
 import { pickFirstMatch as pickSongMatch } from "./lib/enrichSongITunes.js";
 import { searchOpenLibrary } from "./lib/enrichBook.js";
 import { searchGoogleBooks } from "./lib/enrichBookGoogle.js";
@@ -908,6 +923,16 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const clearCheckedShoppingItems = () => setShoppingItems((prev) => prev.filter((it) => !it.checked));
   const renameShoppingItem = (id, title) => setShoppingItems((prev) => prev.map((it) => it.id === id ? { ...it, title } : it));
   const updateShoppingItem = (id, patch) => setShoppingItems((prev) => prev.map((it) => it.id === id ? { ...it, ...patch } : it));
+  // 1d — bulk relabel for rename / merge / delete. Match items by
+  // normalized current listName so legacy capital-G "Grocery" items
+  // and forward-clean lowercase items both follow. One setShoppingItems
+  // call → one sync round trip. fromKey already normalized; toKey
+  // stored as-given (callers always pass a normalized key).
+  const relabelShoppingItemsByListKey = (fromKey, toKey) =>
+    setShoppingItems((prev) => prev.map((it) => {
+      const itemKey = (it.listName || "Grocery").toLowerCase().trim().replace(/\s+/g, " ");
+      return itemKey === fromKey ? { ...it, listName: toKey } : it;
+    }));
   const removePracticeSession = (id) => setPracticeSessions((prev) => {
     const target = prev.find((s) => s.id === id);
     const next = prev.filter((s) => s.id !== id);
@@ -2215,6 +2240,8 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     pendingMoreSub, setPendingMoreSub,
     practiceSessions, addPracticeSession, removePracticeSession,
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
+    relabelShoppingItemsByListKey,
+    familySettings, setFamilySettings,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
     dailyRequiredCount, setDailyRequiredCount,
@@ -12607,7 +12634,7 @@ function MoreParent(props) {
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
-  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} /></BackWrap>;
+  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
@@ -13612,7 +13639,7 @@ function EmailSetup(props) {
 // long-press / pencil to rename, X to remove. Strikethrough on
 // checked items sinks them to the bottom. One-tap "Clear bought"
 // when the trip's over. The whole point is being faster than texting.
-function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null }) {
+function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null, familySettings = {}, setFamilySettings = null, relabelShoppingItemsByListKey = null }) {
   const isKid = user?.role === "kid";
   const isParent = user?.role === "parent" || user?.role === "helper" || user?.role === "grandparent";
   const [draft, setDraft] = useState("");
@@ -13623,30 +13650,68 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [editBrandDraft, setEditBrandDraft] = useState("");
   const [editSectionDraft, setEditSectionDraft] = useState("");
 
-  // v2: lists + sections. activeList drives the per-list filter; the
-  // tabs at the top let parents flip between "Grocery" and "Costco"
-  // (or anything else they add). New empty lists land via the "+ New"
-  // button, which holds the name in pendingNewListName until the user
-  // adds the first item — at that point the list is real (because at
-  // least one item carries that list_name).
-  const [activeList, setActiveList] = useState("Grocery");
+  // Lists + sections (chapter 1a/1b — see docs/SHOPPING-LISTS-CHAPTER-1-PLAN.md).
+  // activeList holds the DISPLAY label of the tab Krissie is on.
+  // activeListKey is the normalized storage key used for filtering and
+  // for item writes — that's the contract Green's RS-1 chooser inherits
+  // (any add must pass listName: shoppingNormalizeListKey(activeList)).
+  // availableLists is the SORTED registry (lastUsedAt desc → createdAt
+  // desc → name asc) read from family_settings.shoppingLists; empty
+  // lists survive because the registry is independent of items.
+  //
+  // 1b — last-active memory across sessions: the initial value is
+  // resolved from family_settings.lastActiveListKey via
+  // getActiveListEntry, with a Grocery fallback for missing/invalid/
+  // stale keys. setActiveAndPersist writes the new key back to
+  // family_settings so the next open lands on the same tab.
+  const [activeList, setActiveList] = useState(
+    () => shoppingGetActiveListEntry(familySettings).name
+  );
   const [newListEditing, setNewListEditing] = useState(false);
   const [newListName, setNewListName] = useState("");
+  // 1c — structured collision state instead of a string error. Holds
+  // the EXISTING registry entry when a create attempt hit a duplicate
+  // key (case-insensitive). The render row uses this to surface a
+  // one-tap "Switch to <Name>" button so Krissie doesn't have to
+  // scroll back to find the existing pill — closes the create-loop
+  // in place. null = no collision, normal state.
+  const [commitListCollision, setCommitListCollision] = useState(null);
+  const activeListKey = shoppingNormalizeListKey(activeList) || SHOPPING_DEFAULT_LIST_KEY;
 
-  const availableLists = useMemo(() => {
-    const s = new Set(["Grocery"]);
-    for (const it of (shoppingItems || [])) {
-      if (it.listName) s.add(it.listName);
+  // Tab-switch handler — updates local state AND persists the new key
+  // to family_settings.lastActiveListKey so a hard refresh / app
+  // reopen lands on the same tab. Safe-no-op if setFamilySettings
+  // isn't wired (defensive for test renders).
+  const setActiveAndPersist = (displayName) => {
+    setActiveList(displayName);
+    if (setFamilySettings) {
+      setFamilySettings((prev) =>
+        shoppingSettingsAfterSetActive(prev, displayName)
+      );
     }
-    return Array.from(s);
-  }, [shoppingItems]);
+  };
 
-  // Items filtered to the active list. Everything downstream
-  // (history, favorites, partitions) reads from this slice so each
-  // list behaves like its own little world.
+  const availableLists = useMemo(
+    () => shoppingGetOrderedLists(familySettings),
+    [familySettings]
+  );
+
+  // Per-list item tallies for the pill badges. {total, unchecked} per
+  // normalized key. Per the no-hidden-info rule, the badge shows the
+  // unchecked count (the "still to buy" number).
+  const listCounts = useMemo(
+    () => shoppingCountItemsByList(shoppingItems),
+    [shoppingItems]
+  );
+
+  // Items filtered to the active list, case-insensitively so pre-
+  // chapter-1 "Grocery" capital-G items still match the "grocery" key
+  // without a backfill. Everything downstream (history, favorites,
+  // partitions) reads from this slice so each list stays its own
+  // little world.
   const listItems = useMemo(
-    () => (shoppingItems || []).filter((it) => (it.listName || "Grocery") === activeList),
-    [shoppingItems, activeList]
+    () => shoppingFilterItemsForList(shoppingItems, activeListKey),
+    [shoppingItems, activeListKey]
   );
 
   // Smart-add: history map keyed by lowercased title. Surfaces
@@ -13883,11 +13948,182 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     setShowSmartSuggestions(true);
   };
   const commitNewList = () => {
-    const name = (newListName || "").trim().slice(0, 24);
-    if (!name) return;
-    setActiveList(name);
+    // Chapter 1a — write into family_settings.shoppingLists registry
+    // via the pure helper. Collision is ALWAYS surfaced (never silent
+    // merge) per Mike's directive. Empty input is rejected silently.
+    const raw = (newListName || "").trim();
+    if (!raw) return;
+    if (!setFamilySettings) {
+      // Defensive: if the prop isn't wired (e.g. unit test render),
+      // fall back to the legacy in-memory tab switch so we don't crash.
+      setActiveList(raw.slice(0, 24));
+      setNewListEditing(false);
+      setNewListName("");
+      setCommitListCollision(null);
+      return;
+    }
+    const result = shoppingSettingsAfterCreateList(familySettings, raw);
+    if (result.error === "collision") {
+      // 1c — store the EXISTING entry (not just a string) so the inline
+      // error row can render a one-tap "Switch to <Name>" button.
+      // case-insensitive normalize means "costco" / "COSTCO" / "Costco"
+      // all land here pointing at the same existing entry.
+      setCommitListCollision(result.existing);
+      return;
+    }
+    if (result.error === "empty") {
+      setCommitListCollision(null);
+      return;
+    }
+    // 1b — single-shot family_settings write: the new registry entry
+    // AND lastActiveListKey both land in one update so a hard refresh
+    // immediately after creating Costco lands back on Costco.
+    const settingsWithActive = shoppingSettingsAfterSetActive(
+      result.settings,
+      result.key
+    );
+    setFamilySettings(() => settingsWithActive);
+    // The display name preserves the family's chosen casing; key is
+    // what storage uses. activeList stays a string for backward compat
+    // with the rest of the component; activeListKey re-derives.
+    const created = result.settings.shoppingLists.find((e) => e.key === result.key);
+    setActiveList(created?.name || raw.slice(0, 24));
     setNewListEditing(false);
     setNewListName("");
+    setCommitListCollision(null);
+  };
+
+  // 1c — close the collision loop in place. Switches active list to
+  // the existing entry (via the 1b persistence path) and clears the
+  // create-input state so Krissie's done in one tap.
+  const switchToExisting = (entry) => {
+    if (!entry || !entry.name) return;
+    setActiveAndPersist(entry.name);
+    setCommitListCollision(null);
+    setNewListEditing(false);
+    setNewListName("");
+  };
+
+  // 1d — rename + delete + manual reorder UI state. The sheet is a
+  // single modal that handles all three; each row has its own
+  // edit-mode toggle for inline rename, plus up/down move buttons,
+  // plus a delete confirm. Merge-on-collision is also handled
+  // inside the sheet via the renameMergePrompt state.
+  const [manageOpen, setManageOpen] = useState(false);
+  const [renamingKey, setRenamingKey] = useState(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameMergePrompt, setRenameMergePrompt] = useState(null);
+  const [deleteConfirmKey, setDeleteConfirmKey] = useState(null);
+
+  const closeManage = () => {
+    setManageOpen(false);
+    setRenamingKey(null);
+    setRenameDraft("");
+    setRenameMergePrompt(null);
+    setDeleteConfirmKey(null);
+  };
+
+  const startRename = (entry) => {
+    setRenamingKey(entry.key);
+    setRenameDraft(entry.name);
+    setRenameMergePrompt(null);
+  };
+
+  const commitRename = (entry) => {
+    if (!setFamilySettings) return;
+    const result = shoppingSettingsAfterRename(familySettings, entry.key, renameDraft);
+    if (result.error === "empty") {
+      // No-op silently; keep editor open
+      return;
+    }
+    if (result.error === "not_found") {
+      // Entry vanished; bail out
+      setRenamingKey(null);
+      setRenameDraft("");
+      return;
+    }
+    if (result.error === "collision") {
+      // ALWAYS prompt the merge per Mike's directive — never silent.
+      setRenameMergePrompt({
+        fromEntry: result.oldEntry,
+        toEntry: result.existing,
+      });
+      return;
+    }
+    setFamilySettings(() => result.settings);
+    // Real rename → batch-relabel items from old key to new key so
+    // shopping_items.list_name follows the entry. Casing-only rename
+    // → items keep their existing list_name (storage key didn't move).
+    if (!result.casingOnly && relabelShoppingItemsByListKey) {
+      relabelShoppingItemsByListKey(entry.key, result.newKey);
+    }
+    // If the renamed entry was the active tab, update local activeList
+    // display name so the visible label stays in sync without a refresh.
+    if (activeListKey === entry.key) {
+      setActiveList(renameDraft.trim().slice(0, 24));
+    }
+    setRenamingKey(null);
+    setRenameDraft("");
+  };
+
+  const confirmMerge = () => {
+    if (!renameMergePrompt || !setFamilySettings) return;
+    const { fromEntry, toEntry } = renameMergePrompt;
+    const result = shoppingSettingsAfterMerge(familySettings, fromEntry.key, toEntry.key);
+    if (result.error) {
+      setRenameMergePrompt(null);
+      return;
+    }
+    setFamilySettings(() => result.settings);
+    if (relabelShoppingItemsByListKey) {
+      relabelShoppingItemsByListKey(fromEntry.key, toEntry.key);
+    }
+    // If the active tab was the from-list, follow the merge.
+    if (activeListKey === fromEntry.key) {
+      setActiveList(toEntry.name);
+    }
+    setRenameMergePrompt(null);
+    setRenamingKey(null);
+    setRenameDraft("");
+  };
+
+  const cancelMerge = () => {
+    setRenameMergePrompt(null);
+    // Leave rename editor open so Krissie can pick a different name.
+  };
+
+  const commitDelete = (entry) => {
+    if (!setFamilySettings) return;
+    const result = shoppingSettingsAfterDelete(familySettings, entry.key);
+    if (result.error) {
+      // last_remaining shouldn't reach here because the UI hides
+      // delete in that case, but guard anyway.
+      setDeleteConfirmKey(null);
+      return;
+    }
+    setFamilySettings(() => result.settings);
+    if (relabelShoppingItemsByListKey) {
+      relabelShoppingItemsByListKey(entry.key, result.fallbackKey);
+    }
+    if (activeListKey === entry.key) {
+      // Follow to the fallback list's display name.
+      const fallbackEntry = result.settings.shoppingLists.find((e) => e.key === result.fallbackKey);
+      if (fallbackEntry) setActiveList(fallbackEntry.name);
+    }
+    setDeleteConfirmKey(null);
+  };
+
+  const moveListBy = (currentOrderedKeys, key, delta) => {
+    const idx = currentOrderedKeys.indexOf(key);
+    if (idx < 0) return;
+    const newIdx = idx + delta;
+    if (newIdx < 0 || newIdx >= currentOrderedKeys.length) return;
+    const next = currentOrderedKeys.slice();
+    next.splice(idx, 1);
+    next.splice(newIdx, 0, key);
+    if (!setFamilySettings) return;
+    const result = shoppingSettingsAfterReorder(familySettings, next);
+    setFamilySettings(() => result.settings);
   };
   const finishEdit = () => {
     if (editingId) {
@@ -13906,43 +14142,207 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const findName = (pid) => users.find((u) => u.id === pid)?.name;
   return (
     <>
-      {/* v2: list-selector tabs. "Grocery" is always present;
-          additional lists derive from existing items + a "+ New" tab
-          to create a fresh one. */}
+      {/* Chapter 1a list-selector tabs. Reads from the family_settings
+          registry (lastUsedAt desc → createdAt desc → name asc) so every
+          named list shows even with zero items — empty-list survival.
+          Pill badge is the unchecked count, or a small dot when empty.
+          Rename / delete are 1d (not in this commit). */}
       <div className="flex items-center gap-1.5 mb-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-        {availableLists.map((name) => (
-          <button
-            key={name}
-            type="button"
-            onClick={() => setActiveList(name)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition ${activeList === name ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"}`}
-          >
-            {name}
-          </button>
-        ))}
+        {availableLists.map((entry) => {
+          const isActive = activeListKey === entry.key;
+          const tally = listCounts.get(entry.key);
+          const unchecked = tally?.unchecked ?? 0;
+          return (
+            <button
+              key={entry.key}
+              type="button"
+              onClick={() => { setActiveAndPersist(entry.name); setCommitListCollision(null); }}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1.5 ${isActive ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"}`}
+            >
+              <span>{entry.name}</span>
+              {unchecked > 0 ? (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/25 text-white" : "bg-slate-200 text-slate-500"}`}>
+                  {unchecked}
+                </span>
+              ) : (
+                <span className={`text-[10px] ${isActive ? "text-white/60" : "text-slate-400"}`} aria-label="empty list">·</span>
+              )}
+            </button>
+          );
+        })}
         {!newListEditing ? (
           <button
             type="button"
-            onClick={() => { setNewListEditing(true); setNewListName(""); }}
+            onClick={() => { setNewListEditing(true); setNewListName(""); setCommitListCollision(null); }}
             className="shrink-0 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-50 text-slate-500 border border-dashed border-slate-300"
           >
-            + New
+            + New list
           </button>
         ) : (
           <span className="shrink-0 flex items-center gap-1">
             <input
               value={newListName}
-              onChange={(e) => setNewListName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") commitNewList(); if (e.key === "Escape") { setNewListEditing(false); setNewListName(""); } }}
+              onChange={(e) => { setNewListName(e.target.value); setCommitListCollision(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") commitNewList(); if (e.key === "Escape") { setNewListEditing(false); setNewListName(""); setCommitListCollision(null); } }}
               placeholder="Costco, Target…"
               autoFocus
               className="border border-indigo-200 rounded-full px-2.5 py-1 text-xs font-bold w-32"
             />
             <button onClick={commitNewList} disabled={!newListName.trim()} className={`px-2 py-1 rounded-full text-[10px] font-bold ${newListName.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}>Go</button>
-            <button onClick={() => { setNewListEditing(false); setNewListName(""); }} className="px-1 text-[10px] font-bold text-slate-400">Cancel</button>
+            <button onClick={() => { setNewListEditing(false); setNewListName(""); setCommitListCollision(null); }} className="px-1 text-[10px] font-bold text-slate-400">Cancel</button>
           </span>
         )}
+        {/* 1d — Manage button opens the rename / delete / reorder sheet.
+            Only shown when the family has any registered list (which is
+            always true after readRegistry's grocery seed). */}
+        {availableLists.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setManageOpen(true)}
+            aria-label="Manage lists"
+            className="shrink-0 px-2.5 py-1.5 rounded-full text-xs font-bold bg-slate-50 text-slate-500 border border-dashed border-slate-300"
+          >
+            ⋯
+          </button>
+        ) : null}
       </div>
+      {commitListCollision ? (
+        <div className="mb-2 px-1 text-[11px] font-semibold text-rose-600 flex items-center gap-2 flex-wrap">
+          <span>"{commitListCollision.name}" already exists.</span>
+          <button
+            type="button"
+            onClick={() => switchToExisting(commitListCollision)}
+            className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold"
+          >
+            Switch to {commitListCollision.name}
+          </button>
+        </div>
+      ) : null}
+
+      {/* 1d — Manage lists sheet. Modal overlay with one row per list:
+          up/down move buttons (manual reorder overrides recency default),
+          inline rename, delete (hidden when only one list remains). */}
+      {manageOpen ? (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-3"
+          onClick={(e) => { if (e.target === e.currentTarget) closeManage(); }}
+        >
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-base font-extrabold text-slate-800">Manage lists</div>
+              <button
+                type="button"
+                onClick={closeManage}
+                className="px-3 py-1 rounded-full bg-indigo-600 text-white text-xs font-bold"
+              >
+                Done
+              </button>
+            </div>
+            <div className="text-[11px] text-slate-400 mb-3">
+              Drag-free for now: ↑ / ↓ move a list. Manual order sticks until you reset it.
+            </div>
+            <div className="flex flex-col gap-2">
+              {availableLists.map((entry, idx) => {
+                const tally = listCounts.get(entry.key);
+                const total = tally?.total ?? 0;
+                const isRenaming = renamingKey === entry.key;
+                const canDelete = availableLists.length > 1;
+                const isFirst = idx === 0;
+                const isLast = idx === availableLists.length - 1;
+                const orderedKeys = availableLists.map((e) => e.key);
+                return (
+                  <div key={entry.key} className="rounded-xl bg-slate-50 border border-slate-200 p-2 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => moveListBy(orderedKeys, entry.key, -1)}
+                          disabled={isFirst}
+                          aria-label="Move up"
+                          className={`w-7 h-5 rounded text-[10px] font-bold ${isFirst ? "bg-slate-100 text-slate-300" : "bg-slate-200 text-slate-600"}`}
+                        >▲</button>
+                        <button
+                          type="button"
+                          onClick={() => moveListBy(orderedKeys, entry.key, 1)}
+                          disabled={isLast}
+                          aria-label="Move down"
+                          className={`w-7 h-5 rounded text-[10px] font-bold ${isLast ? "bg-slate-100 text-slate-300" : "bg-slate-200 text-slate-600"}`}
+                        >▼</button>
+                      </div>
+                      {isRenaming ? (
+                        <input
+                          autoFocus
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitRename(entry);
+                            if (e.key === "Escape") { setRenamingKey(null); setRenameDraft(""); setRenameMergePrompt(null); }
+                          }}
+                          maxLength={24}
+                          className="flex-1 border border-indigo-300 rounded-lg px-2 py-1 text-sm font-bold"
+                        />
+                      ) : (
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold text-slate-800 truncate">{entry.name}</div>
+                          <div className="text-[10px] text-slate-400">{total} item{total === 1 ? "" : "s"}</div>
+                        </div>
+                      )}
+                      {isRenaming ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={() => commitRename(entry)} disabled={!renameDraft.trim()} className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${renameDraft.trim() ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-400"}`}>Save</button>
+                          <button onClick={() => { setRenamingKey(null); setRenameDraft(""); setRenameMergePrompt(null); }} className="px-1.5 text-[10px] font-bold text-slate-400">Cancel</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={() => startRename(entry)} className="px-2.5 py-1 rounded-full bg-white border border-slate-300 text-slate-600 text-[10px] font-bold">Rename</button>
+                          {canDelete ? (
+                            <button onClick={() => setDeleteConfirmKey(entry.key)} className="px-2.5 py-1 rounded-full bg-white border border-rose-300 text-rose-600 text-[10px] font-bold">Delete</button>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                    {isRenaming && renameMergePrompt && renameMergePrompt.fromEntry.key === entry.key ? (
+                      <div className="rounded-lg bg-amber-50 border border-amber-200 p-2 text-[11px] text-amber-900">
+                        <div className="font-bold mb-1">"{renameMergePrompt.toEntry.name}" already exists.</div>
+                        <div className="mb-2">
+                          Move everything from "{renameMergePrompt.fromEntry.name}" into "{renameMergePrompt.toEntry.name}"?
+                          Items keep their check state.
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={confirmMerge} className="px-3 py-1 rounded-full bg-amber-600 text-white text-[10px] font-bold">
+                            Merge into {renameMergePrompt.toEntry.name}
+                          </button>
+                          <button onClick={cancelMerge} className="px-3 py-1 rounded-full bg-white border border-amber-300 text-amber-700 text-[10px] font-bold">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    {deleteConfirmKey === entry.key ? (
+                      <div className="rounded-lg bg-rose-50 border border-rose-200 p-2 text-[11px] text-rose-900">
+                        <div className="font-bold mb-1">Delete "{entry.name}"?</div>
+                        <div className="mb-2">
+                          {total > 0
+                            ? `Its ${total} item${total === 1 ? "" : "s"} will move to ${(availableLists.find((e) => e.key === SHOPPING_DEFAULT_LIST_KEY) || availableLists.find((e) => e.key !== entry.key))?.name || "Grocery"}.`
+                            : "It's empty — nothing to move."}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => commitDelete(entry)} className="px-3 py-1 rounded-full bg-rose-600 text-white text-[10px] font-bold">
+                            Delete
+                          </button>
+                          <button onClick={() => setDeleteConfirmKey(null)} className="px-3 py-1 rounded-full bg-white border border-rose-300 text-rose-700 text-[10px] font-bold">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* 🔁 Maybe running low — items past their usual restock cadence
           based on this family's own history. Pure client-side smarts;
