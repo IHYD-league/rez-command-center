@@ -94,6 +94,48 @@ function defaultSource(purchasedAtIso) {
   return ageDays > 14 ? "backfill" : "receipt";
 }
 
+// =============== RS-1.5 UPC-lookup helpers ===============
+//
+// The terse-heuristic gate. Decides whether an OFF-resolved title is
+// allowed to REPLACE the parser's title. The rule, restated:
+//
+//   Apply OFF only when the parser's title looks like a receipt
+//   abbreviation (ALL CAPS with short tokens or vowel-less tokens)
+//   AND OFF's title looks like a real product name (multi-word).
+//
+// This is the SUPERMAN guard: a non-food line that happens to carry
+// a colliding UPC must not be silently rewritten into something
+// food-shaped. Readable lines stay untouched.
+
+// "EB PUF CHED", "GV WHP DRSG", "MAND 3 BAG" → true
+// "Superman", "Goldfish XL", "Whipped Dressing" → false
+function isTerseParserTitle(s) {
+  if (!s) return false;
+  const t = String(s).trim();
+  if (!t) return false;
+  // Must be uppercase to be receipt-style. "Superman" stays unmodified.
+  const isAllCaps = t === t.toUpperCase() && /[A-Z]/.test(t);
+  if (!isAllCaps) return false;
+  const tokens = t.split(/\s+/).filter(Boolean);
+  const hasShortToken = tokens.some((tk) => /^[A-Z]{2,3}$/.test(tk));
+  const hasVowellessToken = tokens.some((tk) => /^[A-Z]{3,}$/.test(tk) && !/[AEIOU]/.test(tk));
+  return hasShortToken || hasVowellessToken;
+}
+
+// "Earthbound Farm Puffed Cheddar" → true; "X" → false.
+function isCleanOffTitle(s) {
+  if (!s) return false;
+  const t = String(s).trim();
+  return /\s/.test(t) && t.length >= 4;
+}
+
+// The single decision point — both sides must say yes.
+function shouldApplyOff(parserTitle, offTitle) {
+  if (!isTerseParserTitle(parserTitle) || !isCleanOffTitle(offTitle)) return false;
+  // OFF title must be strictly longer; equal-length swaps are suspect.
+  return String(offTitle).trim().length > String(parserTitle).trim().length;
+}
+
 // Compute the auto-match candidate for a parsed line.
 // Filters to active shopping_items only (deleted_at IS NULL — Black's
 // soft-delete contract). Returns { itemId, score } or null.
@@ -226,6 +268,11 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
       });
       setItems(matched);
       setStage("review");
+      // Kick off UPC-lookups in parallel — non-blocking. The review
+      // screen renders with parser titles first; OFF results stream
+      // in over the next ~1s and update title in place when the
+      // terse-heuristic + no-clobber checks pass.
+      runUpcLookups(matched);
     } catch (err) {
       // Catch covers: upload failure, network drop, or client-side
       // image-decode failure (e.g. desktop Chrome can't decode HEIC;
@@ -251,6 +298,63 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
 
   const updateItem = (key, patch) => {
     setItems((prev) => prev.map((it) => (it._key === key ? { ...it, ...patch } : it)));
+  };
+
+  // RS-1.5 — fire /api/lookup-upc for every line with a UPC, in
+  // parallel. Each resolve hits setItems independently; the
+  // function returns immediately so the review screen stays
+  // interactive. Race-guarded: on resolve we re-check
+  // title_source — if it flipped to "user" while we were waiting,
+  // we drop the result and silently clear the pending pill.
+  const runUpcLookups = (initial) => {
+    const targets = initial.filter((it) => it.upc && it.title_source === "vision");
+    if (targets.length === 0) return;
+    // Mark pending so the row can render the "🔎 looking up…" pill.
+    setItems((prev) => prev.map((it) =>
+      targets.some((t) => t._key === it._key)
+        ? { ...it, _lookupStatus: "pending" }
+        : it
+    ));
+    targets.forEach(async (target) => {
+      let result = null;
+      try {
+        const r = await fetch("/api/lookup-upc", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ upc: target.upc }),
+        });
+        result = await r.json().catch(() => null);
+      } catch {
+        result = null;
+      }
+      setItems((prev) => prev.map((it) => {
+        if (it._key !== target._key) return it;
+        // Race guard: drop result if user already started editing this line.
+        if (it.title_source !== "vision") {
+          const { _lookupStatus, ...rest } = it;
+          return rest;
+        }
+        const offHit = result?.status === "ok";
+        const offTitle = offHit ? String(result.title || "").trim() : null;
+        const offBrand = offHit ? String(result.brand || "").trim() : "";
+        const apply = offHit && offTitle && shouldApplyOff(it.title, offTitle);
+        const next = { ...it };
+        delete next._lookupStatus;
+        // Always record off_title when OFF resolved — even if we declined
+        // to apply it — so a future "use this suggestion?" UX can read it.
+        if (offTitle) next.off_title = offTitle;
+        if (apply) {
+          next.title = offTitle;
+          next.title_source = "off";
+          // Brand backfill: only fill when parser brand is empty. Never
+          // override a non-empty parser brand (Mike's rule).
+          if (offBrand && (!it.brand || !String(it.brand).trim())) {
+            next.brand = offBrand;
+          }
+        }
+        return next;
+      }));
+    });
   };
 
   const dropItem = (key) => {
