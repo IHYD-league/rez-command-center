@@ -132,7 +132,7 @@ function ReceiptRow({ receipt, onOpen }) {
   );
 }
 
-function ReceiptDetail({
+export function ReceiptDetail({
   receipt,
   users,
   shoppingItems,

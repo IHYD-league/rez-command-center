@@ -35,6 +35,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { ChevronRight, ChevronLeft, ChevronDown, Receipt as ReceiptIcon } from "lucide-react";
+import { ReceiptDetail } from "./Receipts.jsx";
 
 // =================== math floor ===================
 
@@ -187,6 +188,14 @@ export default function Spending({
 }) {
   const [windowKey, setWindowKeyRaw] = useState(() => loadWindow(familyId));
   const setWindowKey = (k) => { setWindowKeyRaw(k); saveWindow(familyId, k); };
+  // Drill-down state — at most one of these is set at a time.
+  //   expandedStoreKey : inline expand of a store row's receipts
+  //   trendDrilldownKey: pushed sub-view for a single tracked item
+  //   openReceiptId    : pushed ReceiptDetail (reused from Receipts.jsx)
+  const [expandedStoreKey, setExpandedStoreKey] = useState(null);
+  const [trendDrilldownKey, setTrendDrilldownKey] = useState(null);
+  const [openReceiptId, setOpenReceiptId] = useState(null);
+  const isKid = user?.role === "kid";
 
   // SINGLE source of truth for receipts that count toward spending math.
   // Soft-deleted filter applied ONCE here; every downstream calc reads
@@ -361,6 +370,46 @@ export default function Spending({
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
   }, [windowReceipts]);
 
+  // Receipt drill-down ALWAYS wins — reuse Receipts.jsx ReceiptDetail
+  // unchanged. Back returns to whatever sub-view the user came from.
+  const openReceipt = openReceiptId
+    ? liveReceipts.find((r) => r.id === openReceiptId) || null
+    : null;
+  if (openReceipt) {
+    return (
+      <ReceiptDetail
+        receipt={openReceipt}
+        users={users}
+        shoppingItems={shoppingItems}
+        canEdit={!isKid && !!updateReceipt}
+        canDelete={!isKid && !!softDeleteReceipt}
+        onBack={() => setOpenReceiptId(null)}
+        onSave={(patch) => updateReceipt && updateReceipt(openReceipt.id, patch)}
+        onDelete={softDeleteReceipt ? () => {
+          softDeleteReceipt(openReceipt.id);
+          setOpenReceiptId(null);
+        } : null}
+      />
+    );
+  }
+
+  // Per-item history sub-view — the only place a real chart with
+  // axes lives on this page. Drilled into from a TrendRow tap.
+  if (trendDrilldownKey) {
+    const row = trendItems.find((t) => t.key === trendDrilldownKey);
+    if (row) {
+      return (
+        <TrendDrilldown
+          row={row}
+          receipts={liveReceipts}
+          onBack={() => setTrendDrilldownKey(null)}
+          onOpenReceipt={(id) => setOpenReceiptId(id)}
+        />
+      );
+    }
+    setTrendDrilldownKey(null);
+  }
+
   return (
     <div className="space-y-3 pb-4">
       <WindowChips value={windowKey} onChange={setWindowKey} />
@@ -391,14 +440,22 @@ export default function Spending({
 
       {/* By-store breakdown — list (not pie). The sum here always
           equals the headline total because both read the same
-          filtered array. */}
+          filtered array. Tap a row to inline-expand the receipts
+          that contributed to that store's total in this window. */}
       {byStore.length > 0 && (
         <div className="bg-white rounded-2xl p-3 shadow-sm">
           <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-2 px-1">
             By store
           </div>
           {byStore.map((s) => (
-            <StoreRow key={s.key} store={s} />
+            <StoreRow
+              key={s.key}
+              store={s}
+              expanded={expandedStoreKey === s.key}
+              onToggle={() => setExpandedStoreKey(expandedStoreKey === s.key ? null : s.key)}
+              receipts={windowReceipts}
+              onOpenReceipt={(id) => setOpenReceiptId(id)}
+            />
           ))}
         </div>
       )}
@@ -407,7 +464,11 @@ export default function Spending({
           shopping_item_id only, no fuzzy fallback). Sparse on day-one;
           empty/sparse state explains the bridge to filling it. */}
       {liveReceipts.length > 0 && (
-        <TrendsSection items={trendItems} almostTracked={almostTrackedCount} />
+        <TrendsSection
+          items={trendItems}
+          almostTracked={almostTrackedCount}
+          onOpenItem={(key) => setTrendDrilldownKey(key)}
+        />
       )}
 
       {liveReceipts.length === 0 && (
@@ -424,7 +485,7 @@ export default function Spending({
 
 // =================== trends section ===================
 
-function TrendsSection({ items, almostTracked }) {
+function TrendsSection({ items, almostTracked, onOpenItem }) {
   return (
     <div className="bg-white rounded-2xl p-3 shadow-sm">
       <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-2 px-1">
@@ -446,7 +507,7 @@ function TrendsSection({ items, almostTracked }) {
       ) : (
         <>
           {items.map((row) => (
-            <TrendRow key={row.key} row={row} />
+            <TrendRow key={row.key} row={row} onOpen={() => onOpenItem(row.key)} />
           ))}
           <div className="text-[11px] text-slate-400 mt-2 px-2 leading-relaxed">
             {almostTracked > 0
@@ -460,7 +521,7 @@ function TrendsSection({ items, almostTracked }) {
   );
 }
 
-function TrendRow({ row }) {
+function TrendRow({ row, onOpen }) {
   const pct = row.pct;
   const direction = pct == null ? null : pct > 0.5 ? "up" : pct < -0.5 ? "down" : "flat";
   const pctColor =
@@ -468,7 +529,11 @@ function TrendRow({ row }) {
   const pctLabel =
     pct == null ? "" : `${pct > 0 ? "+" : ""}${pct.toFixed(0)}%`;
   return (
-    <div className="flex items-center gap-2 px-1 py-2 border-b border-slate-100 last:border-b-0">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full flex items-center gap-2 px-1 py-2 border-b border-slate-100 last:border-b-0 active:bg-slate-50 text-left"
+    >
       <div className="flex-1 min-w-0">
         <div className="text-sm font-bold text-slate-800 truncate">{row.title}</div>
         {row.brand && <div className="text-[11px] text-slate-500 truncate">{row.brand}</div>}
@@ -480,6 +545,118 @@ function TrendRow({ row }) {
       </div>
       <Sparkline occurrences={row.occurrences} />
       <div className={`text-[12px] font-bold w-12 text-right ${pctColor}`}>{pctLabel}</div>
+      <ChevronRight size={12} className="text-slate-300 flex-shrink-0" />
+    </button>
+  );
+}
+
+// =================== per-item drill-in ===================
+
+function TrendDrilldown({ row, receipts, onBack, onOpenReceipt }) {
+  const pctLabel = row.pct == null
+    ? ""
+    : `${row.pct > 0 ? "+" : ""}${row.pct.toFixed(1)}%`;
+  const direction = row.pct == null ? null : row.pct > 0.5 ? "up" : row.pct < -0.5 ? "down" : "flat";
+  const pctColor =
+    direction === "up" ? "text-rose-600" : direction === "down" ? "text-emerald-600" : "text-slate-400";
+  return (
+    <div className="space-y-3 pb-4">
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex items-center gap-1 text-xs text-slate-500 active:text-slate-700"
+      >
+        <ChevronLeft size={14} /> Spending
+      </button>
+
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <div className="font-bold text-base text-slate-800">{row.title}</div>
+        {row.brand && <div className="text-[12px] text-slate-500 mt-0.5">{row.brand}</div>}
+        <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-100">
+          <div>
+            <div className="text-[10px] text-slate-400 uppercase tracking-wide">First</div>
+            <div className="text-sm font-bold text-slate-700">{formatCents(row.first.price)}</div>
+          </div>
+          <div>
+            <div className="text-[10px] text-slate-400 uppercase tracking-wide">Latest</div>
+            <div className="text-sm font-bold text-slate-700">{formatCents(row.last.price)}</div>
+          </div>
+          <div>
+            <div className="text-[10px] text-slate-400 uppercase tracking-wide">Change</div>
+            <div className={`text-sm font-bold ${pctColor}`}>{pctLabel || "—"}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-3 shadow-sm">
+        <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-2 px-1">
+          Price over time
+        </div>
+        <PriceChart occurrences={row.occurrences} />
+      </div>
+
+      <div className="bg-white rounded-2xl p-3 shadow-sm">
+        <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-2 px-1">
+          {row.occurrences.length} {row.occurrences.length === 1 ? "trip" : "trips"}
+        </div>
+        {row.occurrences.map((o, idx) => (
+          <button
+            key={`${o.receiptId}_${idx}`}
+            type="button"
+            onClick={() => onOpenReceipt(o.receiptId)}
+            className="w-full px-2 py-2 flex items-center gap-3 border-b border-slate-100 last:border-b-0 active:bg-slate-50 text-left"
+          >
+            <ReceiptIcon size={14} className="text-slate-400 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm text-slate-700">{formatShortDate(o.purchasedAt)}</div>
+              {o.title && o.title !== row.title && (
+                <div className="text-[11px] text-slate-400 truncate">labeled "{o.title}"</div>
+              )}
+            </div>
+            <div className="text-sm font-bold text-slate-700 flex-shrink-0">
+              {formatCents(o.price)}
+            </div>
+            <ChevronRight size={12} className="text-slate-300 flex-shrink-0" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// The only real chart on the page — line chart with min/max labels.
+// Still hand-rolled SVG, no library.
+function PriceChart({ occurrences }) {
+  const W = 320;
+  const H = 100;
+  const PAD = 16;
+  const prices = occurrences.map((o) => o.price);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || max * 0.1 || 1;
+  const yMin = min - range * 0.1;
+  const yMax = max + range * 0.1;
+  const xStep = occurrences.length === 1 ? 0 : (W - PAD * 2) / (occurrences.length - 1);
+  const points = occurrences.map((o, i) => {
+    const x = PAD + i * xStep;
+    const y = H - PAD - ((o.price - yMin) / (yMax - yMin)) * (H - PAD * 2);
+    return { x, y, price: o.price };
+  });
+  const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-24">
+        <path d={path} stroke="currentColor" strokeWidth="2" fill="none"
+              className="text-emerald-500"
+              strokeLinecap="round" strokeLinejoin="round" />
+        {points.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r="2.5" fill="currentColor" className="text-emerald-600" />
+        ))}
+      </svg>
+      <div className="flex justify-between text-[10px] text-slate-400 px-1 mt-1">
+        <span>{formatCents(min)}</span>
+        <span>{formatCents(max)}</span>
+      </div>
     </div>
   );
 }
@@ -552,23 +729,75 @@ function TrendChart({ buckets }) {
   );
 }
 
-// =================== store row ===================
+// =================== store row + inline expand ===================
 
-function StoreRow({ store }) {
+function StoreRow({ store, expanded, onToggle, receipts, onOpenReceipt }) {
+  const storeReceipts = useMemo(() => {
+    if (!expanded) return [];
+    const set = new Set(store.receiptIds);
+    return receipts
+      .filter((r) => set.has(r.id))
+      .slice()
+      .sort((a, b) =>
+        Date.parse(b.purchasedAt || b.createdAt || 0)
+        - Date.parse(a.purchasedAt || a.createdAt || 0)
+      );
+  }, [expanded, store.receiptIds, receipts]);
   return (
-    <div className="w-full px-2 py-2 flex items-center gap-3 border-b border-slate-100 last:border-b-0">
-      <div className="flex-1 min-w-0">
-        <div className="font-bold text-sm text-slate-800 truncate">{store.display}</div>
-        <div className="text-[11px] text-slate-500 mt-0.5">
-          {store.count} {store.count === 1 ? "receipt" : "receipts"}
-          {store.missing > 0 ? ` · ${store.missing} missing total` : ""}
+    <div className="border-b border-slate-100 last:border-b-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full px-2 py-2 flex items-center gap-3 active:bg-slate-50 text-left"
+      >
+        <div className="flex-1 min-w-0">
+          <div className="font-bold text-sm text-slate-800 truncate">{store.display}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            {store.count} {store.count === 1 ? "receipt" : "receipts"}
+            {store.missing > 0 ? ` · ${store.missing} missing total` : ""}
+          </div>
         </div>
-      </div>
-      <div className="font-bold text-sm text-slate-700 flex-shrink-0">
-        {formatDollars(store.total)}
-      </div>
+        <div className="font-bold text-sm text-slate-700 flex-shrink-0">
+          {formatDollars(store.total)}
+        </div>
+        {expanded ? (
+          <ChevronDown size={14} className="text-slate-400 flex-shrink-0" />
+        ) : (
+          <ChevronRight size={14} className="text-slate-400 flex-shrink-0" />
+        )}
+      </button>
+      {expanded && (
+        <div className="pl-2 pb-2 space-y-1">
+          {storeReceipts.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => onOpenReceipt(r.id)}
+              className="w-full bg-slate-50 rounded-lg px-3 py-2 flex items-center gap-2 text-left active:bg-slate-100"
+            >
+              <ReceiptIcon size={14} className="text-slate-400 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] text-slate-700 truncate">
+                  {formatShortDate(r.purchasedAt || r.createdAt)}
+                </div>
+              </div>
+              <div className="text-[12px] font-bold text-slate-700 flex-shrink-0">
+                {formatCents(effectiveTotal(r))}
+              </div>
+              <ChevronRight size={12} className="text-slate-300 flex-shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+function formatShortDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
 // =================== window chips ===================
