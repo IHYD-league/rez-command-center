@@ -10,11 +10,16 @@ export const PHOTOS_BUCKET = "family-photos";
 // enough to ship and store cheaply." Quality is the JPEG quality
 // passed to canvas.toBlob (0..1). maxEdge clamps the longest side.
 const COMPRESSION_CONFIG = {
-  proof:  { maxEdge: 1600, quality: 0.82 },
-  album:  { maxEdge: 2000, quality: 0.85 },
-  avatar: { maxEdge: 512,  quality: 0.85 },
-  award:  { maxEdge: 1600, quality: 0.85 },
-  cover:  { maxEdge: 1200, quality: 0.85 },
+  proof:   { maxEdge: 1600, quality: 0.82 },
+  album:   { maxEdge: 2000, quality: 0.85 },
+  avatar:  { maxEdge: 512,  quality: 0.85 },
+  award:   { maxEdge: 1600, quality: 0.85 },
+  cover:   { maxEdge: 1200, quality: 0.85 },
+  // RS-1 receipts: 1500px max edge — receipts have small text and
+  // need higher resolution than product scans (1024px equivalent
+  // wouldn't reliably read line totals). Vision-parse accepts the
+  // larger payload; storage cost per receipt is still tiny.
+  receipt: { maxEdge: 1500, quality: 0.85 },
 };
 const HARD_CAP_BYTES = 8 * 1024 * 1024;
 

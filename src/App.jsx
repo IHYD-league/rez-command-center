@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft, ChevronRight,
-  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map as MapIcon, Settings, TrendingUp, Download, Play
+  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map as MapIcon, Settings, TrendingUp, Download, Play, Receipt as ReceiptIcon
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import OnboardingWizard from "./OnboardingWizard.jsx";
@@ -22,6 +22,7 @@ import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
 import ReceiptScanner from "./ReceiptScanner.jsx";
+import Receipts from "./Receipts.jsx";
 import {
   DEFAULT_LIST_KEY as SHOPPING_DEFAULT_LIST_KEY,
   DEFAULT_LIST_NAME as SHOPPING_DEFAULT_LIST_NAME,
@@ -844,6 +845,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // adds at the store, Mike checks off at home.
   const [shoppingItems, _setShoppingItems] = useState(() => initial?.shoppingItems ?? []);
   const setShoppingItems = makeSyncedSetter(_setShoppingItems, "shoppingItems", sync);
+  // RS-1 receipts — image pointer + parsed payload + reviewed
+  // items_reviewed array (the promotion contract RS-2 will read to
+  // mint purchase rows). Entity wiring landed in Commit A; the
+  // state hook + addReceipt helper land here for the real review UI.
+  const [receipts, _setReceipts] = useState(() => initial?.receipts ?? []);
+  const setReceipts = makeSyncedSetter(_setReceipts, "receipts", sync);
   // Daily kid mood check-ins. One row per (profileId, date). Reznor
   // taps a 3-emoji row on his Today; parents see a 7-day mood strip
   // on theirs.
@@ -910,6 +917,39 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       declineReason: decision === "declined" ? (declineReason || "Not this week").slice(0, 80) : "",
     } : it));
   };
+  // RS-1 addReceipt — single INSERT of a reviewed receipt. Caller
+  // (ReceiptScanner.commitReceipt) builds the full row including
+  // the ocr_raw promotion contract (vision verbatim + items_reviewed
+  // with title/brand/qty/unit/unit_price/line_total/
+  // auto_matched_shopping_item_id/match_confidence/
+  // confirmed_shopping_item_id/source). We just stamp id +
+  // uploaded_by + createdAt and route through the sync layer. The
+  // current acted-as profile is the uploader.
+  const addReceipt = (r) => {
+    setReceipts((prev) => [
+      {
+        id: r.id || ("rcp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8)),
+        uploadedBy: r.uploadedBy || currentUserId || currentProfileId || null,
+        createdAt: r.createdAt || new Date().toISOString(),
+        ...r,
+      },
+      ...prev,
+    ]);
+  };
+  // RS-1 soft-delete — flip deleted_at on a receipt row. Spending
+  // math (next brick) MUST filter on deletedAt to keep totals honest.
+  const softDeleteReceipt = (id) => setReceipts((prev) => prev.map((r) =>
+    r.id === id ? { ...r, deletedAt: new Date().toISOString() } : r
+  ));
+  // RS-1 updateReceipt — patch any subset of receipt-level fields
+  // (storeName / purchasedAt / subtotal / tax / total) and/or ocrRaw
+  // (notably items_reviewed). Receipts detail view uses this for the
+  // edit-after-save path required by the editable-after-save rule.
+  // The sync layer's PostgREST batch updater (transform.toDb.receipt)
+  // serializes the row from the merged shape.
+  const updateReceipt = (id, patch) => setReceipts((prev) => prev.map((r) =>
+    r.id === id ? { ...r, ...patch } : r
+  ));
   const toggleShoppingItem = (id) => setShoppingItems((prev) => prev.map((it) => {
     if (it.id !== id) return it;
     const nowChecked = !it.checked;
@@ -2242,6 +2282,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     practiceSessions, addPracticeSession, removePracticeSession,
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
     relabelShoppingItemsByListKey,
+    receipts, addReceipt, softDeleteReceipt, updateReceipt,
     familySettings, setFamilySettings,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
@@ -12635,7 +12676,8 @@ function MoreParent(props) {
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
-  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} /></BackWrap>;
+  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
+  if (sub === "receipts") return <BackWrap title="Receipts" onBack={() => setSub("menu")}><Receipts receipts={props.receipts} softDeleteReceipt={props.softDeleteReceipt} updateReceipt={props.updateReceipt} users={props.users} user={props.user} shoppingItems={props.shoppingItems} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
@@ -12669,6 +12711,7 @@ function MoreParent(props) {
     { k: "gallery",      group: null,       icon: <Camera size={18} />,         label: i18nTOf("more_gallery", "Photo Gallery"),                sub: i18nTOf("more_gallery_sub", "Every photo · sort by date · filter by activity") },
     { k: "practice",     group: null,       icon: <Play size={18} />,           label: "Practice Timer",                                        sub: "Time a session · record a 30s clip · listen back later" },
     { k: "shopping",     group: null,       icon: <ClipboardList size={18} />,  label: "Shopping List",                                         sub: "Shared family list · add at the store · check off at home" },
+    { k: "receipts",     group: null,       icon: <ReceiptIcon size={18} />,    label: "Receipts",                                              sub: "Every scanned receipt · tap to view items · delete" },
     { k: "insights",     group: null,       icon: <TrendingUp size={18} />,     label: i18nTOf("more_insights", "Insights"),                    sub: i18nTOf("more_insights_sub", "Practice time · songs · books · counts") },
 
     // Memories & growth
@@ -13640,7 +13683,7 @@ function EmailSetup(props) {
 // long-press / pencil to rename, X to remove. Strikethrough on
 // checked items sinks them to the bottom. One-tap "Clear bought"
 // when the trip's over. The whole point is being faster than texting.
-function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null, familySettings = {}, setFamilySettings = null, relabelShoppingItemsByListKey = null }) {
+function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null, familySettings = {}, setFamilySettings = null, relabelShoppingItemsByListKey = null, addReceipt = null, familyId = null, fuzzyMatch = null }) {
   const isKid = user?.role === "kid";
   const isParent = user?.role === "parent" || user?.role === "helper" || user?.role === "grandparent";
   const [draft, setDraft] = useState("");
@@ -14583,15 +14626,20 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
         </div>
       )}
 
-      {/* Receipt scanner mount. ReceiptScanner.jsx is a stub today
-          (returns null), so picking the receipt tile is a no-op
-          visually. The wiring + activeListKey contract are landed
-          here so the follow-up PR that implements the receipt UX
-          inherits the right scaffold. */}
+      {/* Receipt scanner — the real review UI (RS-1 next brick).
+          Capture → upload → parse via /api/vision-parse kind=receipt
+          → review (editable header + line items + fuzzy auto-match
+          chips against active shopping_items + "Review these" sticky
+          for unmatched) → commit one receipts row carrying the full
+          ocr_raw promotion contract for RS-2. */}
       {receiptScannerOpen && (
         <ReceiptScanner
           onClose={() => setReceiptScannerOpen(false)}
           activeListKey={activeListKey}
+          addReceipt={addReceipt}
+          familyId={familyId}
+          shoppingItems={shoppingItems}
+          fuzzyMatch={fuzzyMatch}
         />
       )}
 
