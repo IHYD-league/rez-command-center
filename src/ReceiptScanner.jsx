@@ -122,11 +122,42 @@ function isTerseParserTitle(s) {
   return hasShortToken || hasVowellessToken;
 }
 
-// "Earthbound Farm Puffed Cheddar" → true; "X" → false.
+// Strict "looks like a real human-readable product name" gate. The
+// OFF result must clear ALL of these to be eligible for apply:
+//
+//   - has a space (multi-word)
+//   - length ≥ 4
+//   - NOT entirely uppercase — "EGG PUFF CHED" is rejected even
+//     though it has spaces and length
+//   - contains at least one lowercase letter (mixed-case shape)
+//   - no abbreviation tokens (short ALL-CAPS ≤3 chars, or vowel-less
+//     ≥3-char) — even if the rest reads cleanly
+//
+// Why the strict bar: real-world OFF testing on a Walmart receipt
+// returned 0/10 hits anyway (OFF coverage is thin on US store
+// brands — Great Value, Kirkland, in-store produce codes, general
+// merch — which is what this family buys). The brick fires
+// dormantly. This gate is INSURANCE so that on the rare future hit
+// — Whole Foods, Sprouts, a name-brand item — a junk-cased OFF
+// record can never overwrite a clean parser title. Future readers:
+// don't chase OFF tuning; the real lever on cryptic names is the
+// receipt prompt's translation instruction, not the lookup path.
 function isCleanOffTitle(s) {
   if (!s) return false;
   const t = String(s).trim();
-  return /\s/.test(t) && t.length >= 4;
+  if (t.length < 4 || !/\s/.test(t)) return false;
+  // Reject entirely uppercase — "EGG PUFF CHED" doesn't qualify.
+  if (t === t.toUpperCase()) return false;
+  // Require at least one lowercase letter — proxy for real-name shape.
+  if (!/[a-z]/.test(t)) return false;
+  // Reject if any token still looks like a receipt abbreviation.
+  const tokens = t.split(/\s+/).filter(Boolean);
+  const hasShortCapsToken = tokens.some((tk) => /^[A-Z]{2,3}$/.test(tk));
+  const hasVowellessCapsToken = tokens.some(
+    (tk) => /^[A-Z]{3,}$/.test(tk) && !/[AEIOU]/.test(tk)
+  );
+  if (hasShortCapsToken || hasVowellessCapsToken) return false;
+  return true;
 }
 
 // The single decision point — both sides must say yes.
