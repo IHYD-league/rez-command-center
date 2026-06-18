@@ -10,10 +10,16 @@
 // 0.85 JPEG quality (per src/lib/storage.js COMPRESSION_CONFIG;
 // receipts need more resolution than product scans).
 // Parse: POST to /api/vision-parse kind="receipt".
-// Review: three-zone full-screen sheet — receipt header card,
-// items list with auto-match chips (green ≥ 0.8 / yellow best-guess
-// 0.5–0.8 / yellow no-match < 0.5), sticky "Review these" banner
-// when any yellow chip remains. No silent guessing.
+// Review (POST-DEMOTE 2026-06-17): receipts are accounting, the
+// shopping list is intent — they're orthogonal. Receipt review is
+// editing the parsed title / brand / qty / price for accuracy, NOT
+// linking to shopping_items. Linking is a QUIET opt-in via a small
+// gray "🔗 Tag to list item" affordance per row; never colored,
+// never pushed. Auto-match still computes match_confidence + the
+// auto_matched_shopping_item_id for future debugging and to
+// pre-highlight a suggestion in the picker, but confirmed_shopping_
+// item_id ALWAYS defaults null. The user opts in to link; nothing
+// auto-attaches a receipt line to the grocery list.
 // Commit: single INSERT into receipts via addReceipt, with ocr_raw
 // carrying the FULL promotion contract for RS-2:
 //   ocr_raw = {
@@ -39,7 +45,7 @@
 // does NOT auto-check items off the shopping list when a receipt
 // arrives. Saving the receipt is the whole win.
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { uploadFamilyPhoto } from "./lib/storage.js";
 import { scanImage } from "./lib/visionScan.js";
 
@@ -51,8 +57,11 @@ import { scanImage } from "./lib/visionScan.js";
 // NOTE: fuzzyMatch returns scores in the 0–200ish range (substring
 // hits return 200 - position, subsequence returns 80, word-distance
 // returns 40+). We normalize to a 0..1 confidence by max-rate-of-200.
-const HIGH_CONFIDENCE = 160;   // 0.8 of 200
-const REVIEW_CONFIDENCE = 100; // 0.5 of 200
+// Auto-match score floor — anything ≥ this gets surfaced as a
+// "Suggested:" highlight at the top of the picker when the user
+// opens it. Below this floor, no suggestion is offered. We never
+// auto-link, regardless of score (receipts ≠ shopping list).
+const SUGGEST_FLOOR = 100; // 0.5 of 200 — same as the prior REVIEW threshold
 
 function normalizeChain(input) {
   return String(input || "").trim().toLowerCase().replace(/\s+/g, "_");
@@ -127,8 +136,6 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
   // the user-resolved match. confirmed_shopping_item_id is what RS-2
   // reads on promotion; null = no link (skipped or unreviewed).
   const [items, setItems] = useState([]);
-  const itemRefs = useRef({});
-
   // Save state — guard against double-tap.
   const [saving, setSaving] = useState(false);
 
@@ -179,12 +186,15 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
       setTax(data.tax != null ? String(data.tax) : "");
       setTotal(data.total != null ? String(data.total) : "");
       setSource(defaultSource(pAt));
-      // Auto-match each parsed line against active shopping_items.
+      // Auto-match each parsed line against active shopping_items
+      // for the PICKER suggestion only. confirmed_shopping_item_id
+      // ALWAYS defaults null — the user opts in to link by tapping
+      // "🔗 Tag to list item." Receipts don't push themselves onto
+      // the shopping list.
       const matched = parsedItems.map((it, idx) => {
         const best = bestMatch({ title: it.title, brand: it.brand }, shoppingItems, fuzzyMatch);
         const confidence = best ? Math.min(1, best.score / 200) : null;
-        const autoId = best && best.score >= REVIEW_CONFIDENCE ? best.itemId : null;
-        const confirmedId = best && best.score >= HIGH_CONFIDENCE ? best.itemId : null;
+        const autoId = best && best.score >= SUGGEST_FLOOR ? best.itemId : null;
         return {
           // local UI key — not persisted
           _key: `rl_${idx}_${Math.random().toString(36).slice(2, 7)}`,
@@ -194,10 +204,9 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
           unit: it.unit || "",
           unit_price: it.unit_price != null ? Number(it.unit_price) : null,
           line_total: it.line_total != null ? Number(it.line_total) : null,
-          auto_matched_shopping_item_id: autoId,
-          match_confidence: confidence,
-          confirmed_shopping_item_id: confirmedId,
-          reviewed: !!confirmedId, // green chips count as reviewed; yellows need user action
+          auto_matched_shopping_item_id: autoId,    // kept in ocr_raw for future analysis
+          match_confidence: confidence,             // kept in ocr_raw for future analysis
+          confirmed_shopping_item_id: null,         // user-opt-in only
         };
       });
       setItems(matched);
@@ -225,13 +234,6 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
   }, [total]);
   const mismatch = totalNum != null && Math.abs(itemsSum - totalNum) > 0.05;
 
-  // Unreviewed = items with a yellow chip (best-guess pending OR
-  // no-match still untouched). Used by the "Review these" banner +
-  // by the soft Save-anyway prompt.
-  const unreviewedCount = useMemo(() => {
-    return items.filter((it) => !it.reviewed && !it.confirmed_shopping_item_id).length;
-  }, [items]);
-
   const updateItem = (key, patch) => {
     setItems((prev) => prev.map((it) => (it._key === key ? { ...it, ...patch } : it)));
   };
@@ -240,19 +242,12 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
     setItems((prev) => prev.filter((it) => it._key !== key));
   };
 
-  const confirmMatch = (key, shoppingItemId) => {
-    updateItem(key, { confirmed_shopping_item_id: shoppingItemId, reviewed: true });
-  };
-
-  const skipMatch = (key) => {
-    updateItem(key, { confirmed_shopping_item_id: null, reviewed: true });
-  };
-
-  const jumpToFirstUnreviewed = () => {
-    const first = items.find((it) => !it.reviewed && !it.confirmed_shopping_item_id);
-    if (!first) return;
-    const el = itemRefs.current[first._key];
-    if (el?.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  // Linking a receipt line to a shopping_items row is now opt-in,
+  // not driven. Tapping the gray "🔗 Tag to list item" pill opens
+  // the picker; picking sets confirmed_shopping_item_id. The
+  // "change" path on a linked line opens the same picker.
+  const setLink = (key, shoppingItemId) => {
+    updateItem(key, { confirmed_shopping_item_id: shoppingItemId || null });
   };
 
   // Commit — single addReceipt call with full ocr_raw promotion contract.
@@ -263,10 +258,9 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
       return;
     }
     if (saving) return;
-    if (unreviewedCount > 0) {
-      const ok = window.confirm(`${unreviewedCount} item${unreviewedCount === 1 ? "" : "s"} aren't linked to your list yet. Save anyway?`);
-      if (!ok) return;
-    }
+    // No "are you sure?" / "save anyway?" gates here. Receipts are
+    // accounting — saving the receipt as-edited IS the action.
+    // Linking is opt-in elsewhere; absence of links is fine.
     setSaving(true);
     try {
       const itemsReviewed = items.map((it) => ({
@@ -519,23 +513,8 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
           )}
         </div>
 
-        {/* "Review these" sticky banner — only when unreviewed > 0 */}
-        {unreviewedCount > 0 && (
-          <div className="sticky top-0 z-[5] bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between">
-            <div className="text-[12px] font-bold text-amber-800">
-              ⚠️ {unreviewedCount} item{unreviewedCount === 1 ? "" : "s"} need a quick look
-            </div>
-            <button
-              type="button"
-              onClick={jumpToFirstUnreviewed}
-              className="text-[12px] font-bold text-amber-900 underline"
-            >
-              Jump to first →
-            </button>
-          </div>
-        )}
-
-        {/* Items list */}
+        {/* Items list. No "Review these" banner — linking is opt-in
+            and unlinked rows are fine. */}
         <div className="px-4 py-2">
           <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2">
             Items ({items.length})
@@ -547,9 +526,7 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
               candidates={activeShoppingItems}
               onUpdate={(patch) => updateItem(it._key, patch)}
               onDrop={() => dropItem(it._key)}
-              onConfirm={(shoppingItemId) => confirmMatch(it._key, shoppingItemId)}
-              onSkip={() => skipMatch(it._key)}
-              rowRef={(el) => { itemRefs.current[it._key] = el; }}
+              onLink={(shoppingItemId) => setLink(it._key, shoppingItemId)}
             />
           ))}
         </div>
@@ -589,34 +566,8 @@ function ReceiptItemRow({ item, candidates, onUpdate, onDrop, onConfirm, onSkip,
       .slice(0, 30);
   }, [pickerQuery, candidates]);
 
-  // Chip state — drives color + label.
-  let chipKind;
-  let chipLabel;
-  if (item.reviewed && !item.confirmed_shopping_item_id) {
-    chipKind = "skipped";
-    chipLabel = "no link";
-  } else if (matchedCandidate) {
-    const high = item.match_confidence != null && item.match_confidence >= 0.8;
-    chipKind = high ? "green" : "yellow-confirmed";
-    chipLabel = `→ ${matchedCandidate.title}${matchedCandidate.brand ? " · " + matchedCandidate.brand : ""}`;
-  } else if (autoCandidate) {
-    chipKind = "yellow-guess";
-    chipLabel = `Best guess: ${autoCandidate.title} — confirm?`;
-  } else {
-    chipKind = "yellow-empty";
-    chipLabel = "No match — pick or skip";
-  }
-
-  const chipClass = {
-    green:              "bg-emerald-50 text-emerald-800 border-emerald-200",
-    "yellow-confirmed": "bg-amber-50 text-amber-800 border-amber-200",
-    "yellow-guess":     "bg-amber-50 text-amber-900 border-amber-300",
-    "yellow-empty":     "bg-amber-50 text-amber-900 border-amber-300",
-    skipped:            "bg-slate-50 text-slate-500 border-slate-200",
-  }[chipKind];
-
   return (
-    <div ref={rowRef} className="border border-slate-100 rounded-xl p-2.5 mb-2 bg-white">
+    <div className="border border-slate-100 rounded-xl p-2.5 mb-2 bg-white">
       <div className="flex gap-2 items-start">
         <div className="flex-1 min-w-0">
           <input
@@ -668,51 +619,45 @@ function ReceiptItemRow({ item, candidates, onUpdate, onDrop, onConfirm, onSkip,
           ✕
         </button>
       </div>
-      {/* Match chip row */}
-      <div className="flex items-center gap-2 mt-2">
-        <button
-          type="button"
-          onClick={() => setPickerOpen(true)}
-          className={`flex-1 text-left text-[11px] font-bold px-2 py-1.5 rounded-lg border truncate ${chipClass}`}
-        >
-          {chipLabel}
-        </button>
-        {chipKind === "yellow-guess" && (
-          <>
-            <button
-              type="button"
-              onClick={() => onConfirm(item.auto_matched_shopping_item_id)}
-              className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-emerald-600 text-white"
-            >
-              Confirm
-            </button>
-            <button
-              type="button"
-              onClick={onSkip}
-              className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-slate-100 text-slate-500"
-            >
-              Skip
-            </button>
-          </>
-        )}
-        {chipKind === "yellow-empty" && (
+      {/* Quiet opt-in linking — gray text-link, no color emphasis.
+          Linked state shows the item + "change" affordance. Unlinked
+          state shows the prompt. Neither pushes; both pull. */}
+      <div className="mt-2">
+        {matchedCandidate ? (
           <button
             type="button"
-            onClick={onSkip}
-            className="text-[11px] font-bold px-2 py-1.5 rounded-lg bg-slate-100 text-slate-500"
+            onClick={() => setPickerOpen(true)}
+            className="text-[11px] text-slate-500 hover:text-slate-700 flex items-center gap-1.5"
           >
-            Skip
+            <span>🔗</span>
+            <span>→ {matchedCandidate.title}{matchedCandidate.brand ? ` · ${matchedCandidate.brand}` : ""}</span>
+            <span className="text-slate-400">·</span>
+            <span className="underline">change</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="text-[11px] text-slate-400 hover:text-slate-600 flex items-center gap-1.5"
+          >
+            <span>🔗</span>
+            <span>Tag to list item</span>
           </button>
         )}
       </div>
 
-      {/* Picker — fuzzy-filter the shopping_items pool */}
+      {/* Picker — opens with the auto-match suggestion (if any)
+          pre-highlighted at the top. Picking links; closing without
+          picking leaves the row unlinked. */}
       {pickerOpen && (
         <PickerSheet
           query={pickerQuery}
           onQueryChange={setPickerQuery}
           candidates={pickerCandidates}
-          onPick={(id) => { onConfirm(id); setPickerOpen(false); setPickerQuery(""); }}
+          suggestion={autoCandidate}
+          currentlyLinkedId={item.confirmed_shopping_item_id}
+          onPick={(id) => { onLink(id); setPickerOpen(false); setPickerQuery(""); }}
+          onUnlink={() => { onLink(null); setPickerOpen(false); setPickerQuery(""); }}
           onClose={() => { setPickerOpen(false); setPickerQuery(""); }}
         />
       )}
@@ -720,15 +665,22 @@ function ReceiptItemRow({ item, candidates, onUpdate, onDrop, onConfirm, onSkip,
   );
 }
 
-// Picker sheet — opened when the user taps a chip to choose a
-// different shopping_items row. Cheap substring-filter over the
-// candidate pool.
-function PickerSheet({ query, onQueryChange, candidates, onPick, onClose }) {
+// Picker sheet — opened when the user taps "🔗 Tag to list item".
+// Shows the auto-match suggestion at the top (if any) so a one-tap
+// link is the easiest path WHEN the user wants to link. Linking is
+// never pre-set; the row arrives here unlinked.
+function PickerSheet({ query, onQueryChange, candidates, suggestion, currentlyLinkedId, onPick, onUnlink, onClose }) {
   useEffect(() => {
     const onEsc = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onEsc);
     return () => document.removeEventListener("keydown", onEsc);
   }, [onClose]);
+  // Hide the suggestion from the candidates list when it's about to
+  // render at the top — avoids visual duplication.
+  const showSuggestion = !!suggestion && suggestion.id !== currentlyLinkedId;
+  const visibleCandidates = showSuggestion
+    ? candidates.filter((c) => c.id !== suggestion.id)
+    : candidates;
   return (
     <div
       className="fixed inset-0 z-[60] flex items-end"
@@ -742,7 +694,7 @@ function PickerSheet({ query, onQueryChange, candidates, onPick, onClose }) {
         className="relative w-full bg-white rounded-t-2xl p-3 shadow-2xl max-h-[70vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-center font-bold text-sm mb-2 text-slate-700">Link to which list item?</div>
+        <div className="text-center font-bold text-sm mb-2 text-slate-700">Tag this line to a list item</div>
         <input
           autoFocus
           type="text"
@@ -751,11 +703,24 @@ function PickerSheet({ query, onQueryChange, candidates, onPick, onClose }) {
           placeholder="Search your list…"
           className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm mb-2"
         />
+        {showSuggestion && !query && (
+          <div className="mb-2">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 px-1 mb-1">Suggested</div>
+            <button
+              type="button"
+              onClick={() => onPick(suggestion.id)}
+              className="w-full text-left px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 hover:bg-slate-100"
+            >
+              <div className="font-bold text-sm text-slate-800">{suggestion.title}</div>
+              {suggestion.brand && <div className="text-[11px] text-slate-500">{suggestion.brand}</div>}
+            </button>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto">
-          {candidates.length === 0 && (
+          {visibleCandidates.length === 0 && !showSuggestion && (
             <div className="text-center text-[12px] text-slate-400 py-6">No matches in your list.</div>
           )}
-          {candidates.map((c) => (
+          {visibleCandidates.map((c) => (
             <button
               key={c.id}
               type="button"
@@ -767,13 +732,24 @@ function PickerSheet({ query, onQueryChange, candidates, onPick, onClose }) {
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full mt-2 py-2 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs"
-        >
-          Cancel
-        </button>
+        <div className="flex gap-2 mt-2">
+          {currentlyLinkedId && (
+            <button
+              type="button"
+              onClick={onUnlink}
+              className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs"
+            >
+              Unlink
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );
