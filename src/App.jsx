@@ -13717,10 +13717,33 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   // without a backfill. Everything downstream (history, favorites,
   // partitions) reads from this slice so each list stays its own
   // little world.
+  //
+  // 2026-06-17 soft-delete: also strip items with deletedAt set. They
+  // remain in shoppingItems (and in the DB) until the undo window
+  // expires; we just don't render them. Mounts also kick off a load-
+  // time purge for expired soft-deletes from prior sessions.
   const listItems = useMemo(
-    () => shoppingFilterItemsForList(shoppingItems, activeListKey),
+    () => shoppingFilterItemsForList(shoppingItems, activeListKey)
+      .filter((it) => !it.deletedAt),
     [shoppingItems, activeListKey]
   );
+
+  // 2026-06-17 persistent bin. The "opposite filter" of listItems:
+  // same per-list scope but only soft-deleted items. Sorted most-
+  // recently-deleted first so the just-tapped item is at the top.
+  // No new memo slot in the existing chain — sibling of listItems,
+  // doesn't depend on anything downstream; placed adjacent to keep
+  // the chain readable.
+  const removedItems = useMemo(() => {
+    const target = activeListKey;
+    return (shoppingItems || [])
+      .filter((it) => {
+        if (!it?.deletedAt) return false;
+        const key = shoppingNormalizeListKey(it.listName) || SHOPPING_DEFAULT_LIST_KEY;
+        return key === target;
+      })
+      .sort((a, b) => (b.deletedAt || "").localeCompare(a.deletedAt || ""));
+  }, [shoppingItems, activeListKey]);
 
   // Smart-add: history map keyed by lowercased title. Surfaces
   // favorites + fuzzy type-ahead with brand carry-over so Krissie
@@ -14022,6 +14045,45 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [renameDraft, setRenameDraft] = useState("");
   const [renameMergePrompt, setRenameMergePrompt] = useState(null);
   const [deleteConfirmKey, setDeleteConfirmKey] = useState(null);
+
+  // 2026-06-17 persistent multi-delete with undo
+  // (see docs/SHOPPING-PERSISTENT-MULTI-DELETE-PLAN.md).
+  //
+  // Tapping the X on an item soft-deletes it: deletedAt is set in
+  // the DB via updateShoppingItem (synced through the existing
+  // shopping_items roundtrip). The item disappears from the active
+  // list and appears in a "Recently removed · N" collapsible
+  // section at the bottom, per-list scoped, persistent across
+  // navigation AND across full reloads. There is no transient
+  // toast, no timer, no auto-purge — items stay in the bin
+  // indefinitely until the user explicitly picks Undo (resurrect)
+  // or Remove all (hard-purge, behind a confirm modal). That's
+  // the only "I mean it" moment in the flow.
+  //
+  // Reload survives by design: DataProvider already loads all rows
+  // regardless of deletedAt. The transform pair carries deletedAt
+  // through. On next mount, removedItems memo derives the bin from
+  // the same source array listItems filters from — opposite filters,
+  // same data. No in-memory state to lose.
+  const [removedExpanded, setRemovedExpanded] = useState(false);
+  const [removeAllConfirmOpen, setRemoveAllConfirmOpen] = useState(false);
+
+  const softDeleteShoppingItem = (it) => {
+    if (!it || !it.id) return;
+    if (!updateShoppingItem) {
+      // Defensive — no updater wired (unit-test render). Fall back
+      // to the legacy hard-delete so the X still does something
+      // visible. The recovery semantics don't apply in this path,
+      // but recovery isn't reachable without setFamilySettings /
+      // updateShoppingItem anyway.
+      removeShoppingItem(it.id);
+      return;
+    }
+    updateShoppingItem(it.id, {
+      deletedAt: new Date().toISOString(),
+      deletedBy: user?.id || null,
+    });
+  };
 
   const closeManage = () => {
     setManageOpen(false);
@@ -14714,13 +14776,21 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
                     <div className="text-[10px] text-slate-400">added by {findName(it.addedBy)}</div>
                   )}
                 </div>
-                <button
-                  onClick={() => removeShoppingItem(it.id)}
-                  className="text-slate-300 active:scale-90 p-1 shrink-0"
-                  aria-label="Remove"
-                >
-                  <X size={14} />
-                </button>
+                {/* feedback_kids_never_delete.md: destructive buttons
+                    must be hidden for role==="kid". The bin is
+                    recoverable but the action is still "remove this
+                    from the list" intent — kid sees no X. v2 may
+                    route this through a request-removal approval
+                    flow; v1 hides. */}
+                {!isKid && (
+                  <button
+                    onClick={() => softDeleteShoppingItem(it)}
+                    className="text-slate-300 active:scale-90 p-1 shrink-0"
+                    aria-label="Remove"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -14751,6 +14821,126 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
           ))}
         </div>
       )}
+
+      {/* 2026-06-17 persistent multi-delete bin. Per-list scoped,
+          collapsible at the bottom of the active list. Tap-X moves
+          here. Survives navigation and reload (it's just data: rows
+          where deletedAt is set). Per-item Undo restores; Undo all
+          empties the bin back into the list; Remove all hard-purges
+          behind a confirm modal — the only "I mean it" action.
+          Lives BELOW "Not this week" per Mike: least-urgent at the
+          bottom. Rose token (existing destructive accent). */}
+      {removedItems.length > 0 && (
+        <div className="mt-4 rounded-xl bg-rose-50/30 border-l-4 border-rose-500 border-y border-r border-rose-100 overflow-hidden">
+          <div className="w-full flex items-center justify-between px-3 py-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setRemovedExpanded((v) => !v)}
+              className="flex-1 flex items-center gap-2 text-left"
+              aria-expanded={removedExpanded}
+            >
+              <span className="text-sm font-bold text-rose-700">
+                🗑️ Recently removed · {removedItems.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!updateShoppingItem) return;
+                for (const it of removedItems) {
+                  updateShoppingItem(it.id, { deletedAt: null, deletedBy: null });
+                }
+              }}
+              className="shrink-0 text-[11px] font-bold text-rose-600 bg-white border border-rose-200 rounded-full px-2.5 py-1 active:scale-95"
+            >
+              Undo all
+            </button>
+            <button
+              type="button"
+              onClick={() => setRemovedExpanded((v) => !v)}
+              className="shrink-0 text-rose-400 text-xs px-1"
+              aria-label={removedExpanded ? "Collapse" : "Expand"}
+            >
+              {removedExpanded ? "▴" : "▾"}
+            </button>
+          </div>
+          {removedExpanded && (
+            <div className="px-3 pb-3 flex flex-col gap-1.5">
+              {removedItems.map((it) => (
+                <div
+                  key={it.id}
+                  className="flex items-center justify-between bg-white rounded-lg border border-rose-100 px-2.5 py-1.5"
+                >
+                  <div className="min-w-0 flex-1 mr-2">
+                    <div className="text-sm text-slate-700 truncate">{it.title}</div>
+                    {it.section ? (
+                      <div className="text-[10px] text-slate-400">{it.section}</div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!updateShoppingItem) return;
+                      updateShoppingItem(it.id, { deletedAt: null, deletedBy: null });
+                    }}
+                    className="shrink-0 text-[11px] font-bold text-rose-600 bg-rose-50 px-2.5 py-1 rounded-full active:scale-95"
+                  >
+                    Undo
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setRemoveAllConfirmOpen(true)}
+                className="mt-1 mx-auto px-3 py-1.5 rounded-full bg-rose-600 text-white text-[11px] font-bold active:scale-95"
+              >
+                Remove all {removedItems.length}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2026-06-17 remove-all confirm modal. The only path that
+          hard-purges items from the bin. Copy is Mike's tightened
+          version: "Permanently remove N items? This can't be
+          undone." */}
+      {removeAllConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3"
+          onClick={(e) => { if (e.target === e.currentTarget) setRemoveAllConfirmOpen(false); }}
+        >
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-4">
+            <div className="text-base font-extrabold text-slate-800 mb-2">
+              Permanently remove {removedItems.length} item{removedItems.length === 1 ? "" : "s"}?
+            </div>
+            <div className="text-sm text-slate-600 mb-4">
+              This can't be undone.
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRemoveAllConfirmOpen(false)}
+                className="px-3 py-1.5 rounded-full border border-slate-300 text-slate-600 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  for (const it of removedItems) removeShoppingItem(it.id);
+                  setRemoveAllConfirmOpen(false);
+                  setRemovedExpanded(false);
+                }}
+                className="px-3 py-1.5 rounded-full bg-rose-600 text-white text-xs font-bold active:scale-95"
+              >
+                Remove all
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

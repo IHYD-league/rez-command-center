@@ -215,6 +215,11 @@ export const toApp = {
     brand: r.brand || "",
     section: r.section || "",
     listName: r.list_name || "Grocery",
+    // 2026-06-17 soft-delete + undo. Null = visible. Set = soft-removed;
+    // ShoppingList filters these out of the rendered list and a load-
+    // time purge hard-deletes expired ones.
+    deletedAt: r.deleted_at || null,
+    deletedBy: r.deleted_by || null,
     createdAt: r.created_at,
   }),
 
@@ -558,6 +563,12 @@ export const toDb = {
     brand: o.brand || null,
     section: o.section || null,
     list_name: o.listName || null,
+    // Always emit deleted_at/deleted_by in toDb (per the PostgREST
+    // batch column normalization rule — never conditionally omit a
+    // column, else the whole-array upsert NULL-pads pre-existing
+    // rows that already had a value set).
+    deleted_at: o.deletedAt || null,
+    deleted_by: o.deletedBy || null,
   }),
 
   practiceSession: (familyId) => (o) => ({
