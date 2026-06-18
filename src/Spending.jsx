@@ -222,6 +222,61 @@ export default function Spending({
     return { total, counted, missing, receiptCount: windowReceipts.length };
   }, [windowReceipts]);
 
+  // 6-month trend — always 6 calendar months ending in the current
+  // month, regardless of the selected window. Anchored context, not
+  // a window-respecting view. Reads from liveReceipts (the full
+  // soft-delete-filtered set), not windowReceipts — the chart's job
+  // is to show trend, not honor the active chip.
+  const trend6mo = useMemo(() => {
+    const buckets = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = startOfMonthOffset(now, i);
+      buckets.push({
+        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        label: d.toLocaleDateString(undefined, { month: "short" }),
+        total: 0,
+      });
+    }
+    const earliest = buckets[0] ? startOfMonthOffset(now, 5).getTime() : 0;
+    for (const r of liveReceipts) {
+      const t = Date.parse(r.purchasedAt || r.createdAt || 0);
+      if (!Number.isFinite(t) || t < earliest) continue;
+      const key = monthBucketKey(r.purchasedAt || r.createdAt);
+      const bucket = buckets.find((b) => b.key === key);
+      if (!bucket) continue;
+      const v = effectiveTotal(r);
+      if (v != null) bucket.total += v;
+    }
+    return buckets;
+  }, [liveReceipts, now]);
+
+  // By-store breakdown — group windowReceipts by storeChain (normalized)
+  // with storeName fallback. The sum of all store totals is forced to
+  // equal summary.total because both read from the same array.
+  const byStore = useMemo(() => {
+    const map = new Map();
+    for (const r of windowReceipts) {
+      const chain = (r.storeChain && String(r.storeChain).trim()) || null;
+      const name = (r.storeName && String(r.storeName).trim()) || null;
+      const key = chain || (name ? name.toLowerCase() : "other");
+      const display = name || (chain ? chain.replace(/_/g, " ") : "Other");
+      const v = effectiveTotal(r);
+      if (!map.has(key)) {
+        map.set(key, { key, display, total: 0, count: 0, missing: 0, receiptIds: [] });
+      }
+      const slot = map.get(key);
+      if (v == null) slot.missing += 1;
+      else slot.total += v;
+      slot.count += 1;
+      slot.receiptIds.push(r.id);
+      // Prefer the most-readable display string we've seen for this group.
+      if (name && (slot.display === slot.display.toLowerCase() || slot.display === name)) {
+        slot.display = name;
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [windowReceipts]);
+
   return (
     <div className="space-y-3 pb-4">
       <WindowChips value={windowKey} onChange={setWindowKey} />
@@ -244,7 +299,27 @@ export default function Spending({
         </div>
       </div>
 
-      {windowReceipts.length === 0 && (
+      {/* 6-month trend chart — always 6 months, regardless of the
+          selected window. Anchored context for the "are we trending
+          up or down?" question. Hand-rolled CSS-grid bars; the only
+          real chart on the page lives in the per-item drill-in. */}
+      {liveReceipts.length > 0 && <TrendChart buckets={trend6mo} />}
+
+      {/* By-store breakdown — list (not pie). The sum here always
+          equals the headline total because both read the same
+          filtered array. */}
+      {byStore.length > 0 && (
+        <div className="bg-white rounded-2xl p-3 shadow-sm">
+          <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-2 px-1">
+            By store
+          </div>
+          {byStore.map((s) => (
+            <StoreRow key={s.key} store={s} />
+          ))}
+        </div>
+      )}
+
+      {liveReceipts.length === 0 && (
         <div className="text-center py-10 px-6">
           <div className="text-3xl mb-2">🧾</div>
           <div className="text-sm text-slate-500 leading-relaxed">
@@ -252,6 +327,59 @@ export default function Spending({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// =================== trend chart ===================
+
+function TrendChart({ buckets }) {
+  const max = Math.max(1, ...buckets.map((b) => b.total));
+  return (
+    <div className="bg-white rounded-2xl p-3 shadow-sm">
+      <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-2 px-1">
+        Last 6 months
+      </div>
+      <div className="flex items-end gap-1.5 h-16">
+        {buckets.map((b) => {
+          const heightPct = max > 0 ? Math.max(2, (b.total / max) * 100) : 2;
+          const isCurrent = b === buckets[buckets.length - 1];
+          return (
+            <div key={b.key} className="flex-1 flex flex-col items-center gap-1">
+              <div className="flex-1 w-full flex items-end">
+                <div
+                  className={
+                    "w-full rounded-t-md " +
+                    (isCurrent ? "bg-emerald-500" : "bg-slate-300")
+                  }
+                  style={{ height: `${heightPct}%` }}
+                  title={`${b.label}: ${formatDollars(b.total)}`}
+                />
+              </div>
+              <div className="text-[10px] text-slate-400">{b.label}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// =================== store row ===================
+
+function StoreRow({ store }) {
+  return (
+    <div className="w-full px-2 py-2 flex items-center gap-3 border-b border-slate-100 last:border-b-0">
+      <div className="flex-1 min-w-0">
+        <div className="font-bold text-sm text-slate-800 truncate">{store.display}</div>
+        <div className="text-[11px] text-slate-500 mt-0.5">
+          {store.count} {store.count === 1 ? "receipt" : "receipts"}
+          {store.missing > 0 ? ` · ${store.missing} missing total` : ""}
+        </div>
+      </div>
+      <div className="font-bold text-sm text-slate-700 flex-shrink-0">
+        {formatDollars(store.total)}
+      </div>
     </div>
   );
 }
