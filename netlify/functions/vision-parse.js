@@ -90,6 +90,7 @@ Plus an items array. For each PURCHASED PRODUCT line:
 - unit: "lb" / "oz" / "ea" if shown; null otherwise.
 - unit_price: price per unit if printed.
 - line_total: total for this line as printed.
+- upc: the 12-13 digit barcode for the product, if printed in or next to the line (typical format on receipts: a numeric code printed under the item description, e.g. 681147071140). Numeric string of 8-14 digits. null if no barcode is printed for this line.
 
 Skip non-product lines: subtotals, tax rows, "savings", coupons, discounts, "TOTAL" row, store address, cashier ID, payment lines, signatures, footers, "thank you" copy.
 
@@ -102,8 +103,8 @@ Return ONLY a JSON object in this exact shape, nothing else:
   "tax": 7.12,
   "total": 149.57,
   "items": [
-    { "title": "Whipped Dressing", "brand": "Great Value", "qty": 1, "unit": "ea", "unit_price": 4.99, "line_total": 4.99 },
-    { "title": "Goldfish XL", "brand": "Pepperidge Farm", "qty": 2, "unit": "ea", "unit_price": 7.49, "line_total": 14.98 }
+    { "title": "Whipped Dressing", "brand": "Great Value", "qty": 1, "unit": "ea", "unit_price": 4.99, "line_total": 4.99, "upc": "078742052830" },
+    { "title": "Goldfish XL", "brand": "Pepperidge Farm", "qty": 2, "unit": "ea", "unit_price": 7.49, "line_total": 14.98, "upc": null }
   ]
 }
 
