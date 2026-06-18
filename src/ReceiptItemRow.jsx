@@ -54,7 +54,7 @@ export default function ReceiptItemRow({ item, candidates, onUpdate, onDrop, onL
           <input
             type="text"
             value={item.title}
-            onChange={(e) => onUpdate({ title: e.target.value })}
+            onChange={(e) => onUpdate({ title: e.target.value, title_source: "user" })}
             className="w-full px-2 py-1 rounded-md border border-slate-200 text-[13px] font-bold text-slate-800 mb-1"
           />
           <div className="flex gap-1.5">
@@ -100,6 +100,16 @@ export default function ReceiptItemRow({ item, candidates, onUpdate, onDrop, onL
           ✕
         </button>
       </div>
+      {/* UPC-lookup pill — visible only while /api/lookup-upc is
+          pending for this line. Disappears silently on resolve, miss,
+          timeout, or error. Lines without a UPC never show it. */}
+      {item._lookupStatus === "pending" && (
+        <div className="mt-2 text-[11px] text-slate-400 flex items-center gap-1.5">
+          <span className="animate-pulse">🔎</span>
+          <span>looking up name…</span>
+        </div>
+      )}
+
       {/* Quiet opt-in linking — gray text-link, no color emphasis.
           Linked state shows the item + "change" affordance. Unlinked
           state shows the prompt. Neither pushes; both pull. */}

@@ -94,6 +94,79 @@ function defaultSource(purchasedAtIso) {
   return ageDays > 14 ? "backfill" : "receipt";
 }
 
+// =============== RS-1.5 UPC-lookup helpers ===============
+//
+// The terse-heuristic gate. Decides whether an OFF-resolved title is
+// allowed to REPLACE the parser's title. The rule, restated:
+//
+//   Apply OFF only when the parser's title looks like a receipt
+//   abbreviation (ALL CAPS with short tokens or vowel-less tokens)
+//   AND OFF's title looks like a real product name (multi-word).
+//
+// This is the SUPERMAN guard: a non-food line that happens to carry
+// a colliding UPC must not be silently rewritten into something
+// food-shaped. Readable lines stay untouched.
+
+// "EB PUF CHED", "GV WHP DRSG", "MAND 3 BAG" → true
+// "Superman", "Goldfish XL", "Whipped Dressing" → false
+function isTerseParserTitle(s) {
+  if (!s) return false;
+  const t = String(s).trim();
+  if (!t) return false;
+  // Must be uppercase to be receipt-style. "Superman" stays unmodified.
+  const isAllCaps = t === t.toUpperCase() && /[A-Z]/.test(t);
+  if (!isAllCaps) return false;
+  const tokens = t.split(/\s+/).filter(Boolean);
+  const hasShortToken = tokens.some((tk) => /^[A-Z]{2,3}$/.test(tk));
+  const hasVowellessToken = tokens.some((tk) => /^[A-Z]{3,}$/.test(tk) && !/[AEIOU]/.test(tk));
+  return hasShortToken || hasVowellessToken;
+}
+
+// Strict "looks like a real human-readable product name" gate. The
+// OFF result must clear ALL of these to be eligible for apply:
+//
+//   - has a space (multi-word)
+//   - length ≥ 4
+//   - NOT entirely uppercase — "EGG PUFF CHED" is rejected even
+//     though it has spaces and length
+//   - contains at least one lowercase letter (mixed-case shape)
+//   - no abbreviation tokens (short ALL-CAPS ≤3 chars, or vowel-less
+//     ≥3-char) — even if the rest reads cleanly
+//
+// Why the strict bar: real-world OFF testing on a Walmart receipt
+// returned 0/10 hits anyway (OFF coverage is thin on US store
+// brands — Great Value, Kirkland, in-store produce codes, general
+// merch — which is what this family buys). The brick fires
+// dormantly. This gate is INSURANCE so that on the rare future hit
+// — Whole Foods, Sprouts, a name-brand item — a junk-cased OFF
+// record can never overwrite a clean parser title. Future readers:
+// don't chase OFF tuning; the real lever on cryptic names is the
+// receipt prompt's translation instruction, not the lookup path.
+function isCleanOffTitle(s) {
+  if (!s) return false;
+  const t = String(s).trim();
+  if (t.length < 4 || !/\s/.test(t)) return false;
+  // Reject entirely uppercase — "EGG PUFF CHED" doesn't qualify.
+  if (t === t.toUpperCase()) return false;
+  // Require at least one lowercase letter — proxy for real-name shape.
+  if (!/[a-z]/.test(t)) return false;
+  // Reject if any token still looks like a receipt abbreviation.
+  const tokens = t.split(/\s+/).filter(Boolean);
+  const hasShortCapsToken = tokens.some((tk) => /^[A-Z]{2,3}$/.test(tk));
+  const hasVowellessCapsToken = tokens.some(
+    (tk) => /^[A-Z]{3,}$/.test(tk) && !/[AEIOU]/.test(tk)
+  );
+  if (hasShortCapsToken || hasVowellessCapsToken) return false;
+  return true;
+}
+
+// The single decision point — both sides must say yes.
+function shouldApplyOff(parserTitle, offTitle) {
+  if (!isTerseParserTitle(parserTitle) || !isCleanOffTitle(offTitle)) return false;
+  // OFF title must be strictly longer; equal-length swaps are suspect.
+  return String(offTitle).trim().length > String(parserTitle).trim().length;
+}
+
 // Compute the auto-match candidate for a parsed line.
 // Filters to active shopping_items only (deleted_at IS NULL — Black's
 // soft-delete contract). Returns { itemId, score } or null.
@@ -196,10 +269,16 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
         const best = bestMatch({ title: it.title, brand: it.brand }, shoppingItems, fuzzyMatch);
         const confidence = best ? Math.min(1, best.score / 200) : null;
         const autoId = best && best.score >= SUGGEST_FLOOR ? best.itemId : null;
+        // UPC must be 8-14 digits to be lookup-eligible; anything else
+        // (letters, short codes, prices the model misclassified) is
+        // dropped to null so /api/lookup-upc never sees garbage input.
+        const rawUpc = it.upc != null ? String(it.upc).trim() : "";
+        const upc = /^\d{8,14}$/.test(rawUpc) ? rawUpc : null;
+        const visionTitle = String(it.title || "");
         return {
           // local UI key — not persisted
           _key: `rl_${idx}_${Math.random().toString(36).slice(2, 7)}`,
-          title: String(it.title || ""),
+          title: visionTitle,
           brand: it.brand || "",
           qty: it.qty != null ? Number(it.qty) || 1 : 1,
           unit: it.unit || "",
@@ -208,10 +287,23 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
           auto_matched_shopping_item_id: autoId,    // kept in ocr_raw for future analysis
           match_confidence: confidence,             // kept in ocr_raw for future analysis
           confirmed_shopping_item_id: null,         // user-opt-in only
+          // UPC-lookup brick (RS-1.5): preserve the parser's original
+          // title forever as vision_title; off_title holds the OFF
+          // resolution (even when not applied to title); title_source
+          // tracks who set the effective title for the no-clobber rule.
+          upc,
+          vision_title: visionTitle,
+          off_title: null,
+          title_source: "vision",
         };
       });
       setItems(matched);
       setStage("review");
+      // Kick off UPC-lookups in parallel — non-blocking. The review
+      // screen renders with parser titles first; OFF results stream
+      // in over the next ~1s and update title in place when the
+      // terse-heuristic + no-clobber checks pass.
+      runUpcLookups(matched);
     } catch (err) {
       // Catch covers: upload failure, network drop, or client-side
       // image-decode failure (e.g. desktop Chrome can't decode HEIC;
@@ -237,6 +329,63 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
 
   const updateItem = (key, patch) => {
     setItems((prev) => prev.map((it) => (it._key === key ? { ...it, ...patch } : it)));
+  };
+
+  // RS-1.5 — fire /api/lookup-upc for every line with a UPC, in
+  // parallel. Each resolve hits setItems independently; the
+  // function returns immediately so the review screen stays
+  // interactive. Race-guarded: on resolve we re-check
+  // title_source — if it flipped to "user" while we were waiting,
+  // we drop the result and silently clear the pending pill.
+  const runUpcLookups = (initial) => {
+    const targets = initial.filter((it) => it.upc && it.title_source === "vision");
+    if (targets.length === 0) return;
+    // Mark pending so the row can render the "🔎 looking up…" pill.
+    setItems((prev) => prev.map((it) =>
+      targets.some((t) => t._key === it._key)
+        ? { ...it, _lookupStatus: "pending" }
+        : it
+    ));
+    targets.forEach(async (target) => {
+      let result = null;
+      try {
+        const r = await fetch("/api/lookup-upc", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ upc: target.upc }),
+        });
+        result = await r.json().catch(() => null);
+      } catch {
+        result = null;
+      }
+      setItems((prev) => prev.map((it) => {
+        if (it._key !== target._key) return it;
+        // Race guard: drop result if user already started editing this line.
+        if (it.title_source !== "vision") {
+          const { _lookupStatus, ...rest } = it;
+          return rest;
+        }
+        const offHit = result?.status === "ok";
+        const offTitle = offHit ? String(result.title || "").trim() : null;
+        const offBrand = offHit ? String(result.brand || "").trim() : "";
+        const apply = offHit && offTitle && shouldApplyOff(it.title, offTitle);
+        const next = { ...it };
+        delete next._lookupStatus;
+        // Always record off_title when OFF resolved — even if we declined
+        // to apply it — so a future "use this suggestion?" UX can read it.
+        if (offTitle) next.off_title = offTitle;
+        if (apply) {
+          next.title = offTitle;
+          next.title_source = "off";
+          // Brand backfill: only fill when parser brand is empty. Never
+          // override a non-empty parser brand (Mike's rule).
+          if (offBrand && (!it.brand || !String(it.brand).trim())) {
+            next.brand = offBrand;
+          }
+        }
+        return next;
+      }));
+    });
   };
 
   const dropItem = (key) => {
@@ -275,6 +424,14 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
         match_confidence: it.match_confidence,
         confirmed_shopping_item_id: it.confirmed_shopping_item_id,
         source,
+        // RS-1.5 UPC-lookup trail — persisted so the spending page and
+        // the edit-after-save flow can read the parser's original
+        // title + the OFF suggestion separately from the effective
+        // title. Defaults keep old rows backward-compatible.
+        upc: it.upc || null,
+        vision_title: it.vision_title || it.title,
+        off_title: it.off_title || null,
+        title_source: it.title_source || "vision",
       }));
       const row = {
         imagePath,
