@@ -15,8 +15,59 @@
 //   2. Netlify → env vars → ANTHROPIC_API_KEY = <paste>
 //   3. Trigger redeploy
 
+import { createClient } from "@supabase/supabase-js";
+
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-haiku-4-5-20251001";
+
+// Auth gate. The function used to accept any POST — anyone with the
+// URL could burn the Anthropic key OR feed fake "receipts" into the
+// parser. As of 2026-06-18 every caller must be a signed-in Supabase
+// user AND a member of some family (a row in public.profiles tied to
+// their auth_user_id). Both gates run BEFORE the body is parsed and
+// BEFORE the Anthropic call so a rejected request costs nothing.
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+async function verifyCaller(req) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return { ok: false, response: jsonResponse({ status: "auth_misconfigured" }, 500) };
+  }
+  const authHeader = req.headers.get("authorization") || "";
+  const m = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!m) {
+    return { ok: false, response: jsonResponse({ status: "unauthorized", reason: "missing_bearer" }, 401) };
+  }
+  const token = m[1].trim();
+  // Use the user's bearer as the client's Authorization header so the
+  // profiles lookup runs through RLS as that user (they can read their
+  // own profile, can't enumerate others). No persisted session — this
+  // is a single-shot verification per request.
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+  if (userErr || !userData?.user) {
+    return { ok: false, response: jsonResponse({ status: "unauthorized", reason: "invalid_token" }, 401) };
+  }
+  const { data: profile, error: profileErr } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("auth_user_id", userData.user.id)
+    .maybeSingle();
+  if (profileErr || !profile) {
+    return { ok: false, response: jsonResponse({ status: "unauthorized", reason: "not_a_family_member" }, 401) };
+  }
+  return { ok: true };
+}
 
 // Per-kind prompts. Each must instruct Claude to return ONLY a JSON
 // object matching the per-kind response shape. Claude is excellent at
@@ -118,6 +169,11 @@ export default async (req) => {
       headers: { "content-type": "application/json" },
     });
   }
+
+  // Auth gate runs BEFORE body parsing + BEFORE the Anthropic call.
+  // A rejected request never burns the API key.
+  const auth = await verifyCaller(req);
+  if (!auth.ok) return auth.response;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
