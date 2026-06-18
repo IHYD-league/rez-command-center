@@ -941,6 +941,15 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const softDeleteReceipt = (id) => setReceipts((prev) => prev.map((r) =>
     r.id === id ? { ...r, deletedAt: new Date().toISOString() } : r
   ));
+  // RS-1 updateReceipt — patch any subset of receipt-level fields
+  // (storeName / purchasedAt / subtotal / tax / total) and/or ocrRaw
+  // (notably items_reviewed). Receipts detail view uses this for the
+  // edit-after-save path required by the editable-after-save rule.
+  // The sync layer's PostgREST batch updater (transform.toDb.receipt)
+  // serializes the row from the merged shape.
+  const updateReceipt = (id, patch) => setReceipts((prev) => prev.map((r) =>
+    r.id === id ? { ...r, ...patch } : r
+  ));
   const toggleShoppingItem = (id) => setShoppingItems((prev) => prev.map((it) => {
     if (it.id !== id) return it;
     const nowChecked = !it.checked;
@@ -2273,7 +2282,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     practiceSessions, addPracticeSession, removePracticeSession,
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
     relabelShoppingItemsByListKey,
-    receipts, addReceipt, softDeleteReceipt,
+    receipts, addReceipt, softDeleteReceipt, updateReceipt,
     familySettings, setFamilySettings,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
@@ -12668,7 +12677,7 @@ function MoreParent(props) {
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
   if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
-  if (sub === "receipts") return <BackWrap title="Receipts" onBack={() => setSub("menu")}><Receipts receipts={props.receipts} softDeleteReceipt={props.softDeleteReceipt} users={props.users} /></BackWrap>;
+  if (sub === "receipts") return <BackWrap title="Receipts" onBack={() => setSub("menu")}><Receipts receipts={props.receipts} softDeleteReceipt={props.softDeleteReceipt} updateReceipt={props.updateReceipt} users={props.users} user={props.user} shoppingItems={props.shoppingItems} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
