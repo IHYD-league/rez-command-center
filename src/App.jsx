@@ -844,6 +844,12 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // adds at the store, Mike checks off at home.
   const [shoppingItems, _setShoppingItems] = useState(() => initial?.shoppingItems ?? []);
   const setShoppingItems = makeSyncedSetter(_setShoppingItems, "shoppingItems", sync);
+  // RS-1 receipts — image pointer + parsed payload + reviewed
+  // items_reviewed array (the promotion contract RS-2 will read to
+  // mint purchase rows). Entity wiring landed in Commit A; the
+  // state hook + addReceipt helper land here for the real review UI.
+  const [receipts, _setReceipts] = useState(() => initial?.receipts ?? []);
+  const setReceipts = makeSyncedSetter(_setReceipts, "receipts", sync);
   // Daily kid mood check-ins. One row per (profileId, date). Reznor
   // taps a 3-emoji row on his Today; parents see a 7-day mood strip
   // on theirs.
@@ -909,6 +915,25 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       decidedAt: new Date().toISOString(),
       declineReason: decision === "declined" ? (declineReason || "Not this week").slice(0, 80) : "",
     } : it));
+  };
+  // RS-1 addReceipt — single INSERT of a reviewed receipt. Caller
+  // (ReceiptScanner.commitReceipt) builds the full row including
+  // the ocr_raw promotion contract (vision verbatim + items_reviewed
+  // with title/brand/qty/unit/unit_price/line_total/
+  // auto_matched_shopping_item_id/match_confidence/
+  // confirmed_shopping_item_id/source). We just stamp id +
+  // uploaded_by + createdAt and route through the sync layer. The
+  // current acted-as profile is the uploader.
+  const addReceipt = (r) => {
+    setReceipts((prev) => [
+      {
+        id: r.id || ("rcp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8)),
+        uploadedBy: r.uploadedBy || currentUserId || currentProfileId || null,
+        createdAt: r.createdAt || new Date().toISOString(),
+        ...r,
+      },
+      ...prev,
+    ]);
   };
   const toggleShoppingItem = (id) => setShoppingItems((prev) => prev.map((it) => {
     if (it.id !== id) return it;
@@ -2242,6 +2267,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     practiceSessions, addPracticeSession, removePracticeSession,
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
     relabelShoppingItemsByListKey,
+    receipts, addReceipt,
     familySettings, setFamilySettings,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
@@ -12635,7 +12661,7 @@ function MoreParent(props) {
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
-  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} /></BackWrap>;
+  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
@@ -13640,7 +13666,7 @@ function EmailSetup(props) {
 // long-press / pencil to rename, X to remove. Strikethrough on
 // checked items sinks them to the bottom. One-tap "Clear bought"
 // when the trip's over. The whole point is being faster than texting.
-function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null, familySettings = {}, setFamilySettings = null, relabelShoppingItemsByListKey = null }) {
+function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest, users = [], user = null, familySettings = {}, setFamilySettings = null, relabelShoppingItemsByListKey = null, addReceipt = null, familyId = null, fuzzyMatch = null }) {
   const isKid = user?.role === "kid";
   const isParent = user?.role === "parent" || user?.role === "helper" || user?.role === "grandparent";
   const [draft, setDraft] = useState("");
@@ -14583,15 +14609,20 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
         </div>
       )}
 
-      {/* Receipt scanner mount. ReceiptScanner.jsx is a stub today
-          (returns null), so picking the receipt tile is a no-op
-          visually. The wiring + activeListKey contract are landed
-          here so the follow-up PR that implements the receipt UX
-          inherits the right scaffold. */}
+      {/* Receipt scanner — the real review UI (RS-1 next brick).
+          Capture → upload → parse via /api/vision-parse kind=receipt
+          → review (editable header + line items + fuzzy auto-match
+          chips against active shopping_items + "Review these" sticky
+          for unmatched) → commit one receipts row carrying the full
+          ocr_raw promotion contract for RS-2. */}
       {receiptScannerOpen && (
         <ReceiptScanner
           onClose={() => setReceiptScannerOpen(false)}
           activeListKey={activeListKey}
+          addReceipt={addReceipt}
+          familyId={familyId}
+          shoppingItems={shoppingItems}
+          fuzzyMatch={fuzzyMatch}
         />
       )}
 
