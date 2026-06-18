@@ -54,7 +54,7 @@ export default function ReceiptItemRow({ item, candidates, onUpdate, onDrop, onL
           <input
             type="text"
             value={item.title}
-            onChange={(e) => onUpdate({ title: e.target.value })}
+            onChange={(e) => onUpdate({ title: e.target.value, title_source: "user" })}
             className="w-full px-2 py-1 rounded-md border border-slate-200 text-[13px] font-bold text-slate-800 mb-1"
           />
           <div className="flex gap-1.5">
