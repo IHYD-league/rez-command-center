@@ -542,7 +542,7 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
 // One line on the receipt. Editable inline; chip changes color by
 // match state (green high-confidence, yellow best-guess or no-match,
 // gray skipped).
-function ReceiptItemRow({ item, candidates, onUpdate, onDrop, onConfirm, onSkip, rowRef }) {
+function ReceiptItemRow({ item, candidates, onUpdate, onDrop, onLink }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
 
