@@ -196,10 +196,16 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
         const best = bestMatch({ title: it.title, brand: it.brand }, shoppingItems, fuzzyMatch);
         const confidence = best ? Math.min(1, best.score / 200) : null;
         const autoId = best && best.score >= SUGGEST_FLOOR ? best.itemId : null;
+        // UPC must be 8-14 digits to be lookup-eligible; anything else
+        // (letters, short codes, prices the model misclassified) is
+        // dropped to null so /api/lookup-upc never sees garbage input.
+        const rawUpc = it.upc != null ? String(it.upc).trim() : "";
+        const upc = /^\d{8,14}$/.test(rawUpc) ? rawUpc : null;
+        const visionTitle = String(it.title || "");
         return {
           // local UI key — not persisted
           _key: `rl_${idx}_${Math.random().toString(36).slice(2, 7)}`,
-          title: String(it.title || ""),
+          title: visionTitle,
           brand: it.brand || "",
           qty: it.qty != null ? Number(it.qty) || 1 : 1,
           unit: it.unit || "",
@@ -208,6 +214,14 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
           auto_matched_shopping_item_id: autoId,    // kept in ocr_raw for future analysis
           match_confidence: confidence,             // kept in ocr_raw for future analysis
           confirmed_shopping_item_id: null,         // user-opt-in only
+          // UPC-lookup brick (RS-1.5): preserve the parser's original
+          // title forever as vision_title; off_title holds the OFF
+          // resolution (even when not applied to title); title_source
+          // tracks who set the effective title for the no-clobber rule.
+          upc,
+          vision_title: visionTitle,
+          off_title: null,
+          title_source: "vision",
         };
       });
       setItems(matched);
@@ -275,6 +289,14 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
         match_confidence: it.match_confidence,
         confirmed_shopping_item_id: it.confirmed_shopping_item_id,
         source,
+        // RS-1.5 UPC-lookup trail — persisted so the spending page and
+        // the edit-after-save flow can read the parser's original
+        // title + the OFF suggestion separately from the effective
+        // title. Defaults keep old rows backward-compatible.
+        upc: it.upc || null,
+        vision_title: it.vision_title || it.title,
+        off_title: it.off_title || null,
+        title_source: it.title_source || "vision",
       }));
       const row = {
         imagePath,
