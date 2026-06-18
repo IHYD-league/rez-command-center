@@ -250,6 +250,90 @@ export default function Spending({
     return buckets;
   }, [liveReceipts, now]);
 
+  // Per-item price trends — group EVERY item across liveReceipts (not
+  // just the window — trends need history to be meaningful) by
+  // itemIdentityKey. Returns one row per identity that has 2+
+  // OCCURRENCES across DIFFERENT receipts. Day-one sparse-by-design.
+  const trendItems = useMemo(() => {
+    const map = new Map();
+    for (const r of liveReceipts) {
+      const items = Array.isArray(r.ocrRaw?.items_reviewed) ? r.ocrRaw.items_reviewed : [];
+      const seenInReceipt = new Set();
+      for (const line of items) {
+        const key = itemIdentityKey(line);
+        if (!key) continue;
+        // Dedupe within a receipt — a receipt with the same UPC twice
+        // (the qty-2 / line-split case) is one occurrence for trend
+        // purposes; price changes ACROSS trips is the signal.
+        if (seenInReceipt.has(key)) continue;
+        seenInReceipt.add(key);
+        const price = effectiveUnitPrice(line);
+        if (price == null) continue;
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            title: line.title || "(untitled)",
+            brand: line.brand || "",
+            occurrences: [],
+          });
+        }
+        const slot = map.get(key);
+        slot.occurrences.push({
+          receiptId: r.id,
+          purchasedAt: r.purchasedAt || r.createdAt,
+          price,
+          title: line.title || slot.title,
+          brand: line.brand || slot.brand,
+        });
+        // Prefer the most-recent non-empty title for display.
+        if (line.title) slot.title = line.title;
+        if (line.brand) slot.brand = line.brand;
+      }
+    }
+    const rows = [];
+    for (const slot of map.values()) {
+      slot.occurrences.sort((a, b) =>
+        Date.parse(a.purchasedAt || 0) - Date.parse(b.purchasedAt || 0)
+      );
+      if (slot.occurrences.length < 2) continue;
+      const first = slot.occurrences[0];
+      const last = slot.occurrences[slot.occurrences.length - 1];
+      const pct = pctChange(first.price, last.price);
+      rows.push({
+        key: slot.key,
+        title: slot.title,
+        brand: slot.brand,
+        first,
+        last,
+        pct,
+        occurrences: slot.occurrences,
+      });
+    }
+    // Largest absolute price change first, so "where's the leak" is at top.
+    rows.sort((a, b) => Math.abs(b.last.price - b.first.price) - Math.abs(a.last.price - a.first.price));
+    return rows;
+  }, [liveReceipts]);
+
+  // Count of items WITH a precise identity but only one occurrence — the
+  // "almost-tracked" pool. Surfaced in the empty/sparse state copy so
+  // Mike understands what's coming next time he scans the same product.
+  const almostTrackedCount = useMemo(() => {
+    const map = new Map();
+    for (const r of liveReceipts) {
+      const items = Array.isArray(r.ocrRaw?.items_reviewed) ? r.ocrRaw.items_reviewed : [];
+      const seen = new Set();
+      for (const line of items) {
+        const key = itemIdentityKey(line);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        map.set(key, (map.get(key) || 0) + 1);
+      }
+    }
+    let count = 0;
+    for (const n of map.values()) if (n === 1) count += 1;
+    return count;
+  }, [liveReceipts]);
+
   // By-store breakdown — group windowReceipts by storeChain (normalized)
   // with storeName fallback. The sum of all store totals is forced to
   // equal summary.total because both read from the same array.
@@ -319,6 +403,13 @@ export default function Spending({
         </div>
       )}
 
+      {/* Price trends — per-item, precise-identity (UPC or linked
+          shopping_item_id only, no fuzzy fallback). Sparse on day-one;
+          empty/sparse state explains the bridge to filling it. */}
+      {liveReceipts.length > 0 && (
+        <TrendsSection items={trendItems} almostTracked={almostTrackedCount} />
+      )}
+
       {liveReceipts.length === 0 && (
         <div className="text-center py-10 px-6">
           <div className="text-3xl mb-2">🧾</div>
@@ -328,6 +419,102 @@ export default function Spending({
         </div>
       )}
     </div>
+  );
+}
+
+// =================== trends section ===================
+
+function TrendsSection({ items, almostTracked }) {
+  return (
+    <div className="bg-white rounded-2xl p-3 shadow-sm">
+      <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-2 px-1">
+        Price trends
+      </div>
+      {items.length === 0 ? (
+        <div className="px-2 py-4 text-center">
+          <div className="text-sm text-slate-500 leading-relaxed">
+            {almostTracked > 0
+              ? `${almostTracked} ${almostTracked === 1 ? "item is" : "items are"} waiting for a second occurrence to start trending.`
+              : "Nothing to trend yet."}
+          </div>
+          <div className="text-[12px] text-slate-400 mt-2 leading-relaxed">
+            Each item needs to appear on 2+ receipts to show a price trend.
+            Tag a line to your shopping list at scan time and we'll track its
+            price across trips.
+          </div>
+        </div>
+      ) : (
+        <>
+          {items.map((row) => (
+            <TrendRow key={row.key} row={row} />
+          ))}
+          <div className="text-[11px] text-slate-400 mt-2 px-2 leading-relaxed">
+            {almostTracked > 0
+              ? `${almostTracked} more ${almostTracked === 1 ? "item is" : "items are"} waiting for a second occurrence. `
+              : ""}
+            Tag more lines at scan time to grow this list.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TrendRow({ row }) {
+  const pct = row.pct;
+  const direction = pct == null ? null : pct > 0.5 ? "up" : pct < -0.5 ? "down" : "flat";
+  const pctColor =
+    direction === "up" ? "text-rose-600" : direction === "down" ? "text-emerald-600" : "text-slate-400";
+  const pctLabel =
+    pct == null ? "" : `${pct > 0 ? "+" : ""}${pct.toFixed(0)}%`;
+  return (
+    <div className="flex items-center gap-2 px-1 py-2 border-b border-slate-100 last:border-b-0">
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-bold text-slate-800 truncate">{row.title}</div>
+        {row.brand && <div className="text-[11px] text-slate-500 truncate">{row.brand}</div>}
+        <div className="text-[11px] text-slate-500 mt-0.5">
+          {formatCents(row.first.price)} → {formatCents(row.last.price)}
+          {" · "}
+          {row.occurrences.length} {row.occurrences.length === 1 ? "trip" : "trips"}
+        </div>
+      </div>
+      <Sparkline occurrences={row.occurrences} />
+      <div className={`text-[12px] font-bold w-12 text-right ${pctColor}`}>{pctLabel}</div>
+    </div>
+  );
+}
+
+// Tiny inline SVG sparkline — 32x16, no axes. Trend direction only.
+function Sparkline({ occurrences }) {
+  const W = 36;
+  const H = 18;
+  if (!occurrences || occurrences.length < 2) {
+    return <div style={{ width: W, height: H }} />;
+  }
+  const prices = occurrences.map((o) => o.price);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+  const step = occurrences.length === 1 ? 0 : W / (occurrences.length - 1);
+  const points = occurrences
+    .map((o, i) => {
+      const x = i * step;
+      const y = H - ((o.price - min) / range) * H;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg width={W} height={H} className="flex-shrink-0">
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        className="text-slate-400"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
