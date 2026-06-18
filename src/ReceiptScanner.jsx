@@ -33,12 +33,11 @@
 // Receipt-level fields (store_chain, store_label, purchased_at,
 // currency, family_id, uploaded_by, id) live on the receipts row.
 //
-// ⚠️ AUTH GAP — STILL OPEN (audit doc 2026-06-13 #6).
-// /api/vision-parse has no JWT verification. This brick now puts
-// REAL receipt data (store, dates, dollar amounts) through that
-// unauthenticated function. The gap MUST close before ANY non-Lynch
-// family scans a receipt. See docs/AUDIT-2026-06-13-TRUST-AND-COST.md
-// for the fix sketch.
+// AUTH: as of 2026-06-18 /api/vision-parse requires a valid Supabase
+// access token + a family-member profile. visionScan.scanImage attaches
+// the bearer from the active session automatically; no UX change for
+// signed-in callers. Anonymous calls are rejected before the Anthropic
+// key burns.
 //
 // Scope of this brick: receipts capture only. Does NOT promote to a
 // purchases table (RS-2), does NOT power spending insights (RS-3),

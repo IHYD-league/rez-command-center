@@ -1,6 +1,15 @@
 // Client wrapper around the /api/vision-parse Netlify function.
 // Compresses the captured image to ~1024px wide JPEG before sending
 // so request bodies stay small + the model sees clean text.
+//
+// Auth: every call attaches the signed-in user's Supabase access
+// token. The function rejects any request without a valid token + a
+// family-member profile before burning the Anthropic key. If the
+// session is missing client-side (extremely rare — they're signed
+// in everywhere else in the app), we surface a clean "Please sign
+// in again" instead of calling an endpoint that's going to 401.
+
+import { supabase } from "./supabase.js";
 
 const MAX_DIM = 1024;
 
@@ -33,10 +42,18 @@ async function fileToCompressedJpegBase64(file) {
 export async function scanImage({ file, kind }) {
   if (!file) throw new Error("No image selected.");
   if (!kind) throw new Error("scanImage: missing kind.");
+  if (!supabase) throw new Error("Sign-in isn't configured. Please sign in and try again.");
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token || null;
+  if (!accessToken) throw new Error("Please sign in again before scanning.");
+
   const { base64, mediaType } = await fileToCompressedJpegBase64(file);
   const r = await fetch("/api/vision-parse", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
     body: JSON.stringify({ kind, imageBase64: base64, imageMediaType: mediaType }),
   });
   if (!r.ok) throw new Error(`vision-parse HTTP ${r.status}`);
