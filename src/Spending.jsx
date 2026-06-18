@@ -85,43 +85,69 @@ export function itemIdentityKey(line) {
   return null;
 }
 
-// =================== time windows ===================
+// =================== month assignment — THE INVARIANT ===================
+//
+// THIS IS THE ONLY MONTH-ASSIGNMENT FUNCTION IN THIS FILE. The headline
+// math (windowReceipts for "month" / "3mo" / "year") and the 6-month
+// trend chart BOTH bucket receipts through monthKeyOf below. They are
+// mathematically guaranteed to agree on the per-month total —
+// chart bar ≡ headline subtotal for the same month — because they
+// share the function.
+//
+// Why this exists as a single function, with a code comment: a prior
+// revision used TWO paths — a range-compare (winStart.getTime() ≤ t)
+// for the headline and a local-time getMonth/setMonth chain for the
+// chart buckets. Both worked in V8 (Node), but on iOS Safari the
+// chart was missing a June bar while the headline correctly showed
+// June's $169 total. Same intent, different code paths, one browser
+// quirk → trust-breaking contradiction in the UI.
+//
+// UTC by design: toISOString().slice(0,7) is deterministic across
+// every browser and unaffected by local timezone or Date method
+// quirks. Date.UTC arithmetic for the bucket keys keeps the receipt
+// side and the chart side reading from the same calendar.
+//
+// DO NOT introduce a second month-from-iso path. If you need to
+// bucket by month somewhere new, call monthKeyOf.
 
-// Sunday-start week to match Church-on-Sunday family cadence.
+function monthKeyOf(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 7); // "YYYY-MM"
+}
+
+// Month key for (now - monthsAgo). Uses Date.UTC so the calendar
+// math matches monthKeyOf — both UTC, no local-time drift.
+function monthKeyFor(now, monthsAgo) {
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth() - monthsAgo;
+  return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
+}
+
+// Localized short label for a "YYYY-MM" key. Reconstruct the UTC
+// Date for the 1st of that month and explicitly request UTC formatting
+// so the label always matches the key — otherwise a Date at Jun 1
+// 00:00 UTC reads as "May" in PT and the chart bar mis-labels.
+function monthLabelFor(monthKey) {
+  if (!monthKey) return "";
+  const [y, m] = monthKey.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1))
+    .toLocaleDateString(undefined, { month: "short", timeZone: "UTC" });
+}
+
+// =================== other window starts ===================
+
+// Sunday-start week to match Church-on-Sunday family cadence. Local
+// time is correct here — the user's mental model of "this week" is
+// "Sunday through today" in THEIR timezone, not a UTC week. The week
+// window doesn't interact with monthKeyOf (the chart bucketing), so
+// it can't reintroduce the chart-vs-headline divergence bug.
 function startOfWeek(now) {
   const d = new Date(now);
   d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() - d.getDay());
   return d;
-}
-function startOfMonth(now) {
-  const d = new Date(now);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(1);
-  return d;
-}
-function startOfMonthOffset(now, monthsAgo) {
-  const d = new Date(now);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(1);
-  d.setMonth(d.getMonth() - monthsAgo);
-  return d;
-}
-function startOfYear(now) {
-  const d = new Date(now);
-  d.setHours(0, 0, 0, 0);
-  d.setMonth(0, 1);
-  return d;
-}
-
-function windowStart(key, now) {
-  switch (key) {
-    case "week":  return startOfWeek(now);
-    case "month": return startOfMonth(now);
-    case "3mo":   return startOfMonthOffset(now, 2); // current month + 2 prior
-    case "year":  return startOfYear(now);
-    default:      return startOfMonth(now);
-  }
 }
 
 const WINDOW_LABELS = {
@@ -130,18 +156,6 @@ const WINDOW_LABELS = {
   "3mo": "Last 3 months",
   year:  "This year",
 };
-
-function monthBucketKey(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-function monthBucketLabel(key) {
-  if (!key) return "";
-  const [y, m] = key.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
-}
 
 // =================== formatting ===================
 
@@ -207,16 +221,40 @@ export default function Spending({
   );
 
   const now = useMemo(() => new Date(), []);
-  const winStart = useMemo(() => windowStart(windowKey, now), [windowKey, now]);
 
-  // Receipts in the selected window.
+  // Receipts in the selected window. Month/3mo/year reduce through
+  // monthKeyOf — the same function the trend chart uses to bucket —
+  // so headline and chart cannot disagree. Week stays a local-time
+  // range check (separate concern, doesn't interact with chart).
   const windowReceipts = useMemo(() => {
+    if (windowKey === "month") {
+      const currentKey = monthKeyFor(now, 0);
+      return liveReceipts.filter(
+        (r) => monthKeyOf(r.purchasedAt || r.createdAt) === currentKey
+      );
+    }
+    if (windowKey === "3mo") {
+      const keys = new Set([0, 1, 2].map((i) => monthKeyFor(now, i)));
+      return liveReceipts.filter(
+        (r) => keys.has(monthKeyOf(r.purchasedAt || r.createdAt))
+      );
+    }
+    if (windowKey === "year") {
+      const yr = String(now.getUTCFullYear());
+      return liveReceipts.filter((r) => {
+        const mk = monthKeyOf(r.purchasedAt || r.createdAt);
+        return mk != null && mk.startsWith(yr);
+      });
+    }
+    // week — local Sunday-start to now
+    const start = startOfWeek(now).getTime();
+    const end = now.getTime();
     return liveReceipts.filter((r) => {
       const t = Date.parse(r.purchasedAt || r.createdAt || 0);
       if (!Number.isFinite(t)) return false;
-      return t >= winStart.getTime() && t <= now.getTime();
+      return t >= start && t <= end;
     });
-  }, [liveReceipts, winStart, now]);
+  }, [liveReceipts, windowKey, now]);
 
   // Headline summary — total dollars, contributing count, missing-total count.
   const summary = useMemo(() => {
@@ -236,22 +274,21 @@ export default function Spending({
   // a window-respecting view. Reads from liveReceipts (the full
   // soft-delete-filtered set), not windowReceipts — the chart's job
   // is to show trend, not honor the active chip.
+  //
+  // Buckets keyed via monthKeyFor + receipts assigned via monthKeyOf
+  // — same UTC-based functions the headline uses. Guaranteed to
+  // agree with the headline subtotal for any month they share.
   const trend6mo = useMemo(() => {
     const buckets = [];
     for (let i = 5; i >= 0; i--) {
-      const d = startOfMonthOffset(now, i);
-      buckets.push({
-        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
-        label: d.toLocaleDateString(undefined, { month: "short" }),
-        total: 0,
-      });
+      const key = monthKeyFor(now, i);
+      buckets.push({ key, label: monthLabelFor(key), total: 0 });
     }
-    const earliest = buckets[0] ? startOfMonthOffset(now, 5).getTime() : 0;
+    const bucketByKey = new Map(buckets.map((b) => [b.key, b]));
     for (const r of liveReceipts) {
-      const t = Date.parse(r.purchasedAt || r.createdAt || 0);
-      if (!Number.isFinite(t) || t < earliest) continue;
-      const key = monthBucketKey(r.purchasedAt || r.createdAt);
-      const bucket = buckets.find((b) => b.key === key);
+      const key = monthKeyOf(r.purchasedAt || r.createdAt);
+      if (!key) continue;
+      const bucket = bucketByKey.get(key);
       if (!bucket) continue;
       const v = effectiveTotal(r);
       if (v != null) bucket.total += v;
