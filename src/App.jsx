@@ -23,6 +23,7 @@ import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } 
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
 import ReceiptScanner from "./ReceiptScanner.jsx";
 import Receipts from "./Receipts.jsx";
+import Spending from "./Spending.jsx";
 import {
   DEFAULT_LIST_KEY as SHOPPING_DEFAULT_LIST_KEY,
   DEFAULT_LIST_NAME as SHOPPING_DEFAULT_LIST_NAME,
@@ -12678,6 +12679,7 @@ function MoreParent(props) {
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
   if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
   if (sub === "receipts") return <BackWrap title="Receipts" onBack={() => setSub("menu")}><Receipts receipts={props.receipts} softDeleteReceipt={props.softDeleteReceipt} updateReceipt={props.updateReceipt} users={props.users} user={props.user} shoppingItems={props.shoppingItems} /></BackWrap>;
+  if (sub === "spending") return <BackWrap title="Spending" onBack={() => setSub("menu")}><Spending receipts={props.receipts} users={props.users} user={props.user} shoppingItems={props.shoppingItems} updateReceipt={props.updateReceipt} softDeleteReceipt={props.softDeleteReceipt} familyId={props.familyId} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
@@ -12712,6 +12714,7 @@ function MoreParent(props) {
     { k: "practice",     group: null,       icon: <Play size={18} />,           label: "Practice Timer",                                        sub: "Time a session · record a 30s clip · listen back later" },
     { k: "shopping",     group: null,       icon: <ClipboardList size={18} />,  label: "Shopping List",                                         sub: "Shared family list · add at the store · check off at home" },
     { k: "receipts",     group: null,       icon: <ReceiptIcon size={18} />,    label: "Receipts",                                              sub: "Every scanned receipt · tap to view items · delete" },
+    { k: "spending",     group: null,       icon: <TrendingUp size={18} />,     label: "Spending",                                              sub: "Where the money's going · price trends per item" },
     { k: "insights",     group: null,       icon: <TrendingUp size={18} />,     label: i18nTOf("more_insights", "Insights"),                    sub: i18nTOf("more_insights_sub", "Practice time · songs · books · counts") },
 
     // Memories & growth
