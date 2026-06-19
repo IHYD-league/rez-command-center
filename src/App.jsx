@@ -2450,19 +2450,23 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     ],
     mapStops: [
       {
-        // Drum Mountain stays drum-hardcoded — adventure-map themed
-        // stop, NOT in Mike's named Phase 1 scope ("HERO card,
-        // year-of card, StreakStrip"). Reading the drum streak
-        // directly here so this stop is untouched by the headliner
-        // resolver. Pulling this through the resolver is a Phase 2
-        // decision (would also need an activity-emoji map, which is
-        // explicitly Phase 3).
-        id: "drum_mountain",
-        title: "Drum Mountain",
-        icon: "🥁",
-        description: "Climb to a full year of drums (365 days).",
-        progress: Math.min(100, ((streaks?.a_drums?.current ?? 0) / _milestone) * 100),
-        done: (streaks?.a_drums?.current ?? 0) >= _milestone,
+        // Headliner Mountain — the World Map's focus stop now follows
+        // selectHeadlinerActivity just like the StreakStrip / HERO /
+        // YEAR cards. The kid's chosen focus drives the title,
+        // progress, and done state; one consistent representation
+        // across every focus surface.
+        //
+        // Icon: 🔥 — streak-themed, ties back to the flame motif in
+        // StreakStrip and the HERO card. NOT a per-activity emoji
+        // map (those stay Phase 3 per the scope line). Same icon for
+        // any headliner; the title + description carry the
+        // activity-specific signal.
+        id: "headliner_mountain",
+        title: `${_headlinerShort} Mountain`,
+        icon: "🔥",
+        description: `Climb to a full year of ${(_headlinerShort || "your streak").toLowerCase()} (365 days).`,
+        progress: Math.min(100, (_headlinerCurrent / _milestone) * 100),
+        done: _headlinerCurrent >= _milestone,
       },
       {
         id: "universal_castle",
