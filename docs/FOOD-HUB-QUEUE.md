@@ -27,44 +27,45 @@
 
 **Spending Insights (Black) — THE centerpiece, LIVE.** What the whole receipt vertical was *for*: a Spending tab under More with current-month headline, 6-month trend chart, by-store breakdown, store drill-downs, per-item price history with precise identity. Built directly over `receipts.ocr_raw.items_reviewed[i]` via jsonb-path queries — no purchases table needed for v1 (RS-2 is the promote-to-real-table step if/when performance demands). Filters `deletedAt IS NULL` so soft-deleted receipts drop out of math. **Chart and headline agree by construction** — both share `monthKeyOf` (UTC, deterministic), the unification fix that closed the June-bar divergence. **Merged and live on prod** (`3ec06d4`); branch-preview-verified by Mike (June = $169, matches headline); prod-green confirmed via Netlify deploy `commit_ref`.
 
+**Vision-parse auth gate (Green) — SHIPPED 2026-06-18.** Vision-parse Netlify function now requires Supabase JWT + family-member profile before parsing receipts. Closes the load-bearing unauth gap that carried real receipt data (stores, dates, dollar amounts) for the 3 live families. Client (`src/lib/visionScan.js`) sends the auth token; server validates session against `auth.users` + `profiles`. Netlify env vars added: `SUPABASE_URL`, `SUPABASE_ANON_KEY` (production + branch-deploy contexts). **Merged and live on prod** (`895f85b`).
+
+**send-email auth gate (Green) — SHIPPED 2026-06-18.** Same gating pattern applied to the `send-email` Netlify function. Closes a parallel unauth path on outbound emails. **Merged and live on prod** (`dd40289`).
+
 ---
 
 ## In flight
 
-**Vision-parse auth gate (Green) — #1, IN PROGRESS.** See queue item #1 below — Green is planning the auth gate now. Black is parked, clear of App.jsx, doc-work only this lane.
+**Day-by-Day Backfill (Green) — IN PROGRESS.** Krissie + Maryam both need to fix past days — log a chore that happened on a prior date, attach photo proof, award THAT DAY's stars/treasure, light up THAT DAY's board. Full design in `docs/DAY-BY-DAY-FIX-WHAT-WAS-MISSED-PLAN.md`. Currently on `feat/day-by-day-backfill` at Phase 2a (`e9e7921` — helpers + `decide()` backfill-aware streak routing). App.jsx-heavy — Black holds out of that lane.
 
 ---
 
 ## Queued (in order)
 
-### 1. Vision-parse auth gate (Green) — P0, IN PROGRESS — close the unauth gap before the cohort widens
-The vision-parse Netlify function carries real receipt data (store names, dates, dollar amounts) and runs **unauthenticated** as of the receipt-scanner ship. Three families are now live (Reznor, Maddox, Stella, Xander coming) — this is the last load-bearing unauth surface touching real family data and it must close before non-Lynch families scan in volume. Lock the function (and the `/api/lookup-upc` path while we're in there) to authenticated logins, with a clean error path on the client when the session is missing/expired. **Green is planning now; Black holds App.jsx.** This brick also establishes the "who's a signed-in user" plumbing that item #5 (Kid Food Hub participation) depends on.
+### 1. "Scan a receipt" button inside the Receipts view (small)
+Right now you scan a receipt from the Shopping List chooser but VIEW receipts under More → Receipts (scan-here-view-there, a sequencing artifact). Add a "📷 Scan a receipt" button directly in the Receipts view so the whole receipt loop (scan → view → edit) is self-contained in one place. Small — reuses the existing ReceiptScanner mount. Low risk, doesn't touch navigation structure. Can land anytime.
 
-### 2. "Scan a receipt" button inside the Receipts view (small)
-Right now you scan a receipt from the Shopping List chooser but VIEW receipts under More → Receipts (scan-here-view-there, a sequencing artifact). Add a "📷 Scan a receipt" button directly in the Receipts view so the whole receipt loop (scan → view → edit) is self-contained in one place. Small — reuses the existing ReceiptScanner mount. Low risk, doesn't touch navigation structure. Can land anytime after #1.
-
-### 3. Move item between lists (Black) — the surviving half of 1f
+### 2. Move item between lists (Black) — the surviving half of 1f
 Undo-delete shipped separately (see Persistent multi-delete, above); this is the other half, now its own brick. Long-press on an item on phone (right-click on desktop) → pick a target list → rewrite that item's `list_name` to the target's **normalized key** (use `activeListKey`/`normalizeListKey` — NOT a raw display string, or it recreates the duplicate-split bug). No schema — a list is just a `list_name` value, so the move is a one-field rewrite. Reuses the long-press/menu gesture infrastructure already built. Branch off current main.
 
-### 4. Food Hub navigation container (PLAN-FIRST, deliberate restructure)
+### 3. Food Hub navigation container (PLAN-FIRST, deliberate restructure)
 **The destination Mike wants:** one **Food Hub** entry in the More menu that contains Shopping List + Receipts + Spending (+ later: Food Master list, staples, inventory) — instead of those living as flat siblings in More next to unrelated things. Matches how the product is actually thought about ("the Food Hub"). Keeps More from becoming a junk drawer as the vertical grows.
 - **Why now (the three core food surfaces are live):** Shopping, Receipts, and Spending all shipped — the container can be designed around the complete set in one pass instead of re-touching nav each time something new lands.
 - **Plan-first:** the Food Hub landing screen is a real design decision, not a mechanical move (a menu? a dashboard showing the active list + recent receipts + this-month spend at a glance?). Back-button / deep-link integrity, what's the URL surface, what's the empty state. Surface the layout before building.
 
-### 5. Kid Food Hub participation (PLAN-FIRST) — depends on #1 establishing signed-in-user identity
+### 4. Kid Food Hub participation (PLAN-FIRST)
 Kids help with the list: flag "we're out of bubbly water / Cheez-Its," request items ("can we get cheese sticks"), routed into the **existing request→approve flow** the app already has. This is the family-participation piece of the Food Hub vision. **This is the feature the shopping-list kid X-guard was built for** — today kids have NO path to the shopping list at all, so the guard sits on an unreachable screen.
 - **Plan-first**, real design questions: kids need a **kid-appropriate entry point** (NOT a copy of the full parent More menu / shopping UI). Likely partly "build a kid entry point" + partly "point kids at plumbing that already exists."
 - Open questions: what does a kid see (a stripped view? a single "ask for something" button?); can they only request, or also check off / report out-of-stock; how it routes to parent approve/deny.
-- **Depends on #1 (vision-parse auth gate)** — that brick establishes the "who's a signed-in user" plumbing this brick consumes; sequencing matters.
+- **Dependency satisfied:** signed-in-user identity plumbing was established by the vision-parse auth gate (shipped 2026-06-18 as `895f85b`). The brick this depended on is now in.
 
-### 6. Mr. Voyce / image-leak — RECON FIRST
+### 5. Mr. Voyce / image-leak — RECON FIRST
 **Symptom:** Reznor's Drum *activity* and **Mr. Voyce, his music teacher**, are separate entities, but an image leaked across them. Krissie's photo of Reznor in drum class got associated with one, and the Master of Puppets album art has now taken its place. Correct for the Drums activity, but the photo / teacher / activity should not share an image slot.
 **Important clarification (2026-06-18):** Mr. Voyce is a **music teacher** currently teaching Reznor **drums** — he is NOT instrument-locked. He could teach Reznor piano or guitar next semester and his entity should survive that change unchanged. **The fix must NOT hardcode "drums" into Mr. Voyce's profile / image key / lookup.** Image keying should be on the teacher entity itself (music teacher, identity-stable), not on the current instrument.
 **Likely root cause:** same class as the drum-hardcoding the streaks recon found — an image keyed too broadly (by "drums" generally, or a shared image field) instead of to the specific entity, so last-write-wins overwrites. Fix is "give each entity its own image key, scoped to the entity not the current activity."
 **Why recon first:** unknown which surface Mr. Voyce lives on (contact? calendar/lesson? music/practice module?) — that determines the owning lane and whether it touches App.jsx. Do NOT dispatch a blind fix.
 **Sequencing note:** do this recon **before** streaks Phase 1, because both touch the drum-hardcoding territory — recon tells you whether the leak and the streaks generalization are one brick or two.
 
-### 7. Streaks Phase 1 for Xander (Green, spec already written)
+### 6. Streaks Phase 1 for Xander (Green, spec already written)
 Make any activity work as a headliner streak the way Reznor's Drums does — so Xander's parent can make **Piano** his headliner. Full spec already in `docs/STREAKS-FOR-ANY-ACTIVITY-PLAN.md`.
 - **Non-negotiable:** Reznor-regression-first — prove nothing changes for Reznor (drum banner / practice card / achievement copy unchanged via the `a_drums` seed) before building outward.
 - **Data safety:** the `headlinerActivityByKid` write into `family_settings.settings` must be a **merge**, not a replace — never clobber existing settings keys.
@@ -74,17 +75,34 @@ Make any activity work as a headliner streak the way Reznor's Drums does — so 
 
 ## Cleanup / data-integrity (do deliberately, not freehand)
 
-- **Vision-parse auth gate — now queue item #1 (in progress).** Promoted from cleanup to the active queue because the cohort is widening; tracking here for completeness.
-
-- **Duplicate "Lynch" family in prod (surfaced 2026-06-17).** Two family rows named "Lynch": the real one (`bdf473f4-…`, 80 items) and an orphaned empty one (`9118ee38-…`, 0 items) left over from session testing. A duplicate family in the live families table is a latent data-routing risk (a sign-in or invite could attach to the wrong/empty one). Deliberate recon-then-remove: verify it's truly empty + orphaned (no profiles, no items, no settings rows pointing at `9118ee38`), then remove. NOT a freehand cleanup; its own approved step, surfaced and approved before execution (same boundary as any live-table change).
-
 - **Trust-and-cost batch (paused new UX, gates multi-family pivot).** Cross-account save, audit trail, storage dedup, free/paid tier sketch. Paused 2026-06-13; all gate widening beyond the current 3-family cohort. Cleanup-class because each is a foundational not-quite-a-feature that has to land before the customer surface grows further.
 
 ---
 
-## DANGER — do NOT merge
+## Tech debt (recorded — do NOT act, just track)
 
-**`feat/day-by-day-browser` (stale branch, recommend deletion).** Predates Chapter 1, the invite-gate, and the barcode/UPC work. Merging it would delete shipped work. The Day-by-Day Browser concept, if/when built, gets **rebuilt fresh on current `main`** — never resurrected from this branch. Recommend: `git push origin --delete feat/day-by-day-browser` + `git branch -D feat/day-by-day-browser` (the `-D` is required because it's unmerged, which is exactly the point — we are deliberately discarding it, not merging). Mike's explicit go required before any branch delete.
+Captured 2026-06-18 during a read-only audit. None of these are blockers; surfaced here so they don't get lost between sessions. **Do not act on any without a deliberate dispatch — this section exists so the items aren't lost, not so they get worked.**
+
+- **Constitution-to-git: DONE 2026-06-18.** `docs/MY-FAMILY-HQ-CONSTITUTION.md` was sitting untracked (disk-only doctrine = doctrine loss on disk failure). Now committed alongside `FOOD-HUB-VISION.md` and the two active plan docs (Day-by-Day, Streaks). Recorded here so the resolution is part of the durable record.
+
+- **Migration rollback gap — 6 of 8 migrations lack paired rollbacks.** The pre-2026-06-17 migrations (`20260615111000_kid_view_share_link`, `20260615113000_fix_shared_kid_view_streaks`, `20260615115000_profile_birthday`, `20260615133000_label_unnamed_activities`, `20260615230000_new_family_invite_code`, `20260616182700_profiles_is_child_mirrors_role`) predate the Constitution's pair-with-rollback rule, so this is not a rule violation, but it means there's no written undo path for those changes on the live DB. The two post-rule migrations (`receipts`, `shopping_items_soft_delete`) do have paired rollbacks. Backfill rollback files on a quiet day; recovery from a bad surprise on one of the unprotected six is currently bare-handed.
+
+- **Duplicate "Lynch" family row in prod (`9118ee38`, 0 items).** There are two family rows named "Lynch": the real one (`bdf473f4-…`, 80 items) and an orphaned empty one (`9118ee38-…`, 0 items) left over from session testing. A duplicate family in the live `families` table is a latent data-routing risk — a sign-in or invite could attach to the wrong/empty one. Deliberate recon-then-remove required: verify it's truly empty + orphaned (no profiles, no items, no settings rows pointing at `9118ee38`), then remove. Destructive on a live table — Mike's explicit go. NOT a freehand cleanup.
+
+- **Worktree split (multi-agent isolation).** Shared `.git` + shared working tree caused the agent collision twice today (Green's auth-gate commit landed on `main` instead of his branch, then Green's Day-by-Day branch switch moved HEAD for Black mid-session). Branch separation alone isn't enough — HEAD is shared at the tree level. The structural fix is `git worktree add ../mfhq-green feat/...` per agent, or separate clones entirely. Either eliminates the class. **Do BEFORE the next heavy multi-agent session.**
+
+- **Branch cruft on origin.** Many old `feat/*` branches still sitting on the remote — some merged, some abandoned (`feat/barcode-hybrid`, `feat/board-slow-walk-cinematic`, `feat/book-picker-fuzzy`, `feat/book-reads-history`, `feat/kid-home-reading-now`, `feat/admin-tier-soft-delete [gone]`, several others). Plus the merged-today auth-gate branches that can now be retired. Sweep candidate for a quiet day — no urgency, just hygiene.
+
+### Bonus — small-footprint cleanups (note, act later)
+
+- **Local `fix/vision-parse-auth-gap` branch (`9f397ce`)** is redundant — its content is the same as the merged `895f85b` on main. Safe to `git branch -D fix/vision-parse-auth-gap` locally on a quieter beat. (Origin's `fix/vision-parse-auth-gap` may also still exist and be retire-able — same applies to `fix/send-email-auth-gap`.)
+- **Netlify env var `MyFamilyHQ_Production`** is a duplicate of `RESEND_API_KEY` (same value). Redundant clutter; trim later.
+
+---
+
+## DANGER — historical guardrail (branch deleted, do not revive)
+
+**`feat/day-by-day-browser` — DELETED 2026-06-18 (local + remote).** This branch predated Ch.1, the invite-gate, and the barcode/UPC work; merging it would have deleted shipped work. Removed per the Constitution's never-lose-data rule (a branch that silently destroys shipped work if merged is a landmine, not a save). The Day-by-Day Backfill feature is being rebuilt fresh on current `main` (now in flight, see above) — never resurrected from this branch. If a remote or local branch named `feat/day-by-day-browser` ever reappears (a stale fetch, an old machine pushing back up, a copy on someone else's clone), it is NOT to be merged.
 
 ---
 
@@ -92,7 +110,7 @@ Make any activity work as a headliner streak the way Reznor's Drums does — so 
 
 - **Live-webcam scan (now UN-gated — RS-1 chooser shipped).** Today's scan is a file `<input>` (no `capture` attr — that's what gives iOS Safari its photo-source options; desktop falls back to OS file picker, no live camera, which is why local testing needs saved photos). True live scanning needs `getUserMedia({video:{facingMode:"environment"}})`, a live `<video>` element, the existing `@zxing/browser` decoder run on the stream (not a still file), stop-on-decode, and permission plumbing (no audio, no recording, decode-only). Real feature, not a one-liner. Can be plan-doc'd whenever — it now builds on the shipped chooser's scan-area, so the surface is stable.
 - **RS-2** — purchases log + "I bought this" tap (the financial spine; void-row immutability). Spending Insights v1 is built over `ocr_raw` without this; RS-2 is the promote-to-real-table step if/when performance demands.
-- **Chapter 2 — the master list & item-tier model** (favorites / regulars / one-offs, the ankle-brace case, the recurring-staples toggle). See the dedicated Chapter 2 section below — needs a design pass before building. A strong candidate to live INSIDE the Food Hub container (queue #4).
+- **Chapter 2 — the master list & item-tier model** (favorites / regulars / one-offs, the ankle-brace case, the recurring-staples toggle). See the dedicated Chapter 2 section below — needs a design pass before building. A strong candidate to live INSIDE the Food Hub container (queue #3).
 - **Chapter 4 — inventory as its own concept.** Schema change (`kind` column or `inventory_items` table). Green's lane, staging-gated. The moment to also promote shopping lists from jsonb registry → a real `shopping_lists` table (one migration, not two). Another Food Hub container resident.
 
 ---
@@ -116,7 +134,7 @@ This is the richest unbuilt area and it cohered across several conversations. **
 
 ## Standing rules (cross-cutting, apply to every brick)
 
-- **Constitution wins.** `MEMORY.md` → `project_operating_constitution.md` is the doctrine layer above every rule here. When this queue and the Constitution conflict, the Constitution wins.
+- **Constitution wins.** `MEMORY.md` → `project_operating_constitution.md` is the doctrine layer above every rule here. When this queue and the Constitution conflict, the Constitution wins. The canonical text now lives at `docs/MY-FAMILY-HQ-CONSTITUTION.md` (tracked 2026-06-18).
 - **Never ship a dead-end on a live app.** Real parents use this. Any surface that lands before its backing feature gets an honest "Coming next" state, never a tap-into-nothing.
 - **Every captured surface stays editable after save.** Reuse the capture component, don't reimplement.
 - **Kids never get destructive controls.** Even recoverable deletes are hidden for `role === "kid"`.
