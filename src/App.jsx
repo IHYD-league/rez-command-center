@@ -13665,6 +13665,32 @@ function DayHistoryBrowser({
     [required, pendingIds]
   );
 
+  // Every active task that's NOT already in done/pending/missed for
+  // that day AND existed by that day. The escape hatch for "Xander
+  // did X on 6/16 but X isn't in his required-must-dos list" —
+  // Maryam can still log it. Same backfill flow, same confirm sheet,
+  // same conservative streak rules.
+  const otherTasks = useMemo(() => {
+    if (!picked || isFuture) return [];
+    const requiredIds = new Set(required.map((t) => t.id));
+    const pickedTime = Date.parse(picked + "T00:00:00");
+    return tasks
+      .filter((t) => {
+        if (!t || t.active === false) return false;
+        if (requiredIds.has(t.id)) return false;
+        if (doneIds.has(t.id)) return false;
+        if (pendingIds.has(t.id)) return false;
+        if (t.createdAt) {
+          const tc = Date.parse(t.createdAt);
+          if (Number.isFinite(tc) && tc > pickedTime + 86400000) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  }, [picked, tasks, required, doneIds, pendingIds, isFuture]);
+
+  const [otherExpanded, setOtherExpanded] = useState(false);
+
   // Honest streak-impact prediction. Mirrors the helper's rules so
   // the confirm sheet copy is never out of sync with what actually
   // happens at submit time.
@@ -13792,9 +13818,48 @@ function DayHistoryBrowser({
             </>
           )}
 
-          {required.length === 0 && (
+          {otherTasks.length > 0 && (
+            <div className="mt-4 rounded-xl border border-slate-200 overflow-hidden">
+              <button
+                onClick={() => setOtherExpanded((v) => !v)}
+                className="w-full flex items-center justify-between px-3 py-2.5 text-left bg-slate-50"
+              >
+                <span className="text-[11px] uppercase tracking-wider font-bold text-slate-600">
+                  Add another task · {otherTasks.length}
+                </span>
+                <span className="text-slate-400 text-xs">{otherExpanded ? "▴" : "▾"}</span>
+              </button>
+              {otherExpanded && (
+                <div className="px-2 py-2 flex flex-col gap-1.5 bg-white">
+                  {otherTasks.map((t) => {
+                    const aid = t.activityId || TYPE_TO_ACT[t.activityType];
+                    const act = activities.find((a) => a.id === aid);
+                    return (
+                      <div key={t.id} className="flex items-center gap-2 px-1.5 py-1.5 rounded-lg hover:bg-slate-50">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-slate-700 truncate">{t.title}</div>
+                          <div className="text-[10px] text-slate-400 truncate">
+                            {act?.short || act?.name || ""}
+                            {t.starValue ? <span className="ml-2">⭐ {t.starValue}</span> : null}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setConfirmTaskId(t.id)}
+                          className="px-2.5 py-1 rounded-full bg-slate-700 text-white text-[10px] font-bold whitespace-nowrap"
+                        >
+                          Log it now
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {required.length === 0 && otherTasks.length === 0 && (
             <Card className="p-4 mb-3 text-center text-sm text-slate-500">
-              No required tasks defined for that day.
+              No tasks available for that day.
             </Card>
           )}
         </>
