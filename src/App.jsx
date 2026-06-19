@@ -13656,13 +13656,19 @@ function DayHistoryBrowser({
     () => required.filter((t) => !doneIds.has(t.id) && !pendingIds.has(t.id)),
     [required, doneIds, pendingIds]
   );
+  // done / pending show EVERY completion for that day, not just
+  // required ones. Without this, a backfill of a non-required task
+  // (via the "Add another task" section) would land in the DB but
+  // vanish from the UI — the parent couldn't see their own work.
+  // The required set still drives MISSED (which is about what was
+  // OWED that day), but DONE shows what actually happened.
   const done = useMemo(
-    () => required.filter((t) => doneIds.has(t.id)),
-    [required, doneIds]
+    () => [...doneIds].map((tid) => tasks.find((t) => t.id === tid)).filter(Boolean),
+    [doneIds, tasks]
   );
   const pending = useMemo(
-    () => required.filter((t) => pendingIds.has(t.id)),
-    [required, pendingIds]
+    () => [...pendingIds].map((tid) => tasks.find((t) => t.id === tid)).filter(Boolean),
+    [pendingIds, tasks]
   );
 
   // Every active task that's NOT already in done/pending/missed for
