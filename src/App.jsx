@@ -456,18 +456,25 @@ const isBookFinished = (b) => b?.status === "finished" || b?.status === "archive
 // Resolve the activity ID whose streak should be the "headliner"
 // rendered in StreakStrip + (in future phases) the practice surfaces.
 // Resolution order:
-//   1. Parent's explicit pick — familySettings.headlinerActivityByKid[kidId]
-//      (set via the toggle in the Activities edit sheet)
+//   1. Parent's explicit pick — familySettings.headlinerActivityByKid[kidId].
+//      ALWAYS WINS as long as the activity still exists in the catalog,
+//      regardless of whether a streak row exists or its current value is 0.
+//      The parent's stated intent is authoritative; auto-pick is only the
+//      fallback when no intent is recorded. (Earlier version gated the
+//      override on streaks?.[explicit] existing — that rejected legitimate
+//      "I want Piano even though Xander hasn't started yet" picks and
+//      silently fell through to highest-streak. Fixed.)
 //   2. Fallback: highest-current streak the kid has — preserves the
 //      pre-Phase-1 behavior for any family that hasn't toggled yet
 //      (Reznor stays on drums because his drum streak is the highest)
-//   3. null — brand-new family with no completions yet
+//   3. null — brand-new family with no completions yet AND no override
 //
 // Returns the activity ID (string) or null. Caller looks up activities
-// + streaks separately.
+// + streaks separately and handles the "explicit but no streak row yet"
+// case at render time.
 function selectHeadlinerActivity(kidProfileId, familySettings, streaks, activities) {
   const explicit = familySettings?.headlinerActivityByKid?.[kidProfileId];
-  if (explicit && Array.isArray(activities) && activities.some((a) => a.id === explicit) && streaks?.[explicit]) {
+  if (explicit && Array.isArray(activities) && activities.some((a) => a.id === explicit)) {
     return explicit;
   }
   const top = Object.entries(streaks || {})
@@ -5648,15 +5655,35 @@ function CelebrateOverlay({ data, onClose }) {
 function StreakStrip({ streaks, activities, familySettings, kidProfileId }) {
   const headlinerId = selectHeadlinerActivity(kidProfileId, familySettings, streaks, activities);
   if (!headlinerId) return null;
-  const s = streaks?.[headlinerId];
   const act = (activities || []).find((a) => a.id === headlinerId);
-  if (!s || !act) return null;
+  if (!act) return null;
+  const s = streaks?.[headlinerId];
+  const current = s?.current || 0;
+  const longest = s?.longest || 0;
+  // Pre-streak / zero state — render an encouragement card in the
+  // activity's color so the parent immediately SEES that the toggle
+  // worked (without this, toggling Piano with no piano completions
+  // looked silently broken). Once a completion lands, the streak
+  // row materializes via bumpStreak's auto-create branch (or the
+  // existing path if a row was seeded) and the card flips to the
+  // standard streak banner on the next render.
+  if (current <= 0) {
+    return (
+      <div className="rounded-2xl p-3 mt-3 flex items-center gap-3 text-white" style={{ background: `linear-gradient(135deg,${act.color},#ef4444)` }}>
+        <div className="text-2xl">✨</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-extrabold">Start a {act.short} streak today!</div>
+          <div className="text-[11px] opacity-90">Log {act.short} to begin. {longest > 0 ? `Best ever: ${longest}.` : "Every day counts."}</div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="rounded-2xl p-3 mt-3 flex items-center gap-3 text-white" style={{ background: `linear-gradient(135deg,${act.color},#ef4444)` }}>
       <div className="text-2xl">🔥</div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-extrabold">{s.current}-day {act.short} streak!</div>
-        <div className="text-[11px] opacity-90">Best ever: {s.longest}. Keep it alive!</div>
+        <div className="text-sm font-extrabold">{current}-day {act.short} streak!</div>
+        <div className="text-[11px] opacity-90">Best ever: {longest}. Keep it alive!</div>
       </div>
     </div>
   );
@@ -17135,7 +17162,20 @@ function ActivityRow({ a, onUpdate, streaks, setStreak, stopStreak, bumpStreak, 
                 Make this {kidLabel} <span className="font-bold">main streak</span>
               </span>
               <button
-                onClick={() => setHeadlinerForKid(kid.id, isHeadliner ? null : a.id)}
+                onClick={() => {
+                  if (isHeadliner) {
+                    setHeadlinerForKid(kid.id, null);
+                  } else {
+                    // Seed a zero streak row if the activity doesn't
+                    // have one yet — setStreak is a no-op when the
+                    // row already exists (it spreads prev[id] over
+                    // the zero defaults). This guarantees StreakStrip
+                    // has something to render the moment the toggle
+                    // flips, even before the first completion.
+                    if (setStreak && !streaks?.[a.id]) setStreak(a.id, {});
+                    setHeadlinerForKid(kid.id, a.id);
+                  }
+                }}
                 className={`text-[10px] font-bold px-3 py-1 rounded-full shrink-0 ${isHeadliner ? "bg-amber-500 text-white" : "bg-white border border-slate-200 text-slate-500"}`}
               >
                 {isHeadliner ? "ON" : "OFF"}
