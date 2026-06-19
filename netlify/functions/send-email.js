@@ -21,7 +21,57 @@
 //   4. Trigger a Netlify redeploy so the env var loads
 //   5. In-app: More → Email Setup → Send test
 
+import { createClient } from "@supabase/supabase-js";
+
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
+
+// Auth gate. Mirrors the vision-parse.js gate verbatim (intentional
+// duplication — Netlify bundling sometimes mis-resolves shared paths,
+// and a broken import on a security function is worse than ~40
+// duplicated lines). When a third function joins, extract to a shared
+// module then. As of 2026-06-18 every caller must be a signed-in
+// Supabase user AND a member of some family (a row in public.profiles
+// tied to their auth_user_id). Both checks run BEFORE the body is
+// parsed and BEFORE Resend is called so a rejected request never burns
+// the RESEND_API_KEY.
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+async function verifyCaller(req) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return { ok: false, response: jsonResponse({ status: "auth_misconfigured" }, 500) };
+  }
+  const authHeader = req.headers.get("authorization") || "";
+  const m = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!m) {
+    return { ok: false, response: jsonResponse({ status: "unauthorized", reason: "missing_bearer" }, 401) };
+  }
+  const token = m[1].trim();
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+  if (userErr || !userData?.user) {
+    return { ok: false, response: jsonResponse({ status: "unauthorized", reason: "invalid_token" }, 401) };
+  }
+  const { data: profile, error: profileErr } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("auth_user_id", userData.user.id)
+    .maybeSingle();
+  if (profileErr || !profile) {
+    return { ok: false, response: jsonResponse({ status: "unauthorized", reason: "not_a_family_member" }, 401) };
+  }
+  return { ok: true };
+}
 
 export default async (req) => {
   if (req.method !== "POST") {
@@ -30,6 +80,11 @@ export default async (req) => {
       headers: { "content-type": "application/json" },
     });
   }
+
+  // Auth gate runs BEFORE body parsing + BEFORE Resend is called.
+  // A rejected request never burns the RESEND_API_KEY.
+  const auth = await verifyCaller(req);
+  if (!auth.ok) return auth.response;
 
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {

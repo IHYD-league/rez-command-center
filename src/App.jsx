@@ -52,6 +52,7 @@ import { practiceTimerStore } from "./lib/practiceTimerStore.js";
 import PracticeTimerBanner from "./PracticeTimerBanner.jsx";
 import { nextBirthdayInfo, upcomingBirthdays } from "./lib/birthdays.js";
 import { supabase } from "./lib/supabase.js";
+import { sendEmailViaApi } from "./lib/sendEmail.js";
 import { toApp } from "./data/transform.js";
 import { juice } from "./lib/juice.js";
 import { starBurst } from "./lib/starBurst.js";
@@ -13517,12 +13518,7 @@ function EmailSetup(props) {
       // status="email_not_configured" if key is missing, "send_failed"
       // or "ok" otherwise. We treat anything other than
       // "email_not_configured" as "configured" for this probe.
-      const r = await fetch("/api/send-email", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ to: ["probe@invalid.example"], subject: "probe", text: "probe" }),
-      });
-      const j = await r.json();
+      const j = await sendEmailViaApi({ to: ["probe@invalid.example"], subject: "probe", text: "probe" });
       setServiceStatus(j.status === "email_not_configured" ? "not_configured" : "configured");
     } catch {
       setServiceStatus("unknown");
@@ -13546,12 +13542,7 @@ function EmailSetup(props) {
       const html = renderDigestHtml(data, { appUrl: window.location.origin });
       const text = renderDigestText(data);
       const subject = `Friday recap · ${data.kidName}`;
-      const r = await fetch("/api/send-email", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ to: [sessionEmail], subject, html, text }),
-      });
-      const j = await r.json();
+      const j = await sendEmailViaApi({ to: [sessionEmail], subject, html, text });
       if (j.status === "ok") {
         setLastResult({ ok: true, msg: `Sent to ${sessionEmail}. Check your inbox (and spam folder the first time).` });
       } else if (j.status === "email_not_configured") {
@@ -13582,12 +13573,7 @@ function EmailSetup(props) {
       const html = renderDigestHtml(data, { appUrl: window.location.origin });
       const text = renderDigestText(data);
       const subject = `Friday recap · ${data.kidName}`;
-      const r = await fetch("/api/send-email", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ to: opted.map((p) => p.email), subject, html, text }),
-      });
-      const j = await r.json();
+      const j = await sendEmailViaApi({ to: opted.map((p) => p.email), subject, html, text });
       if (j.status === "ok") {
         setLastResult({ ok: true, msg: `Sent to ${opted.length} recipient${opted.length === 1 ? "" : "s"}.` });
       } else if (j.status === "email_not_configured") {
