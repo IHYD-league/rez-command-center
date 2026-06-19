@@ -2378,7 +2378,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     mode, setMode, earnedToday, pendingStars, availableToday, starBank, redeemedTotal, giftedTotal,
     priorities, setPriority, clearPriority, gifted, giftStars, tkdDays, tkdTimes, toggleTkdDay, setTkdTime, weeklyActivityDays, weeklyActivityTimes, toggleWeeklyDay, setWeeklyDayTime,
     activities, addActivity, updateActivity, addTask, updateTask, removeTask, addReward, updateReward, removeReward, streaks, setStreak, stopStreak, bumpStreak, setDetailId, taskNotes, addTaskNote, setProgressActId, books, addBook, updateBook, removeBook, subProgress, toggleSub, undoTask, awards, addAward, removeAward,
-    submitTask, saveDraft, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest, removeRewardRequest,
+    submitTask, addCompletionForDate, saveDraft, decide, requestReward, decideReward, addHandoff, addEvent, addUser, updateUser, removeUser, openTask, setOpenTask, setTab, rewardRequests, addRewardRequest, decideRewardRequest, removeRewardRequest,
     openCompletionId, setOpenCompletionId, updateCompletion, addCompletionPhoto, removeCompletionPhoto,
     pendingRegistrations, approveRegistration, denyRegistration, currentProfileId, setCurrentUserId,
     kidData,
@@ -12809,6 +12809,7 @@ function MoreParent(props) {
   if (sub === "library") return <BackWrap title={i18nTOf("more_library", "Reading Library")} onBack={() => setSub("menu")}><ReadingLibrary {...props} /></BackWrap>;
   if (sub === "grades") return <BackWrap title={i18nTOf("more_grades", "Grade Goals")} onBack={() => setSub("menu")}><GradeGoals users={props.users} /></BackWrap>;
   if (sub === "recap") return <BackWrap title={i18nTOf("more_recap", "Recap & Memories")} onBack={() => setSub("menu")}><ParentRecap {...props} /></BackWrap>;
+  if (sub === "history") return <BackWrap title="Day-by-day history" onBack={() => setSub("menu")}><DayHistoryBrowser completions={props.completions} tasks={props.tasks} activities={props.activities} streaks={props.streaks} users={props.users} topPriorities={props.topPriorities} taskNaDays={props.taskNaDays} addCompletionForDate={props.addCompletionForDate} /></BackWrap>;
   if (sub === "awards") return <BackWrap title={i18nTOf("more_awards", "Accomplishments")} onBack={() => setSub("menu")}><Accomplishments {...props} /></BackWrap>;
   if (sub === "board_theme") return <BackWrap title={i18nTOf("more_board_theme", "Adventure Board")} onBack={() => setSub("menu")}><AdventureBoardSettings {...props} /></BackWrap>;
   if (sub === "board_plan") return <BackWrap title={i18nTOf("more_board_plan", "Daily Adventure Board · Plan")} onBack={() => setSub("menu")}><DailyAdventureBoardPlan {...props} /></BackWrap>;
@@ -12843,6 +12844,7 @@ function MoreParent(props) {
     { k: "grades",       group: "memories", icon: <Trophy size={18} />,         label: i18nTOf("more_grades", "Grade Goals"),                   sub: i18nTOf("more_grades_sub", "Grades 1–6 · world's best standards") },
     { k: "portfolio",    group: "memories", icon: <ImageIcon size={18} />,      label: i18nTOf("more_portfolio", "Progress Portfolio"),         sub: i18nTOf("more_portfolio_sub", "Photos, art & writing over time") },
     { k: "weekly",       group: "memories", icon: <ClipboardList size={18} />,  label: i18nTOf("more_weekly", "Weekly Summary"),                sub: i18nTOf("more_weekly_sub", "Minutes, wins, needs attention") },
+    { k: "history",      group: "memories", icon: <CalIcon size={18} />,        label: "Day-by-day history",                                    sub: "Browse any past day · fix what was missed" },
 
     // Set up & manage
     { k: "board_plan",   group: "setup",    icon: <ClipboardList size={18} />,  label: i18nTOf("more_board_plan", "Daily Adventure Board · Plan"), sub: i18nTOf("more_board_plan_sub", "Today's Top 8 · weekly default · à la carte") },
@@ -13559,6 +13561,278 @@ function Weekly({ completions = [], gifted = [], tasks = [], activities = [], bo
         </Card>
       )}
     </>
+  );
+}
+
+// Day-by-Day backfill browser. Maryam's case: she forgot to log
+// Xander's piano on 6/16 (today is 6/18) and wants to give him
+// credit for THAT day without breaking today's numbers or his
+// streak math.
+//
+// Pure UI over addCompletionForDate (the Phase 2a helper that
+// handles identity/approval semantics + audit trail) and the
+// conservative extendStreakForBackfilledDate (only extends on a
+// genuinely consecutive day; gap-fills don't silently extend).
+//
+// What this surface shows for the picked date:
+//   - Required tasks for that day (derived from topPriorities daily
+//     override → weekly plan; respects taskNaDays; excludes tasks
+//     that didn't exist yet on that day via task.createdAt)
+//   - Three tiles: Done · Pending · Missed
+//   - Missed rows with a "Log it now" button → confirm sheet shows
+//     the kid's name, star value, and an HONEST streak-impact line
+//     ("extends to N days" / "won't change — not consecutive" /
+//     "already counted"). The streak prediction mirrors
+//     extendStreakForBackfilledDate's rules exactly, so the sheet
+//     never lies about what's about to happen.
+//
+// Future dates: picker max = today, future selection shows an
+// empty-state card (no log buttons).
+function DayHistoryBrowser({
+  completions = [],
+  tasks = [],
+  activities = [],
+  streaks = {},
+  users = [],
+  topPriorities,
+  taskNaDays,
+  addCompletionForDate,
+}) {
+  const todayDate = new Date();
+  const todayISO = isoLocal(todayDate);
+  const yesterdayISO = isoLocal(new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate() - 1));
+
+  const [picked, setPicked] = useState(yesterdayISO);
+  const [confirmTaskId, setConfirmTaskId] = useState(null);
+
+  const isFuture = picked > todayISO;
+  const kid = users.find((u) => u.role === "kid");
+  const kidName = kid?.name || "your kid";
+
+  // Required for that day — mirrors computeTreasureStreak's logic:
+  // daily override (per-iso) → weekly plan (per-weekday) → empty.
+  // Filter: still exists + active, not N/A for that day, AND existed
+  // by that date (task.createdAt sanity).
+  const required = useMemo(() => {
+    if (!picked || isFuture) return [];
+    const cursor = new Date(picked + "T00:00:00");
+    const weekday = cursor.toLocaleDateString("en-US", { weekday: "long" });
+    const dailyOverride = topPriorities?.daily?.[picked];
+    const weeklyPlan = topPriorities?.weekly?.[weekday];
+    const ids = Array.isArray(dailyOverride)
+      ? dailyOverride
+      : (Array.isArray(weeklyPlan) ? weeklyPlan : []);
+    const naSet = new Set((taskNaDays || {})[picked] || []);
+    const pickedTime = Date.parse(picked + "T00:00:00");
+    return (ids || [])
+      .filter((id) => {
+        if (naSet.has(id)) return false;
+        const t = tasks.find((x) => x.id === id);
+        if (!t || t.active === false) return false;
+        if (t.createdAt) {
+          const tc = Date.parse(t.createdAt);
+          if (Number.isFinite(tc) && tc > pickedTime + 86400000) return false;
+        }
+        return true;
+      })
+      .map((id) => tasks.find((x) => x.id === id))
+      .filter(Boolean);
+  }, [picked, tasks, topPriorities, taskNaDays, isFuture]);
+
+  const dayCompletions = useMemo(
+    () => completions.filter((c) => (c.completionDate || null) === picked && c.status !== "skipped"),
+    [completions, picked]
+  );
+  const doneIds = useMemo(
+    () => new Set(dayCompletions.filter((c) => c.status === "approved").map((c) => c.taskId)),
+    [dayCompletions]
+  );
+  const pendingIds = useMemo(
+    () => new Set(dayCompletions.filter((c) => c.status === "pending").map((c) => c.taskId)),
+    [dayCompletions]
+  );
+
+  const missed = useMemo(
+    () => required.filter((t) => !doneIds.has(t.id) && !pendingIds.has(t.id)),
+    [required, doneIds, pendingIds]
+  );
+  const done = useMemo(
+    () => required.filter((t) => doneIds.has(t.id)),
+    [required, doneIds]
+  );
+  const pending = useMemo(
+    () => required.filter((t) => pendingIds.has(t.id)),
+    [required, pendingIds]
+  );
+
+  // Honest streak-impact prediction. Mirrors the helper's rules so
+  // the confirm sheet copy is never out of sync with what actually
+  // happens at submit time.
+  const predictStreakLine = (task) => {
+    if (!task) return null;
+    const aid = task.activityId || TYPE_TO_ACT[task.activityType];
+    if (!aid) return null;
+    const act = activities.find((a) => a.id === aid);
+    const actName = act?.short || act?.name || task.title;
+    const s = streaks?.[aid];
+    if (!s) return `${actName} isn't tracked as a streak yet — won't change anything.`;
+    const lastDate = s.lastDate || "";
+    if (picked === lastDate) return `${actName} streak: already counted that day.`;
+    if (lastDate && picked < lastDate) return `${actName} streak: already past that day — won't change.`;
+    if (lastDate) {
+      const a = new Date(picked);
+      const b = new Date(lastDate);
+      const diffDays = Math.round((a - b) / 86400000);
+      if (diffDays === 1) {
+        const next = (s.current || 0) + 1;
+        return `${actName} streak will extend to ${next} day${next === 1 ? "" : "s"}.`;
+      }
+    }
+    return `That day isn't connected to the current streak — won't change it.`;
+  };
+
+  const confirmTask = confirmTaskId ? tasks.find((t) => t.id === confirmTaskId) : null;
+
+  return (
+    <div className="p-3">
+      <Card className="p-3 mb-3">
+        <div className="text-[11px] uppercase tracking-wider font-bold text-slate-500 mb-2">Pick a day</div>
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={picked}
+            onChange={(e) => setPicked(e.target.value)}
+            max={todayISO}
+            className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-700"
+          />
+          <button
+            onClick={() => setPicked(yesterdayISO)}
+            className="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-xs font-bold whitespace-nowrap"
+          >
+            Yesterday
+          </button>
+        </div>
+      </Card>
+
+      {isFuture ? (
+        <Card className="p-4 mb-3 text-center text-sm text-slate-500">
+          That day hasn't happened yet.
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-2 py-3 text-center">
+              <div className="text-2xl font-extrabold text-emerald-700">{done.length}</div>
+              <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-700">Done</div>
+            </div>
+            <div className="rounded-xl bg-amber-50 border border-amber-100 px-2 py-3 text-center">
+              <div className="text-2xl font-extrabold text-amber-700">{pending.length}</div>
+              <div className="text-[10px] uppercase tracking-wider font-bold text-amber-700">Pending</div>
+            </div>
+            <div className="rounded-xl bg-rose-50 border border-rose-100 px-2 py-3 text-center">
+              <div className="text-2xl font-extrabold text-rose-700">{missed.length}</div>
+              <div className="text-[10px] uppercase tracking-wider font-bold text-rose-700">Missed</div>
+            </div>
+          </div>
+
+          {missed.length > 0 && (
+            <>
+              <h3 className="text-[11px] uppercase tracking-wider font-bold text-rose-700 mb-2 px-1">
+                Missed that day ({missed.length})
+              </h3>
+              {missed.map((t) => {
+                const aid = t.activityId || TYPE_TO_ACT[t.activityType];
+                const act = activities.find((a) => a.id === aid);
+                return (
+                  <Card key={t.id} className="p-3 mb-2 flex items-center gap-3 border-l-4 border-rose-300">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-slate-800 truncate">{t.title}</div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        {act?.short || act?.name || ""}
+                        {t.starValue ? <span className="ml-2">⭐ {t.starValue}</span> : null}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setConfirmTaskId(t.id)}
+                      className="px-3 py-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold whitespace-nowrap"
+                    >
+                      Log it now
+                    </button>
+                  </Card>
+                );
+              })}
+            </>
+          )}
+
+          {pending.length > 0 && (
+            <>
+              <h3 className="text-[11px] uppercase tracking-wider font-bold text-amber-700 mb-2 mt-3 px-1">
+                Pending review ({pending.length})
+              </h3>
+              {pending.map((t) => (
+                <Card key={t.id} className="p-3 mb-2 flex items-center gap-2">
+                  <div className="flex-1 min-w-0 text-sm text-slate-700 truncate">{t.title}</div>
+                  <span className="text-[10px] uppercase tracking-wider font-bold text-amber-700 whitespace-nowrap">awaiting approval</span>
+                </Card>
+              ))}
+            </>
+          )}
+
+          {done.length > 0 && (
+            <>
+              <h3 className="text-[11px] uppercase tracking-wider font-bold text-emerald-700 mb-2 mt-3 px-1">
+                Done that day ({done.length})
+              </h3>
+              {done.map((t) => (
+                <Card key={t.id} className="p-2 mb-1.5 flex items-center gap-2">
+                  <Check size={14} className="text-emerald-500 shrink-0" />
+                  <div className="flex-1 min-w-0 text-sm text-slate-700 truncate">{t.title}</div>
+                </Card>
+              ))}
+            </>
+          )}
+
+          {required.length === 0 && (
+            <Card className="p-4 mb-3 text-center text-sm text-slate-500">
+              No required tasks defined for that day.
+            </Card>
+          )}
+        </>
+      )}
+
+      {confirmTask && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-3">
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-4">
+            <div className="text-base font-extrabold text-slate-800 mb-2">
+              Log "{confirmTask.title}" for {picked}?
+            </div>
+            <div className="text-sm text-slate-600 mb-1">
+              {kidName} will get ⭐ {confirmTask.starValue || 1} for that day.
+            </div>
+            <div className="text-[12px] text-slate-500 mb-4">
+              {predictStreakLine(confirmTask)}
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setConfirmTaskId(null)}
+                className="px-3 py-1.5 rounded-full border border-slate-300 text-slate-600 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  addCompletionForDate(confirmTaskId, picked);
+                  setConfirmTaskId(null);
+                }}
+                className="px-3 py-1.5 rounded-full bg-emerald-600 text-white text-xs font-bold"
+              >
+                Yes, log it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
