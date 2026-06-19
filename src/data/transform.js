@@ -432,8 +432,13 @@ export const toDb = {
     activity_id: activityId,
     current: s.current ?? 0,
     longest: s.longest ?? 0,
-    since: s.since ?? null,
-    last_date: s.lastDate ?? null,
+    // `?? null` only catches null/undefined. An empty string slips
+    // through, and Postgres rejects "" for type date with
+    // "invalid input syntax for type date: ''". Treat "" as null at
+    // the wire so a stale caller anywhere in the app can't poison
+    // the upsert. Pairs with the setStreak normalization in App.jsx.
+    since: (s.since && s.since !== "") ? s.since : null,
+    last_date: (s.lastDate && s.lastDate !== "") ? s.lastDate : null,
   }),
 
   book: (familyId) => (o) => ({
