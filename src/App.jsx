@@ -453,6 +453,37 @@ const ACHIEVEMENTS = [
 // expressed on actively-tracked rows; keep both included.
 const isBookFinished = (b) => b?.status === "finished" || b?.status === "archive" || b?.preTracking;
 
+// Resolve the activity ID whose streak should be the "headliner"
+// rendered in StreakStrip + (in future phases) the practice surfaces.
+// Resolution order:
+//   1. Parent's explicit pick — familySettings.headlinerActivityByKid[kidId].
+//      ALWAYS WINS as long as the activity still exists in the catalog,
+//      regardless of whether a streak row exists or its current value is 0.
+//      The parent's stated intent is authoritative; auto-pick is only the
+//      fallback when no intent is recorded. (Earlier version gated the
+//      override on streaks?.[explicit] existing — that rejected legitimate
+//      "I want Piano even though Xander hasn't started yet" picks and
+//      silently fell through to highest-streak. Fixed.)
+//   2. Fallback: highest-current streak the kid has — preserves the
+//      pre-Phase-1 behavior for any family that hasn't toggled yet
+//      (Reznor stays on drums because his drum streak is the highest)
+//   3. null — brand-new family with no completions yet AND no override
+//
+// Returns the activity ID (string) or null. Caller looks up activities
+// + streaks separately and handles the "explicit but no streak row yet"
+// case at render time.
+function selectHeadlinerActivity(kidProfileId, familySettings, streaks, activities) {
+  const explicit = familySettings?.headlinerActivityByKid?.[kidProfileId];
+  if (explicit && Array.isArray(activities) && activities.some((a) => a.id === explicit)) {
+    return explicit;
+  }
+  const top = Object.entries(streaks || {})
+    .map(([id, s]) => ({ id, current: s?.current || 0, act: (activities || []).find((a) => a.id === id) }))
+    .filter((e) => e.act)
+    .sort((a, b) => b.current - a.current)[0];
+  return top?.id || null;
+}
+
 function buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books, treasureStreak = 0 }) {
   const doneToday = todaysTasks.filter((t) => ["approved", "pending"].includes(compByTask[t.id]?.status)).length;
   const allToday = todaysTasks.length > 0 && todaysTasks.every((t) => ["approved", "pending"].includes(compByTask[t.id]?.status));
@@ -695,6 +726,26 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
   const [mode, setMode] = familySetting("mode", "summer");
   const [priorities, setPriorities] = familySetting("priorities", {});
+  // headlinerActivityByKid — per-kid override for which activity's
+  // streak shows in StreakStrip. Shape: { [kidProfileId]: activityId }.
+  // Reznor's u_reznor → a_drums is auto-seeded below if Lynch has a
+  // strong drum streak; other families default to {} = auto-pick by
+  // highest-current streak (preserves pre-Phase-1 behavior).
+  //
+  // Writes MUST go through this setter (the familySetting wrapper
+  // merges into family_settings.settings rather than replacing it —
+  // a raw setFamilySettings call would wipe shoppingLists registry,
+  // topPriorities, mode, etc.).
+  const [headlinerActivityByKid, setHeadlinerActivityByKid] = familySetting("headlinerActivityByKid", {});
+  const setHeadlinerForKid = (kidProfileId, activityId) =>
+    setHeadlinerActivityByKid((prev) => {
+      if (activityId == null) {
+        const next = { ...(prev || {}) };
+        delete next[kidProfileId];
+        return next;
+      }
+      return { ...(prev || {}), [kidProfileId]: activityId };
+    });
   // Parent-curated Top 8 — drives the board, kid missions tab, and
   // kid home main/side quests. Two layers:
   //   weekly[DayOfWeek] — the standing plan parents tweak rarely
@@ -1964,7 +2015,19 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // start tracking explicitly via the activity editor).
   const bumpStreak = (id) => setStreaks((prev) => {
     const s = prev[id];
-    if (!s) return prev;
+    // First-ever completion for this activity (no streak row yet) →
+    // seed a 1-day row. Without this, a brand-new activity in a new
+    // family's catalog (e.g. Xander's piano in Nault before any
+    // log) would never get a streak row, the headliner picker would
+    // render empty, and StreakStrip would have nothing to show.
+    // Pre-Streaks-Phase-1 the existing seeded streaks covered this
+    // for Reznor; generalizing the headliner makes the gap visible.
+    if (!s) {
+      return {
+        ...prev,
+        [id]: { current: 1, longest: 1, since: TODAY_ISO, lastDate: TODAY_ISO },
+      };
+    }
     if (s.lastDate === TODAY_ISO) return prev;
     if (s.lastDate === YESTERDAY_ISO) {
       const current = (s.current || 0) + 1;
@@ -2078,6 +2141,25 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // call i18nTitleOf(task) / i18nNameOf(activity) without prop-drilling
   // langs through every signature.
   useEffect(() => { setCurrentLangs(langs); }, [langs.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lynch headliner auto-seed. If the family looks like Lynch
+  // (a_drums streak ≥ 30 = the strong-drum signature) AND no
+  // headliner has been set for the kid yet, lock Reznor's choice
+  // in explicitly. This is a no-op visually — auto-pick would
+  // already land on a_drums via the highest-current fallback —
+  // but it persists the choice so a future cross-activity surge
+  // doesn't silently flip the headliner away from drums.
+  //
+  // Other families (Nault, Magnetta) fail the signature check and
+  // stay on auto-pick until the parent explicitly toggles.
+  useEffect(() => {
+    const kid = (users || []).find((u) => u.role === "kid");
+    if (!kid) return;
+    if (headlinerActivityByKid && headlinerActivityByKid[kid.id]) return;
+    const drumStreak = streaks?.a_drums?.current || 0;
+    if (drumStreak >= 30) setHeadlinerForKid(kid.id, "a_drums");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users.length, streaks?.a_drums?.current]);
 
   // Apply font-scale globally — set root font-size %, Tailwind's rem-based
   // text classes inherit it, every screen scales together.
@@ -2295,7 +2377,20 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
 
   // KidGameHome data — built from existing state (no hook; runs after the
   // early-return above so `user` is guaranteed defined).
-  const _drumCurrent = streaks?.a_drums?.current ?? 0;
+  //
+  // Streaks Phase 1: the HERO card + YEAR card on the kid's home now
+  // follow the same headliner resolver as StreakStrip — explicit
+  // parent pick (familySettings.headlinerActivityByKid[kid]) wins,
+  // else highest-current streak (preserves Reznor's drums-by-default
+  // behavior). Out of scope for this brick: Insights Practice card,
+  // achievement badge defs, BoardGame emoji map, MilestoneSlideshow
+  // drum chapter — those stay hardcoded to a_drums in Phase 2-3.
+  const _kidUser = users.find((u) => u.role === "kid");
+  const _kidIdForHeadliner = _kidUser?.id;
+  const _headlinerId = selectHeadlinerActivity(_kidIdForHeadliner, familySettings, streaks, activities);
+  const _headlinerAct = activities.find((a) => a.id === _headlinerId);
+  const _headlinerShort = _headlinerAct?.short || _headlinerAct?.name || "Streak";
+  const _headlinerCurrent = streaks?.[_headlinerId]?.current ?? 0;
   const _milestone = 365;
   const _questFromTask = (t) => {
     const c = compByTask[t.id];
@@ -2323,7 +2418,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     name: user?.name,
     avatar: user?.photo || user?.emoji || "🧑‍🚀",
     stars: starBank,
-    streak: { current: _drumCurrent, milestone: _milestone, fillPct: (_drumCurrent / _milestone) * 100 },
+    streak: { current: _headlinerCurrent, milestone: _milestone, fillPct: (_headlinerCurrent / _milestone) * 100, label: `${_headlinerShort} streak`, yearLabel: `A Year of ${_headlinerShort}` },
     nextReward: { title: nextRewardTitle, cost: nextRewardCost, have: starBank },
     xp: _xp,
     level: {
@@ -2348,19 +2443,30 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     giftedToday,
     earnedToday,
     stats: [
-      { label: "Drum streak", value: _drumCurrent ? `${_drumCurrent}d` : "—" },
+      { label: `${_headlinerShort} streak`, value: _headlinerCurrent ? `${_headlinerCurrent}d` : "—" },
       { label: "Books finished", value: _booksFinished || "—" },
       { label: "Spanish streak", value: streaks?.a_spa?.current ? `${streaks.a_spa.current}d` : "—" },
       { label: "Drum songs today", value: _songsToday || "—" },
     ],
     mapStops: [
       {
-        id: "drum_mountain",
-        title: "Drum Mountain",
-        icon: "🥁",
-        description: "Climb to a full year of drums (365 days).",
-        progress: Math.min(100, (_drumCurrent / _milestone) * 100),
-        done: _drumCurrent >= _milestone,
+        // Headliner Mountain — the World Map's focus stop now follows
+        // selectHeadlinerActivity just like the StreakStrip / HERO /
+        // YEAR cards. The kid's chosen focus drives the title,
+        // progress, and done state; one consistent representation
+        // across every focus surface.
+        //
+        // Icon: 🔥 — streak-themed, ties back to the flame motif in
+        // StreakStrip and the HERO card. NOT a per-activity emoji
+        // map (those stay Phase 3 per the scope line). Same icon for
+        // any headliner; the title + description carry the
+        // activity-specific signal.
+        id: "headliner_mountain",
+        title: `${_headlinerShort} Mountain`,
+        icon: "🔥",
+        description: `Climb to a full year of ${(_headlinerShort || "your streak").toLowerCase()} (365 days).`,
+        progress: Math.min(100, (_headlinerCurrent / _milestone) * 100),
+        done: _headlinerCurrent >= _milestone,
       },
       {
         id: "universal_castle",
@@ -2402,7 +2508,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
     relabelShoppingItemsByListKey,
     receipts, addReceipt, softDeleteReceipt, updateReceipt,
-    familySettings, setFamilySettings,
+    familySettings, setFamilySettings, headlinerActivityByKid, setHeadlinerForKid,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
     dailyRequiredCount, setDailyRequiredCount,
@@ -3846,7 +3952,7 @@ function LoginScreen({ users, currentProfileId, onPick, onSignOut, sessionEmail 
 }
 
 // ===================== KID: MISSIONS =====================
-function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, setOpenCompletionId, availableToday, earnedToday, pendingStars, starBank, mode, priorities, user, users, activities, streaks, subProgress, toggleSub, undoTask, dailyCheckins = [], setMoodCheckin }) {
+function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, setOpenCompletionId, availableToday, earnedToday, pendingStars, starBank, mode, priorities, user, users, activities, streaks, subProgress, toggleSub, undoTask, dailyCheckins = [], setMoodCheckin, familySettings }) {
   // Read from the parent-curated Top 8 so the kid's missions tab,
   // home quests, and the board all show the same list. Fall back to
   // the broader todaysTasks only if Top 8 is somehow empty.
@@ -3904,7 +4010,7 @@ function KidMissions({ todaysTasks, todaysTopEight, compByTask, setOpenTask, set
         );
       })()}
 
-      <StreakStrip streaks={streaks} activities={activities} />
+      <StreakStrip streaks={streaks} activities={activities} familySettings={familySettings} kidProfileId={(users || []).find((u) => u.role === "kid")?.id} />
 
       <SectionTitle icon={<Trophy size={16} className="text-rose-500" />}>{i18nTOf("sec_today_missions", "Today's missions")} <span className="text-[11px] font-normal text-slate-400">· {i18nTOf("hint_most_important_first", "most important first")}</span></SectionTitle>
       {ordered.map((t) => {
@@ -5570,18 +5676,44 @@ function CelebrateOverlay({ data, onClose }) {
   );
 }
 
-function StreakStrip({ streaks, activities }) {
-  const top = Object.entries(streaks)
-    .map(([id, s]) => ({ ...s, act: activities.find((a) => a.id === id) }))
-    .filter((e) => e.act)
-    .sort((a, b) => b.current - a.current)[0];
-  if (!top) return null;
+function StreakStrip({ streaks, activities, familySettings, kidProfileId }) {
+  const headlinerId = selectHeadlinerActivity(kidProfileId, familySettings, streaks, activities);
+  if (!headlinerId) return null;
+  const act = (activities || []).find((a) => a.id === headlinerId);
+  if (!act) return null;
+  const s = streaks?.[headlinerId];
+  const current = s?.current || 0;
+  const longest = s?.longest || 0;
+  // Pre-streak / zero state — render an encouragement card in the
+  // activity's color so the parent immediately SEES that the toggle
+  // worked (without this, toggling Piano with no piano completions
+  // looked silently broken). Once a completion lands, the streak
+  // row materializes via bumpStreak's auto-create branch (or the
+  // existing path if a row was seeded) and the card flips to the
+  // standard streak banner on the next render.
+  if (current <= 0) {
+    // Article grammar: vowel-initial activity names take "an"
+    // ("an Art streak"); consonant-initial take "a" ("a Piano streak").
+    // Simple letter heuristic — imperfect for the "honest / user"
+    // edge cases but right for every activity name in the catalog.
+    const firstChar = String(act.short || "").trim().charAt(0).toLowerCase();
+    const article = /[aeiou]/.test(firstChar) ? "an" : "a";
+    return (
+      <div className="rounded-2xl p-3 mt-3 flex items-center gap-3 text-white" style={{ background: `linear-gradient(135deg,${act.color},#ef4444)` }}>
+        <div className="text-2xl">✨</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-extrabold">Start {article} {act.short} streak today!</div>
+          <div className="text-[11px] opacity-90">Log {act.short} to begin. {longest > 0 ? `Best ever: ${longest}.` : "Every day counts."}</div>
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="rounded-2xl p-3 mt-3 flex items-center gap-3 text-white" style={{ background: `linear-gradient(135deg,${top.act.color},#ef4444)` }}>
+    <div className="rounded-2xl p-3 mt-3 flex items-center gap-3 text-white" style={{ background: `linear-gradient(135deg,${act.color},#ef4444)` }}>
       <div className="text-2xl">🔥</div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-extrabold">{top.current}-day {top.act.short} streak!</div>
-        <div className="text-[11px] opacity-90">Best ever: {top.longest}. Keep it alive!</div>
+        <div className="text-sm font-extrabold">{current}-day {act.short} streak!</div>
+        <div className="text-[11px] opacity-90">Best ever: {longest}. Keep it alive!</div>
       </div>
     </div>
   );
@@ -7729,7 +7861,7 @@ function StillTodoOnboarding({ tasks = [], activities = [], dailyRequiredCount, 
 }
 
 // ===================== PARENT: TODAY =====================
-function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub, dailyCheckins = [], dailyRequiredCount = 8, setDailyRequiredCount }) {
+function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub, dailyCheckins = [], dailyRequiredCount = 8, setDailyRequiredCount, familySettings }) {
   const [showAddPicker, setShowAddPicker] = useState(false);
   // Reorder mode is per-section so flipping it on for Bonus
   // doesn't add nudge buttons to Still-to-do too. Same pattern as
@@ -7834,7 +7966,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
         <SummaryStat label={i18nTOf("stat_total_bank", "Total star bank")} value={starBank} tone="violet" onClick={() => setStatDetailId?.("bank")} />
       </div>
 
-      <StreakStrip streaks={streaks} activities={activities} />
+      <StreakStrip streaks={streaks} activities={activities} familySettings={familySettings} kidProfileId={(users || []).find((u) => u.role === "kid")?.id} />
 
       {/* Coming up — birthday celebration card. Only renders when at
           least one family member has a birthday within 7 days, so
@@ -16859,7 +16991,7 @@ function PresetPicker({ existingIds, onAdd, onClose, dailyRequiredCount = 8 }) {
   );
 }
 
-function ManageActivities({ activities, addActivity, updateActivity, addTask, streaks, setStreak, stopStreak, bumpStreak, setProgressActId, dailyRequiredCount = 8 }) {
+function ManageActivities({ activities, addActivity, updateActivity, addTask, streaks, setStreak, stopStreak, bumpStreak, setProgressActId, dailyRequiredCount = 8, users = [], headlinerActivityByKid = {}, setHeadlinerForKid = null }) {
   const [adding, setAdding] = useState(false);
   const [presetting, setPresetting] = useState(false);
   const existingNames = useMemo(
@@ -16904,7 +17036,7 @@ function ManageActivities({ activities, addActivity, updateActivity, addTask, st
         return (
           <div key={pk} id={`pillar-${pk}`} style={{ scrollMarginTop: 12 }}>
             <SectionTitle icon={<span className="text-base">{p.emoji}</span>}>{p.label}</SectionTitle>
-            {list.length === 0 ? <p className="text-xs text-slate-400 px-1">{i18nTOf("empty_activities", "None yet.")}</p> : list.map((a) => <ActivityRow key={a.id} a={a} onUpdate={updateActivity} streaks={streaks} setStreak={setStreak} stopStreak={stopStreak} bumpStreak={bumpStreak} onProgress={setProgressActId} />)}
+            {list.length === 0 ? <p className="text-xs text-slate-400 px-1">{i18nTOf("empty_activities", "None yet.")}</p> : list.map((a) => <ActivityRow key={a.id} a={a} onUpdate={updateActivity} streaks={streaks} setStreak={setStreak} stopStreak={stopStreak} bumpStreak={bumpStreak} onProgress={setProgressActId} kids={(users || []).filter((u) => u.role === "kid")} headlinerByKid={headlinerActivityByKid} setHeadlinerForKid={setHeadlinerForKid} />)}
           </div>
         );
       })}
@@ -16994,7 +17126,7 @@ function CopyAddressButton({ text }) {
   );
 }
 
-function ActivityRow({ a, onUpdate, streaks, setStreak, stopStreak, bumpStreak, onProgress }) {
+function ActivityRow({ a, onUpdate, streaks, setStreak, stopStreak, bumpStreak, onProgress, kids = [], headlinerByKid = {}, setHeadlinerForKid = null }) {
   const [editColor, setEditColor] = useState(false);
   const [editName, setEditName] = useState(false);
   const [nameVal, setNameVal] = useState(a.name);
@@ -17044,6 +17176,43 @@ function ActivityRow({ a, onUpdate, streaks, setStreak, stopStreak, bumpStreak, 
           </button>
         </div>
         {editColor && <div className="flex flex-wrap gap-1.5 mt-2">{ACT_PALETTE.map((c) => <button key={c} onClick={() => { onUpdate(a.id, { color: c }); setEditColor(false); }} className="w-7 h-7 rounded-lg" style={{ background: c, outline: a.color === c ? "2px solid #1e293b" : "none", outlineOffset: "1px" }} />)}</div>}
+        {/* Headliner streak toggle — Streaks Phase 1. Per-kid row so
+            multi-kid families get one toggle per kid (currently every
+            beta family is single-kid; the loop is forward-safe). The
+            toggle writes through familySetting → setFamilySettings so
+            the merge is structurally guaranteed; a raw write would
+            wipe shoppingLists / topPriorities / etc. */}
+        {setHeadlinerForKid && kids.map((kid) => {
+          const isHeadliner = headlinerByKid?.[kid.id] === a.id;
+          const kidLabel = (kid.name || "your kid") + "'s";
+          return (
+            <div key={kid.id} className="mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-100 flex items-center gap-2">
+              <span className="text-base">⭐</span>
+              <span className="text-[12px] text-slate-700 flex-1 min-w-0">
+                Make this {kidLabel} <span className="font-bold">main streak</span>
+              </span>
+              <button
+                onClick={() => {
+                  if (isHeadliner) {
+                    setHeadlinerForKid(kid.id, null);
+                  } else {
+                    // Seed a zero streak row if the activity doesn't
+                    // have one yet — setStreak is a no-op when the
+                    // row already exists (it spreads prev[id] over
+                    // the zero defaults). This guarantees StreakStrip
+                    // has something to render the moment the toggle
+                    // flips, even before the first completion.
+                    if (setStreak && !streaks?.[a.id]) setStreak(a.id, {});
+                    setHeadlinerForKid(kid.id, a.id);
+                  }
+                }}
+                className={`text-[10px] font-bold px-3 py-1 rounded-full shrink-0 ${isHeadliner ? "bg-amber-500 text-white" : "bg-white border border-slate-200 text-slate-500"}`}
+              >
+                {isHeadliner ? "ON" : "OFF"}
+              </button>
+            </div>
+          );
+        })}
         {openStreak && (st ? (
           <div className="mt-2 bg-orange-50 rounded-xl p-3 space-y-2">
             <div className="flex gap-2">
