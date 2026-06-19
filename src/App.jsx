@@ -1397,6 +1397,69 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     }
   };
 
+  // Backfill a completion for a PAST date — Maryam's case (forgot to
+  // log Xander's piano on 6/16, now it's 6/18 and she wants Xander
+  // to get credit for THAT day).
+  //
+  // Mirrors submitTask's identity/approval semantics EXACTLY (same
+  // activeProfile / authProfile / needsApproval branching, same
+  // completedBy = kid). The ONLY differences:
+  //   1. completionDate = the picked past date, NOT TODAY_ISO
+  //   2. Streak action routes through extendStreakForBackfilledDate
+  //      (conservative: only extends on a genuinely-consecutive day)
+  //      instead of bumpStreak (which unconditionally stamps
+  //      lastDate=TODAY and would silently corrupt the chain)
+  //   3. No celebrate / no juice / no submit pop — the DayHistoryBrowser
+  //      confirm sheet shows what will happen at submit time, so a
+  //      today-flavored "311-day streak!" pop would be a lie here.
+  //
+  // Strip-and-replace targets ONLY the (taskId, picked date) slot.
+  // Today's row for the same task stays intact. Every other past-day
+  // row stays intact.
+  //
+  // extra.history records who backfilled, when (real clock), and which
+  // date was targeted, so "did I actually do that day or did I backfill
+  // it?" has an honest answer weeks later.
+  const addCompletionForDate = (taskId, dateIso, payload = {}) => {
+    if (!taskId || !dateIso) return;
+    const t = tasks.find((x) => x.id === taskId);
+    if (!t) return;
+    const activeProfile = users.find((u) => u.id === currentUserId);
+    const authProfile = users.find((u) => u.id === currentProfileId);
+    const activeIsKid = activeProfile?.role === "kid";
+    const activeIsParent = activeProfile?.role === "parent";
+    const authIsParentOrAdmin = authProfile?.role === "parent" || !!authProfile?.isAdmin;
+    const kid = users.find((u) => u.role === "kid");
+    const kidId = kid?.id || currentUserId;
+    const submittedBy = activeIsKid ? currentUserId : (currentProfileId || currentUserId);
+    const needsApproval = !(activeIsParent && authIsParentOrAdmin);
+    const auditEntry = {
+      at: new Date().toISOString(),
+      by: currentProfileId || null,
+      summary: "Backfilled to " + dateIso,
+      changes: [{ field: "completionDate", before: null, after: dateIso }],
+    };
+    setCompletions((prev) => {
+      const others = prev.filter((c) => !(c.taskId === taskId && (c.completionDate || null) === dateIso));
+      return [...others, {
+        id: "cmp_" + Date.now(),
+        taskId,
+        status: needsApproval ? "pending" : "approved",
+        awardedStars: needsApproval ? 0 : t.starValue,
+        pendingStars: needsApproval ? t.starValue : 0,
+        completedBy: kidId,
+        submittedBy,
+        approvedBy: needsApproval ? null : submittedBy,
+        notes: payload.notes || "",
+        proof: payload.proof || [],
+        extra: { ...(payload.extra || {}), backfill: { targetDate: dateIso }, history: [auditEntry] },
+        completionDate: dateIso,
+      }];
+    });
+    const aid = t.activityId || TYPE_TO_ACT[t.activityType];
+    if (!needsApproval && aid) extendStreakForBackfilledDate(aid, dateIso);
+  };
+
   const addAward = (a) => setAwards((prev) => [a, ...prev]);
   const removeAward = (id) => setAwards((prev) => prev.filter((a) => a.id !== id));
   // saveDraft — write a work-in-progress completion to the day's slot
@@ -1569,7 +1632,20 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     if (decision === "approve") {
       const tk = tasks.find((x) => x.id === target.taskId);
       const aid = tk?.activityId || TYPE_TO_ACT[tk?.activityType];
-      if (aid) bumpStreak(aid); // only bumps if that activity is being tracked
+      if (aid) {
+        // Backfill-aware routing. Plain bumpStreak unconditionally
+        // stamps lastDate=TODAY, which would silently corrupt the
+        // chain when approving a row whose completionDate is a past
+        // day (Maryam acts-as-Xander → "Log it now" for 6/16 → goes
+        // pending → Mike approves on 6/18 → without this branch,
+        // bumpStreak would move piano's lastDate to 6/18, breaking
+        // the streak). The TODAY path is unchanged.
+        if (target.completionDate && target.completionDate !== TODAY_ISO) {
+          extendStreakForBackfilledDate(aid, target.completionDate);
+        } else {
+          bumpStreak(aid); // only bumps if that activity is being tracked
+        }
+      }
       juice.burst("success", "approve");
       const flyValue = (target.pendingStars || 0) + (bonus || 0);
       starBurst.fly({ value: flyValue || 1 });
@@ -1841,6 +1917,47 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const updateActivity = (id, patch) => setActivities((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   const setStreak = (id, patch) => setStreaks((prev) => ({ ...prev, [id]: { current: 0, longest: 0, since: "", lastDate: "", ...(prev[id] || {}), ...patch } }));
   const stopStreak = (id) => setStreaks((prev) => { const n = { ...prev }; delete n[id]; return n; });
+  // Backfill-aware streak extender. Used by addCompletionForDate (the
+  // Day-by-Day browser's "Log it now") AND by decide() when a parent
+  // approves a row whose completionDate is a past day.
+  //
+  // CONSERVATIVE BY DESIGN. The cardinal rule for this brick: a past-
+  // dated completion must NEVER silently extend / inflate / break a
+  // per-activity streak. Rules in order:
+  //   - No prior streak row → no-op. We don't auto-create a streak from
+  //     a backfill (we don't know what earlier days looked like; the
+  //     parent can use the existing "Start tracking" affordance
+  //     separately if they want a streak from scratch).
+  //   - dateIso === lastDate → no-op (already counted that day).
+  //   - dateIso < lastDate → no-op (the chain is already past it; this
+  //     is an older row, not a forward extension).
+  //   - dateIso === lastDate + 1 day → extend (current += 1, advance
+  //     lastDate). The one honest forward step.
+  //   - dateIso > lastDate + 1 (gap forward) → no-op. The
+  //     DayHistoryBrowser confirm sheet tells the user this won't
+  //     extend the streak, so non-extension is explicit, not silent.
+  const extendStreakForBackfilledDate = (activityId, dateIso) => setStreaks((prev) => {
+    if (!activityId || !dateIso) return prev;
+    const s = prev[activityId];
+    if (!s) return prev;
+    const lastDate = s.lastDate || "";
+    if (dateIso === lastDate) return prev;
+    if (lastDate && dateIso < lastDate) return prev;
+    if (lastDate) {
+      const a = new Date(dateIso);
+      const b = new Date(lastDate);
+      const diffDays = Math.round((a - b) / 86400000);
+      if (diffDays === 1) {
+        const current = (s.current || 0) + 1;
+        return {
+          ...prev,
+          [activityId]: { ...s, current, longest: Math.max(s.longest || 0, current), lastDate: dateIso },
+        };
+      }
+    }
+    return prev;
+  });
+
   // Streak rules: increment by 1 ONLY if lastDate was yesterday (consecutive).
   // Already today → no double count. Missed at least one day → reset to 1,
   // keep longest unchanged, restart `since`. Never tracked → no-op (parents
