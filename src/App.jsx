@@ -1966,7 +1966,21 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   };
   const addActivity = (a) => setActivities((prev) => [...prev, a]);
   const updateActivity = (id, patch) => setActivities((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
-  const setStreak = (id, patch) => setStreaks((prev) => ({ ...prev, [id]: { current: 0, longest: 0, since: "", lastDate: "", ...(prev[id] || {}), ...patch } }));
+  // setStreak — seed-or-patch a streak row. Defaults are nullable
+  // dates (since/lastDate = null), NOT empty strings — Postgres rejects
+  // "" for type date with "invalid input syntax for type date: ''".
+  //
+  // Belt-and-suspenders: after the default+prev+patch merge, normalize
+  // any "" date field to null. Catches a caller that explicitly passes
+  // "" (e.g. the "Start tracking" UI that previously used "" for
+  // lastDate) and the Since text input clearing to empty. With this
+  // guard, no path can sneak "" into the streaks table.
+  const setStreak = (id, patch) => setStreaks((prev) => {
+    const merged = { current: 0, longest: 0, since: null, lastDate: null, ...(prev[id] || {}), ...patch };
+    if (merged.since === "") merged.since = null;
+    if (merged.lastDate === "") merged.lastDate = null;
+    return { ...prev, [id]: merged };
+  });
   const stopStreak = (id) => setStreaks((prev) => { const n = { ...prev }; delete n[id]; return n; });
   // Backfill-aware streak extender. Used by addCompletionForDate (the
   // Day-by-Day browser's "Log it now") AND by decide() when a parent
@@ -7342,7 +7356,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
                     </div>
                   </>
                 ) : (
-                  <button onClick={() => setStreak(aid, { current: 0, longest: 0, since: TODAY_ISO, lastDate: "" })} className="text-[11px] font-bold text-orange-600">{i18nTOf("ds_streak_start", "Start tracking a streak →")}</button>
+                  <button onClick={() => setStreak(aid, { current: 0, longest: 0, since: TODAY_ISO, lastDate: null })} className="text-[11px] font-bold text-orange-600">{i18nTOf("ds_streak_start", "Start tracking a streak →")}</button>
                 )}
               </Card>
 
@@ -17226,7 +17240,7 @@ function ActivityRow({ a, onUpdate, streaks, setStreak, stopStreak, bumpStreak, 
             </div>
           </div>
         ) : (
-          <button onClick={() => setStreak(a.id, { current: 0, longest: 0, since: TODAY_ISO, lastDate: "" })} className="mt-2 block text-[11px] font-bold text-orange-600">Start tracking this streak →</button>
+          <button onClick={() => setStreak(a.id, { current: 0, longest: 0, since: TODAY_ISO, lastDate: null })} className="mt-2 block text-[11px] font-bold text-orange-600">Start tracking this streak →</button>
         ))}
       </div>
     </Card>
