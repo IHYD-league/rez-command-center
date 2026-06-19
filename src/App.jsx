@@ -2377,7 +2377,20 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
 
   // KidGameHome data — built from existing state (no hook; runs after the
   // early-return above so `user` is guaranteed defined).
-  const _drumCurrent = streaks?.a_drums?.current ?? 0;
+  //
+  // Streaks Phase 1: the HERO card + YEAR card on the kid's home now
+  // follow the same headliner resolver as StreakStrip — explicit
+  // parent pick (familySettings.headlinerActivityByKid[kid]) wins,
+  // else highest-current streak (preserves Reznor's drums-by-default
+  // behavior). Out of scope for this brick: Insights Practice card,
+  // achievement badge defs, BoardGame emoji map, MilestoneSlideshow
+  // drum chapter — those stay hardcoded to a_drums in Phase 2-3.
+  const _kidUser = users.find((u) => u.role === "kid");
+  const _kidIdForHeadliner = _kidUser?.id;
+  const _headlinerId = selectHeadlinerActivity(_kidIdForHeadliner, familySettings, streaks, activities);
+  const _headlinerAct = activities.find((a) => a.id === _headlinerId);
+  const _headlinerShort = _headlinerAct?.short || _headlinerAct?.name || "Streak";
+  const _headlinerCurrent = streaks?.[_headlinerId]?.current ?? 0;
   const _milestone = 365;
   const _questFromTask = (t) => {
     const c = compByTask[t.id];
@@ -2405,7 +2418,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     name: user?.name,
     avatar: user?.photo || user?.emoji || "🧑‍🚀",
     stars: starBank,
-    streak: { current: _drumCurrent, milestone: _milestone, fillPct: (_drumCurrent / _milestone) * 100 },
+    streak: { current: _headlinerCurrent, milestone: _milestone, fillPct: (_headlinerCurrent / _milestone) * 100, label: `${_headlinerShort} streak`, yearLabel: `A Year of ${_headlinerShort}` },
     nextReward: { title: nextRewardTitle, cost: nextRewardCost, have: starBank },
     xp: _xp,
     level: {
@@ -2430,19 +2443,26 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     giftedToday,
     earnedToday,
     stats: [
-      { label: "Drum streak", value: _drumCurrent ? `${_drumCurrent}d` : "—" },
+      { label: `${_headlinerShort} streak`, value: _headlinerCurrent ? `${_headlinerCurrent}d` : "—" },
       { label: "Books finished", value: _booksFinished || "—" },
       { label: "Spanish streak", value: streaks?.a_spa?.current ? `${streaks.a_spa.current}d` : "—" },
       { label: "Drum songs today", value: _songsToday || "—" },
     ],
     mapStops: [
       {
+        // Drum Mountain stays drum-hardcoded — adventure-map themed
+        // stop, NOT in Mike's named Phase 1 scope ("HERO card,
+        // year-of card, StreakStrip"). Reading the drum streak
+        // directly here so this stop is untouched by the headliner
+        // resolver. Pulling this through the resolver is a Phase 2
+        // decision (would also need an activity-emoji map, which is
+        // explicitly Phase 3).
         id: "drum_mountain",
         title: "Drum Mountain",
         icon: "🥁",
         description: "Climb to a full year of drums (365 days).",
-        progress: Math.min(100, (_drumCurrent / _milestone) * 100),
-        done: _drumCurrent >= _milestone,
+        progress: Math.min(100, ((streaks?.a_drums?.current ?? 0) / _milestone) * 100),
+        done: (streaks?.a_drums?.current ?? 0) >= _milestone,
       },
       {
         id: "universal_castle",
@@ -5668,11 +5688,17 @@ function StreakStrip({ streaks, activities, familySettings, kidProfileId }) {
   // existing path if a row was seeded) and the card flips to the
   // standard streak banner on the next render.
   if (current <= 0) {
+    // Article grammar: vowel-initial activity names take "an"
+    // ("an Art streak"); consonant-initial take "a" ("a Piano streak").
+    // Simple letter heuristic — imperfect for the "honest / user"
+    // edge cases but right for every activity name in the catalog.
+    const firstChar = String(act.short || "").trim().charAt(0).toLowerCase();
+    const article = /[aeiou]/.test(firstChar) ? "an" : "a";
     return (
       <div className="rounded-2xl p-3 mt-3 flex items-center gap-3 text-white" style={{ background: `linear-gradient(135deg,${act.color},#ef4444)` }}>
         <div className="text-2xl">✨</div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-extrabold">Start a {act.short} streak today!</div>
+          <div className="text-sm font-extrabold">Start {article} {act.short} streak today!</div>
           <div className="text-[11px] opacity-90">Log {act.short} to begin. {longest > 0 ? `Best ever: ${longest}.` : "Every day counts."}</div>
         </div>
       </div>

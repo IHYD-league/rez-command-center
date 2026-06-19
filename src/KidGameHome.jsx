@@ -730,7 +730,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
               }}
             />
             <div className="relative text-[10px] uppercase tracking-wider text-white/70 font-bold flex items-center gap-1">
-              <Flame size={11} className="text-orange-300" /> {t("kgh_drum_streak", "Drum streak")}
+              <Flame size={11} className="text-orange-300" /> {streak?.label || t("kgh_drum_streak", "Drum streak")}
             </div>
             <div className="relative text-2xl font-extrabold leading-none mt-1 flex items-baseline gap-1">
               <span
@@ -974,7 +974,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
             <div className="flex-1 min-w-0">
               <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold flex items-center gap-1.5">
                 <Flame size={11} className="text-amber-200" />
-                {t("kgh_year_of_drums", "A Year of Drums")}
+                {streak?.yearLabel || t("kgh_year_of_drums", "A Year of Drums")}
               </div>
               <div className="flex items-baseline gap-1 mt-1">
                 <span
