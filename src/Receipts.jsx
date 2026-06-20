@@ -19,6 +19,7 @@ import React, { useMemo, useState } from "react";
 import { ChevronRight, ChevronLeft, Trash2, Receipt as ReceiptIcon, Pencil, X } from "lucide-react";
 import { useSignedUrl } from "./lib/storage.js";
 import ReceiptItemRow from "./ReceiptItemRow.jsx";
+import ReceiptScanner from "./ReceiptScanner.jsx";
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -45,8 +46,17 @@ export default function Receipts({
   users = [],
   user = null,
   shoppingItems = [],
+  // Scanner-in-Receipts brick: lets a parent scan a new receipt
+  // from inside this view (closes the "scan-here-view-there" seam
+  // where capture lived under Shopping List but viewing lives
+  // here). Reuses the existing ReceiptScanner component — same
+  // capture→parse→review→save flow, same receipts table write.
+  addReceipt = null,
+  familyId = null,
+  fuzzyMatch = null,
 }) {
   const [openId, setOpenId] = useState(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const visible = useMemo(() => {
     return receipts
@@ -85,23 +95,46 @@ export default function Receipts({
     );
   }
 
-  if (visible.length === 0) {
-    return (
-      <div className="text-center py-16 px-6">
-        <div className="text-4xl mb-3">🧾</div>
-        <div className="text-sm text-slate-500 leading-relaxed">
-          No receipts yet.<br />
-          Scan one from the Shopping List — 📷 Scan → 🧾 A receipt.
-        </div>
-      </div>
-    );
-  }
-
+  // Single return path covers both the empty state and the populated
+  // list. The scan button is always at the top (kids hidden, and
+  // also hidden when addReceipt isn't plumbed through — defensive
+  // for any future caller that mounts Receipts without the write
+  // helpers). The detail view is an early-return above this block,
+  // so the button correctly disappears on the detail screen.
+  const canScan = !isKid && !!addReceipt;
   return (
     <div className="space-y-2 pb-4">
-      {visible.map((r) => (
-        <ReceiptRow key={r.id} receipt={r} onOpen={() => setOpenId(r.id)} />
-      ))}
+      {canScan && (
+        <button
+          type="button"
+          onClick={() => setScannerOpen(true)}
+          className="w-full bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white rounded-2xl py-3 px-4 font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
+        >
+          <span className="text-base leading-none">📷</span> Scan a receipt
+        </button>
+      )}
+
+      {visible.length === 0 ? (
+        <div className="text-center py-12 px-6">
+          <div className="text-4xl mb-3">🧾</div>
+          <div className="text-sm text-slate-500">No receipts yet.</div>
+        </div>
+      ) : (
+        visible.map((r) => (
+          <ReceiptRow key={r.id} receipt={r} onOpen={() => setOpenId(r.id)} />
+        ))
+      )}
+
+      {scannerOpen && canScan && (
+        <ReceiptScanner
+          onClose={() => setScannerOpen(false)}
+          activeListKey={null}
+          addReceipt={addReceipt}
+          familyId={familyId}
+          shoppingItems={shoppingItems}
+          fuzzyMatch={fuzzyMatch}
+        />
+      )}
     </div>
   );
 }
