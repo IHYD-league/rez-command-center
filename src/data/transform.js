@@ -222,6 +222,12 @@ export const toApp = {
     // the derived "frequently added" favorites in ShoppingList.
     defaultStore: r.default_store || null,
     buyOften: !!r.buy_often,
+    // 2026-06-22 Brick C1 — stock status. true (default) = on hand;
+    // false = out of stock, surfaces in the Inventory Out of Stock
+    // tab as the buy-list. Existing rows default to true via column-
+    // creation default-fill, so a missing key from the server still
+    // reads as in-stock (defensive `!== false`).
+    inStock: r.in_stock !== false,
     // 2026-06-17 soft-delete + undo. Null = visible. Set = soft-removed;
     // ShoppingList filters these out of the rendered list and a load-
     // time purge hard-deletes expired ones.
@@ -582,6 +588,12 @@ export const toDb = {
     // column-normalization rule that protects deleted_at/_by below.
     default_store: o.defaultStore || null,
     buy_often: !!o.buyOften,
+    // Brick C1 — stock status. NOT NULL DEFAULT true in the DB;
+    // emit on every write or a batch sync NULL-pads → server
+    // rejects (or coerces). Default to true when the app-side value
+    // is missing or undefined so checking an item off can't
+    // accidentally flip it to out-of-stock.
+    in_stock: o.inStock !== false,
     // Always emit deleted_at/deleted_by in toDb (per the PostgREST
     // batch column normalization rule — never conditionally omit a
     // column, else the whole-array upsert NULL-pads pre-existing

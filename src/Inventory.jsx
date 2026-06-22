@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { X, Package, Star, Plus } from "lucide-react";
+import React, { useMemo, useState, useEffect } from "react";
+import { X, Package, Star, Plus, PackageCheck, PackageX, Check } from "lucide-react";
 import {
   SECTION_ORDER as SHOPPING_SECTION_ORDER,
   SECTION_EMOJI as SHOPPING_SECTION_EMOJI,
@@ -9,16 +9,21 @@ import {
   settingsAfterCreateList,
 } from "./lib/shoppingLists.js";
 
-// Inventory — Bricks A + B of the Food Hub Inventory stack.
+// Inventory — Bricks A + B + C1 of the Food Hub Inventory stack.
 //
 // Reads every alive shopping_items row as inventory, grouped by store
-// section. Brick B adds:
+// section. Bricks B + C1 add:
 //   • Default-store picker (normalized key from family_settings
 //     .shoppingLists registry, with inline "+ Add store" that writes
 //     a new registry entry — same helpers ShoppingList already uses).
 //   • Buy-often star toggle (the explicit flag — separate from the
 //     derived "frequently added" favorites in ShoppingList).
-//   • Filters: All / Buy often / By store / Untagged.
+//   • Stock status (Brick C1): Mark out of stock / Mark in stock
+//     toggle. Out-of-stock items grey + strikethrough + sink to the
+//     bottom of each section, but STAY on the list. The Out of Stock
+//     tab filters to a buy-list at a glance.
+//   • Filters: All / In stock / Out of stock / Buy often / By store /
+//     Untagged.
 //
 // Writes go through updateShoppingItem (same synced setter the
 // existing edit-row flow uses), so transforms + PostgREST batch
@@ -35,8 +40,17 @@ function groupBySection(items) {
     const sec = it.section && groups.has(it.section) ? it.section : "Other";
     groups.get(sec).push(it);
   }
+  // Sort within each section: in-stock first (alpha), then out-of-stock
+  // (alpha). Matches the checked/bought sink-to-bottom pattern in
+  // ShoppingList — out-of-stock items stay on the list but drop below
+  // the in-stock ones so the buy-list isn't fighting the catalog.
   for (const arr of groups.values()) {
-    arr.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    arr.sort((a, b) => {
+      const aOut = a.inStock === false;
+      const bOut = b.inStock === false;
+      if (aOut !== bOut) return aOut ? 1 : -1;
+      return (a.title || "").localeCompare(b.title || "");
+    });
   }
   return groups;
 }
@@ -53,8 +67,20 @@ export default function Inventory({
   // Filter mode + the "By store" sub-key. byStoreKey is the normalized
   // store key (e.g. "costco") when filterMode === "byStore"; falls
   // back to the first available store on switch-in.
-  const [filterMode, setFilterMode] = useState("all"); // all | buyOften | byStore | untagged
+  const [filterMode, setFilterMode] = useState("all"); // all | inStock | outOfStock | buyOften | byStore | untagged
   const [byStoreKey, setByStoreKey] = useState(null);
+
+  // Lingering set — IDs the parent toggled this tab-session. While an
+  // item is lingering, the current filter shows it even when its
+  // updated state would normally hide it. Lets a parent see what they
+  // just did (struck-out + greyed in place) instead of items vanishing
+  // mid-sweep. Cleared when the filter tab changes OR the component
+  // unmounts (navigating away from Inventory). Same intent Mike
+  // described — "stays until we goto another page or tab."
+  const [lingeringIds, setLingeringIds] = useState(() => new Set());
+  useEffect(() => {
+    setLingeringIds(new Set());
+  }, [filterMode, byStoreKey]);
 
   const stores = useMemo(() => readListRegistry(familySettings), [familySettings]);
 
@@ -69,17 +95,27 @@ export default function Inventory({
   }, [allItems]);
 
   const filtered = useMemo(() => {
-    if (filterMode === "buyOften") return allItems.filter((it) => !!it.buyOften);
-    if (filterMode === "untagged") return allItems.filter((it) => !it.defaultStore);
+    // Lingering rule: items toggled this tab-session stay visible
+    // even when the filter would normally hide them. Symmetric — works
+    // for in-stock ⇄ out-of-stock and for buy-often / untagged toggles
+    // too. Filter changes (handled by the useEffect above) clear the
+    // set, at which point items snap to their honest filter position.
+    const lingers = (it) => lingeringIds.has(it.id);
+    if (filterMode === "inStock") return allItems.filter((it) => it.inStock !== false || lingers(it));
+    if (filterMode === "outOfStock") return allItems.filter((it) => it.inStock === false || lingers(it));
+    if (filterMode === "buyOften") return allItems.filter((it) => !!it.buyOften || lingers(it));
+    if (filterMode === "untagged") return allItems.filter((it) => !it.defaultStore || lingers(it));
     if (filterMode === "byStore" && byStoreKey) {
-      return allItems.filter((it) => it.defaultStore === byStoreKey);
+      return allItems.filter((it) => it.defaultStore === byStoreKey || lingers(it));
     }
     return allItems;
-  }, [allItems, filterMode, byStoreKey]);
+  }, [allItems, filterMode, byStoreKey, lingeringIds]);
 
   const grouped = useMemo(() => groupBySection(filtered), [filtered]);
 
   const total = allItems.length;
+  const inStockCount = useMemo(() => allItems.filter((it) => it.inStock !== false).length, [allItems]);
+  const outOfStockCount = useMemo(() => allItems.filter((it) => it.inStock === false).length, [allItems]);
   const buyOftenCount = useMemo(() => allItems.filter((it) => it.buyOften).length, [allItems]);
   const untaggedCount = useMemo(() => allItems.filter((it) => !it.defaultStore).length, [allItems]);
   const selected = useMemo(
@@ -121,6 +157,12 @@ export default function Inventory({
         <FilterPill active={filterMode === "all"} onClick={() => setFilterMode("all")}>
           All <span className="opacity-70">· {total}</span>
         </FilterPill>
+        <FilterPill active={filterMode === "inStock"} onClick={() => setFilterMode("inStock")}>
+          In stock <span className="opacity-70">· {inStockCount}</span>
+        </FilterPill>
+        <FilterPill active={filterMode === "outOfStock"} onClick={() => setFilterMode("outOfStock")} tone="rose">
+          Out of stock <span className="opacity-70">· {outOfStockCount}</span>
+        </FilterPill>
         <FilterPill active={filterMode === "buyOften"} onClick={() => setFilterMode("buyOften")}>
           ⭐ Buy often <span className="opacity-70">· {buyOftenCount}</span>
         </FilterPill>
@@ -147,6 +189,8 @@ export default function Inventory({
 
       {filtered.length === 0 && (
         <div className="rounded-2xl bg-white border border-slate-100 p-6 text-center text-sm text-slate-500">
+          {filterMode === "inStock" && "Nothing in stock right now — every item is on the buy-list."}
+          {filterMode === "outOfStock" && "Nothing out of stock — fully stocked."}
           {filterMode === "buyOften" && "Nothing starred yet — tap an item, then ⭐ Buy often."}
           {filterMode === "untagged" && "Every item has a home store — nice."}
           {filterMode === "byStore" && "Nothing tagged for this store yet."}
@@ -173,28 +217,67 @@ export default function Inventory({
                 const storeName = it.defaultStore
                   ? (stores.find((s) => s.key === it.defaultStore)?.name || it.defaultStore)
                   : null;
+                const outOfStock = it.inStock === false;
                 return (
-                  <button
+                  <div
                     key={it.id}
-                    type="button"
-                    onClick={() => setSelectedId(it.id)}
-                    className={`w-full flex items-center gap-3 p-3 text-left active:bg-slate-50 ${i > 0 ? "border-t border-slate-100" : ""}`}
+                    className={`w-full flex items-center gap-3 p-3 ${i > 0 ? "border-t border-slate-100" : ""} ${outOfStock ? "bg-slate-50" : ""}`}
                   >
-                    <div className="flex-1 min-w-0">
+                    {/* One-tap stock toggle — mirrors ShoppingList's
+                        check-circle pattern but in reverse: the green
+                        check is the DEFAULT (item is on hand), and
+                        tapping it marks it out of stock. Color-coded
+                        for at-a-glance scan: green ✓ = on hand, rose
+                        ✕ = out / on the buy-list. After a tap the row
+                        also greys + strikes + sinks (driven by the
+                        sort) — and the lingering set keeps it visible
+                        in the current tab until filter / nav change,
+                        so the parent sees what they just did. */}
+                    {canWrite ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateShoppingItem(it.id, { inStock: outOfStock });
+                          setLingeringIds((prev) => {
+                            const next = new Set(prev);
+                            next.add(it.id);
+                            return next;
+                          });
+                        }}
+                        aria-label={outOfStock ? "Mark in stock" : "Mark out of stock"}
+                        title={outOfStock ? "Mark in stock" : "Mark out of stock"}
+                        className={`w-7 h-7 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${outOfStock ? "bg-rose-500 text-white border border-rose-500" : "bg-emerald-500 text-white border border-emerald-500"}`}
+                      >
+                        {outOfStock ? <X size={14} strokeWidth={3} /> : <Check size={15} strokeWidth={3} />}
+                      </button>
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-emerald-500 grid place-items-center shrink-0 text-white">
+                        <Check size={15} strokeWidth={3} />
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(it.id)}
+                      className="flex-1 min-w-0 text-left active:opacity-70"
+                    >
                       <div className="flex items-center gap-1.5 min-w-0">
-                        {it.buyOften && <Star size={13} className="text-amber-500 fill-amber-400 shrink-0" />}
-                        <div className="font-semibold text-sm text-slate-800 leading-snug truncate">{it.title || "(no title)"}</div>
+                        {it.buyOften && <Star size={13} className={`shrink-0 ${outOfStock ? "text-slate-300 fill-slate-200" : "text-amber-500 fill-amber-400"}`} />}
+                        <div className={`font-semibold text-sm leading-snug truncate ${outOfStock ? "line-through text-slate-400" : "text-slate-800"}`}>
+                          {it.title || "(no title)"}
+                        </div>
                       </div>
                       {it.brand && (
-                        <div className="text-[11px] text-amber-700 font-bold truncate mt-0.5">{it.brand}</div>
+                        <div className={`text-[11px] font-bold truncate mt-0.5 ${outOfStock ? "text-slate-400 line-through" : "text-amber-700"}`}>
+                          {it.brand}
+                        </div>
                       )}
                       {storeName && (
-                        <div className="text-[10px] uppercase tracking-wider text-cyan-700 font-bold mt-0.5">
+                        <div className={`text-[10px] uppercase tracking-wider font-bold mt-0.5 ${outOfStock ? "text-slate-400" : "text-cyan-700"}`}>
                           {storeName}
                         </div>
                       )}
-                    </div>
-                  </button>
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -212,6 +295,17 @@ export default function Inventory({
           onPatch={(patch) => {
             if (!canWrite) return;
             updateShoppingItem(selected.id, patch);
+            // Mirror the row-circle behavior: flipping stock from the
+            // detail sheet also lingers the item in the current tab
+            // until filter / nav change. Consistency between the two
+            // paths matters — same toggle, same visual.
+            if (Object.prototype.hasOwnProperty.call(patch, "inStock")) {
+              setLingeringIds((prev) => {
+                const next = new Set(prev);
+                next.add(selected.id);
+                return next;
+              });
+            }
           }}
           onCreateStore={(displayName) => {
             if (!canEditRegistry) return { error: "no_setter" };
@@ -230,7 +324,9 @@ function FilterPill({ active, onClick, children, tone = "cyan" }) {
   const colors = active
     ? tone === "amber"
       ? "bg-amber-500 text-white border-amber-500"
-      : "bg-cyan-600 text-white border-cyan-600"
+      : tone === "rose"
+        ? "bg-rose-500 text-white border-rose-500"
+        : "bg-cyan-600 text-white border-cyan-600"
     : "bg-white text-slate-600 border-slate-200";
   return (
     <button
@@ -374,21 +470,44 @@ function ItemDetailSheet({ item, stores, canWrite, canEditRegistry, onClose, onP
         </div>
 
         {canWrite && (
-          <button
-            type="button"
-            onClick={() => onPatch({ buyOften: !item.buyOften })}
-            className={`w-full rounded-2xl border p-3 flex items-center gap-3 text-left active:scale-[0.99] ${item.buyOften ? "bg-amber-50 border-amber-300" : "bg-white border-slate-200"}`}
-          >
-            <Star size={20} className={item.buyOften ? "text-amber-500 fill-amber-400" : "text-slate-300"} />
-            <div className="flex-1">
-              <div className="font-bold text-sm text-slate-800">Buy often</div>
-              <div className="text-[11px] text-slate-500">
-                {item.buyOften
-                  ? "Starred — appears in the Buy-often filter."
-                  : "Tap to star — explicit, separate from the auto-favorites in Shopping List."}
+          <>
+            <button
+              type="button"
+              onClick={() => onPatch({ inStock: item.inStock === false })}
+              className={`w-full rounded-2xl border p-3 flex items-center gap-3 text-left active:scale-[0.99] mb-2 ${item.inStock === false ? "bg-rose-50 border-rose-300" : "bg-white border-slate-200"}`}
+            >
+              {item.inStock === false ? (
+                <PackageX size={20} className="text-rose-500" />
+              ) : (
+                <PackageCheck size={20} className="text-emerald-500" />
+              )}
+              <div className="flex-1">
+                <div className="font-bold text-sm text-slate-800">
+                  {item.inStock === false ? "Mark in stock" : "Mark out of stock"}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {item.inStock === false
+                    ? "Currently out — sits at the bottom of the list and shows in the Out of stock tab."
+                    : "Tap to move to the buy-list. Item stays in inventory, sinks to the bottom."}
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
+            <button
+              type="button"
+              onClick={() => onPatch({ buyOften: !item.buyOften })}
+              className={`w-full rounded-2xl border p-3 flex items-center gap-3 text-left active:scale-[0.99] ${item.buyOften ? "bg-amber-50 border-amber-300" : "bg-white border-slate-200"}`}
+            >
+              <Star size={20} className={item.buyOften ? "text-amber-500 fill-amber-400" : "text-slate-300"} />
+              <div className="flex-1">
+                <div className="font-bold text-sm text-slate-800">Buy often</div>
+                <div className="text-[11px] text-slate-500">
+                  {item.buyOften
+                    ? "Starred — appears in the Buy-often filter."
+                    : "Tap to star — explicit, separate from the auto-favorites in Shopping List."}
+                </div>
+              </div>
+            </button>
+          </>
         )}
       </div>
     </div>
