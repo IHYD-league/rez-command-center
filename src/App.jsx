@@ -15396,7 +15396,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
                   {it.checked && <Check size={15} />}
                 </button>
                 <div className="flex-1 min-w-0">
-                  {editingId === it.id ? (
+                  {editingId === it.id && !isKid ? (
                     <div>
                       <input
                         value={editDraft}
@@ -15426,6 +15426,17 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
                         <div className="flex-1" />
                         <button type="button" onClick={finishEdit} className="text-[10px] font-bold text-indigo-600 px-1.5 py-0.5">Save</button>
                       </div>
+                    </div>
+                  ) : isKid ? (
+                    // Kid edit lock — interim hard-lock. The title renders as
+                    // plain text (not a button); no entry point into the edit
+                    // form. The proper feature (parent toggle + kid-scanned
+                    // carve-out + parent-scanned hard-lock) needs a source /
+                    // scannedBy column on shopping_items, which the table
+                    // doesn't carry yet. Until that brick lands, kids cannot
+                    // edit any item — same pattern as the X-guard at line ~15454.
+                    <div className={`text-left w-full font-semibold text-sm leading-snug ${it.checked ? "line-through text-slate-400" : "text-slate-800"}`}>
+                      {it.title}
                     </div>
                   ) : (
                     <button
