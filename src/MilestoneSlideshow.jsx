@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { X, Play, Pause, ChevronLeft, ChevronRight, Heart, Calendar as CalIcon, Sparkles, Drum, Trophy, Image as ImageIcon } from "lucide-react";
 import { useSignedUrl } from "./lib/storage.js";
+import { computeDrumSessionMinutes } from "./lib/drumMinutes.js";
 
 /* =====================================================================
    MilestoneSlideshow — Phase 5.
@@ -200,6 +201,10 @@ export default function MilestoneSlideshow({
     let approved = 0;
     let pendingCount = 0;
     const cats = new Map();
+    // Drum minutes via the single source of truth so the slideshow
+    // headline agrees with Insights / DetailSheet / CompletionDetailSheet
+    // — Drumeo + Melodics + song-play durations on the session date.
+    const drumDatesInRange = new Set();
     for (const c of completions || []) {
       const d = c.completionDate || c.completion_date;
       if (!d || d < range.from || d > range.to) continue;
@@ -210,13 +215,24 @@ export default function MilestoneSlideshow({
       } else if (c.status === "pending") {
         pendingCount += 1;
       }
-      drumMin += Number(c?.extra?.drumeo || 0) + Number(c?.extra?.melodics || 0);
+      if (Number(c?.extra?.drumeo) > 0 || Number(c?.extra?.melodics) > 0) {
+        drumMin += computeDrumSessionMinutes(c, songPlays, songs).total;
+        drumDatesInRange.add(d);
+      }
     }
     let plays = 0;
     for (const sp of songPlays || []) {
       const d = sp.playedOn || sp.played_on;
       if (!d) continue;
-      if (d >= range.from && d <= range.to) plays += 1;
+      if (d >= range.from && d <= range.to) {
+        plays += 1;
+        // Song-play days without a drums completion still contribute
+        // to drum minutes — sum once per orphan date.
+        if (!drumDatesInRange.has(d)) {
+          drumMin += computeDrumSessionMinutes({ completionDate: d, extra: {} }, songPlays, songs).total;
+          drumDatesInRange.add(d);
+        }
+      }
     }
     let booksTouched = 0;
     for (const b of books || []) {
