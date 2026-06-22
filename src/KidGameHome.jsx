@@ -469,7 +469,7 @@ function StatCard({ label, value }) {
   );
 }
 
-export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest, onTapStars, onOpenBoard, onTapBadges, onTapHeroLevel }) {
+export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQuest, onTapStars, onOpenBoard, onTapBadges, onTapHeroLevel, onOpenGroceries }) {
   if (!data) return null;
   const {
     name,
@@ -486,6 +486,7 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
     treasureStreak = 0,
     earnedToday = 0,
     giftedToday = 0,
+    pendingGroceries = 0,
   } = data;
 
   // Fire the celebration when the canonical star total ticks up. We derive
@@ -1069,6 +1070,45 @@ export default function KidGameHome({ data, onStartQuests, onOpenMenu, onTapQues
             ))}
           </div>
         </div>
+      )}
+
+      {/* WE NEED… — kid grocery entry. Routes through the existing
+          kid-request → parent-approve flow inside ShoppingList. The
+          plumbing has shipped for months (requestStatus pending →
+          parent Approve/Decline UI inside ShoppingList) but the kid
+          had no path to reach it; this card is the entry point.
+          Sits between Stats and the CTAs so it doesn't compete with
+          the Adventure Board (top) or the Start Quest CTA (primary
+          gameplay). Emerald gradient ties to grocery/food semantics
+          and distinguishes from the slate/violet board and the
+          indigo/violet hero. */}
+      {onOpenGroceries && (
+        <button
+          type="button"
+          onClick={onOpenGroceries}
+          className="w-full rounded-3xl p-4 flex items-center gap-3 active:scale-[0.98] transition relative overflow-hidden border-2 border-white/15 shadow-md"
+          style={{
+            background: "linear-gradient(135deg, #065f46 0%, #10b981 60%, #34d399 100%)",
+          }}
+        >
+          <div className="w-14 h-14 rounded-2xl bg-white/15 grid place-items-center backdrop-blur border border-white/25 shrink-0">
+            <span className="text-3xl">🛒</span>
+          </div>
+          <div className="flex-1 text-left min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/80 font-bold">Tell mom or dad</div>
+            <div className="text-lg font-extrabold text-white tracking-tight leading-tight mt-0.5">We need…</div>
+            <div className="text-[11px] text-white/80 mt-0.5 truncate">
+              {pendingGroceries > 0
+                ? `${pendingGroceries} waiting for an answer`
+                : "Add to the grocery list"}
+            </div>
+          </div>
+          {pendingGroceries > 0 && (
+            <div className="bg-white/25 backdrop-blur rounded-2xl px-3 py-1.5 text-white font-extrabold text-sm border border-white/30 shrink-0">
+              {pendingGroceries}
+            </div>
+          )}
+        </button>
       )}
 
       {/* CTAs */}
