@@ -1011,7 +1011,13 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       ...it,
       checked: nowChecked,
       checkedAt: nowChecked ? new Date().toISOString() : null,
-      checkedBy: nowChecked ? (currentProfileId || currentUserId || null) : null,
+      // Acting-as profile wins over the auth-mapped profile so the
+      // attribution reflects WHO is using the app right now, not whose
+      // session token is underneath. Matches addShoppingItem at line 955
+      // (addedBy uses the same currentUserId || currentProfileId order).
+      // Without this, Mike acting as Reznor would stamp Mike on the check
+      // even though the kid is the one tapping — Mike caught it at preview.
+      checkedBy: nowChecked ? (currentUserId || currentProfileId || null) : null,
     };
   }));
   const removeShoppingItem = (id) => setShoppingItems((prev) => prev.filter((it) => it.id !== id));
@@ -15449,12 +15455,32 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
                   {editingId !== it.id && it.brand && (
                     <div className="text-[10px] text-amber-700 font-bold">{it.brand}</div>
                   )}
-                  {editingId !== it.id && it.checked && it.checkedBy && findName(it.checkedBy) && (
-                    <div className="text-[10px] text-slate-400">✓ by {findName(it.checkedBy)}</div>
-                  )}
-                  {editingId !== it.id && !it.checked && it.addedBy && findName(it.addedBy) && (
-                    <div className="text-[10px] text-slate-400">added by {findName(it.addedBy)}</div>
-                  )}
+                  {editingId !== it.id && (() => {
+                    // Attribution trail. Two questions a parent should be
+                    // able to answer at a glance: "who put this on the
+                    // list?" and "who bought it?". Earlier UX swapped
+                    // mutually-exclusive lines (added-by while unchecked
+                    // → ✓-by when checked) which (a) hid the "added by"
+                    // signal the moment something got bought and (b) went
+                    // SILENTLY BLANK on checked items where checkedBy was
+                    // never stamped (historical rows from before the
+                    // toggle started writing it reliably). That's the
+                    // no-hidden-info rule violation. The fix: build the
+                    // line from whichever attributions are actually known,
+                    // joined with " · ". Same render for checked and
+                    // unchecked — the line just gets longer when there's
+                    // more to honestly say. checkedBy continues to be
+                    // stamped by toggleShoppingItem (line 1014) so fresh
+                    // checks immediately surface the ✓-by half.
+                    const addedName = it.addedBy && findName(it.addedBy);
+                    const checkedName = it.checked && it.checkedBy && findName(it.checkedBy);
+                    const parts = [];
+                    if (addedName) parts.push(`added by ${addedName}`);
+                    if (checkedName) parts.push(`✓ by ${checkedName}`);
+                    return parts.length > 0 ? (
+                      <div className="text-[10px] text-slate-400">{parts.join(" · ")}</div>
+                    ) : null;
+                  })()}
                 </div>
                 {/* feedback_kids_never_delete.md: destructive buttons
                     must be hidden for role==="kid". The bin is
