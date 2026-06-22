@@ -1011,7 +1011,13 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       ...it,
       checked: nowChecked,
       checkedAt: nowChecked ? new Date().toISOString() : null,
-      checkedBy: nowChecked ? (currentProfileId || currentUserId || null) : null,
+      // Acting-as profile wins over the auth-mapped profile so the
+      // attribution reflects WHO is using the app right now, not whose
+      // session token is underneath. Matches addShoppingItem at line 955
+      // (addedBy uses the same currentUserId || currentProfileId order).
+      // Without this, Mike acting as Reznor would stamp Mike on the check
+      // even though the kid is the one tapping — Mike caught it at preview.
+      checkedBy: nowChecked ? (currentUserId || currentProfileId || null) : null,
     };
   }));
   const removeShoppingItem = (id) => setShoppingItems((prev) => prev.filter((it) => it.id !== id));
