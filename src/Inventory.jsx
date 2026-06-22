@@ -201,16 +201,34 @@ export default function Inventory({
                   : null;
                 const outOfStock = it.inStock === false;
                 return (
-                  <button
+                  <div
                     key={it.id}
-                    type="button"
-                    onClick={() => setSelectedId(it.id)}
-                    className={`w-full flex items-center gap-3 p-3 text-left active:bg-slate-50 ${i > 0 ? "border-t border-slate-100" : ""} ${outOfStock ? "bg-slate-50" : ""}`}
+                    className={`w-full flex items-center gap-3 p-3 ${i > 0 ? "border-t border-slate-100" : ""} ${outOfStock ? "bg-slate-50" : ""}`}
                   >
-                    {outOfStock && (
-                      <PackageX size={16} className="text-rose-400 shrink-0" />
+                    {/* One-tap stock toggle — mirrors ShoppingList's
+                        check-circle pattern. Empty circle = in stock.
+                        Rose-filled with PackageX = out of stock /
+                        on the buy-list. Parent on the go can sweep
+                        through inventory tapping circles without ever
+                        opening a detail sheet. */}
+                    {canWrite ? (
+                      <button
+                        type="button"
+                        onClick={() => updateShoppingItem(it.id, { inStock: outOfStock })}
+                        aria-label={outOfStock ? "Mark in stock" : "Mark out of stock"}
+                        title={outOfStock ? "Mark in stock" : "Mark out of stock"}
+                        className={`w-7 h-7 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${outOfStock ? "bg-rose-500 text-white border border-rose-500" : "border-2 border-slate-200 bg-white"}`}
+                      >
+                        {outOfStock && <PackageX size={14} />}
+                      </button>
+                    ) : (
+                      <div className="w-7 h-7 rounded-full border-2 border-slate-200 shrink-0" />
                     )}
-                    <div className="flex-1 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(it.id)}
+                      className="flex-1 min-w-0 text-left active:opacity-70"
+                    >
                       <div className="flex items-center gap-1.5 min-w-0">
                         {it.buyOften && <Star size={13} className={`shrink-0 ${outOfStock ? "text-slate-300 fill-slate-200" : "text-amber-500 fill-amber-400"}`} />}
                         <div className={`font-semibold text-sm leading-snug truncate ${outOfStock ? "line-through text-slate-400" : "text-slate-800"}`}>
@@ -227,8 +245,8 @@ export default function Inventory({
                           {storeName}
                         </div>
                       )}
-                    </div>
-                  </button>
+                    </button>
+                  </div>
                 );
               })}
             </div>
