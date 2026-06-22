@@ -2429,6 +2429,13 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const _achCtx = buildAchCtx({ completions, todaysTasks, compByTask, starBank, streaks, books, treasureStreak: _treasureStreak });
   const _nextBadge = nextBadgeFor(_achCtx);
   const _nextBadgeValue = _nextBadge?.val ? _nextBadge.val(_achCtx) : 0;
+  // Count of the kid's OWN pending grocery requests for the "We need…"
+  // home-screen card badge. Mirrors the predicate the ShoppingList kid
+  // view uses (15324): pending requests filtered to ones the kid added.
+  // Soft-deleted rows excluded — same as the rest of the shopping math.
+  const _kidPendingGroceries = (shoppingItems || []).filter(
+    (it) => !it?.deletedAt && it?.requestStatus === "pending" && it?.addedBy === _kidUser?.id
+  ).length;
   const kidData = {
     name: user?.name,
     avatar: user?.photo || user?.emoji || "🧑‍🚀",
@@ -2457,6 +2464,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     treasureStreak: _treasureStreak,
     giftedToday,
     earnedToday,
+    pendingGroceries: _kidPendingGroceries,
     stats: [
       { label: `${_headlinerShort} streak`, value: _headlinerCurrent ? `${_headlinerCurrent}d` : "—" },
       { label: "Books finished", value: _booksFinished || "—" },
@@ -3159,6 +3167,21 @@ function Router(props) {
     if (tab === "missions") return <KidMissions {...props} />;
     if (tab === "board") return <BoardGame {...props} />;
     if (tab === "school") return <SummerQuestRoute {...props} />;
+    // Kid Food Hub entry — opens the existing ShoppingList in kid mode
+    // (the component already gates everything visible via its internal
+    // isKid check: parent Approve/Decline hidden, kid-side "Waiting for
+    // mom or dad" Card shown, destructive X hidden). Back returns to the
+    // kid's home screen (tab "today" falls through to KidGameHome). The
+    // ShoppingList mount mirrors the parent MoreParent mount exactly so
+    // the kid sees the same component, same data, same family-shared
+    // active list — the only difference is the role-gated render path.
+    if (tab === "kid_groceries") return (
+      <div className="px-4 pt-4">
+        <button onClick={() => props.setTab("today")} className="flex items-center gap-1 text-sm font-semibold text-indigo-600 mb-2"><ChevronLeft size={16} />Back</button>
+        <h2 className="font-extrabold text-lg px-1 mb-2">We need…</h2>
+        <ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} />
+      </div>
+    );
     // Kid tap routing — Mike's rule: "Reznor's page, if he clicks
     // a task or activity or chore, he should see the pictures or
     // stats. Let him be proud of what he's done."
@@ -3189,6 +3212,7 @@ function Router(props) {
         onTapStars={() => props.setStatDetailId?.("bank")}
         onOpenMenu={() => props.setTab("missions")}
         onOpenBoard={() => props.setTab("board")}
+        onOpenGroceries={() => props.setTab("kid_groceries")}
         onTapBadges={() => props.setTab("stars")}
         onTapHeroLevel={() => {
           // Replay the cinematic. The auto-detector at line 1137 fires on
