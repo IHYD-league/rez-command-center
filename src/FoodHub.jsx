@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { ClipboardList, Receipt as ReceiptIcon, TrendingUp, ChevronLeft } from "lucide-react";
+import { ClipboardList, Receipt as ReceiptIcon, TrendingUp, Package, ChevronLeft } from "lucide-react";
 import {
   filterItemsForList as shoppingFilterItemsForList,
   getActiveListEntry as shoppingGetActiveListEntry,
@@ -44,6 +44,15 @@ export default function FoodHubLanding({
       .filter((it) => !it.deletedAt);
     return visible.filter((it) => !it.checked).length;
   }, [shoppingItems, active.key]);
+
+  // Inventory total — every alive row across every list. Brick A
+  // treats shopping_items as the inventory catalog (same predicate
+  // Inventory.jsx uses for its own grouping), so this number can't
+  // diverge from what the Inventory view actually renders.
+  const inventoryTotal = useMemo(
+    () => (shoppingItems || []).filter((it) => it && !it.deletedAt).length,
+    [shoppingItems],
+  );
 
   // Receipts this month + spend total — both reduce through monthKeyOf so
   // the Food Hub row CANNOT diverge from the Spending headline. If a second
@@ -93,10 +102,16 @@ export default function FoodHubLanding({
       ? `${fmtDollars(monthSpend)} this month`
       : "Where the money's going · price trends per item";
 
+  const inventorySub =
+    inventoryTotal > 0
+      ? `${inventoryTotal} ${inventoryTotal === 1 ? "item" : "items"} we buy`
+      : "Everything you buy · grouped by store section";
+
   const rows = [
-    { k: "shopping", icon: <ClipboardList size={18} />, label: "Shopping List", sub: shoppingSub },
-    { k: "receipts", icon: <ReceiptIcon size={18} />,   label: "Receipts",      sub: receiptsSub },
-    { k: "spending", icon: <TrendingUp size={18} />,    label: "Spending",      sub: spendingSub },
+    { k: "shopping",  icon: <ClipboardList size={18} />, label: "Shopping List", sub: shoppingSub },
+    { k: "inventory", icon: <Package size={18} />,       label: "Inventory",     sub: inventorySub },
+    { k: "receipts",  icon: <ReceiptIcon size={18} />,   label: "Receipts",      sub: receiptsSub },
+    { k: "spending",  icon: <TrendingUp size={18} />,    label: "Spending",      sub: spendingSub },
   ];
 
   return (
