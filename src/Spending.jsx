@@ -110,7 +110,7 @@ export function itemIdentityKey(line) {
 // DO NOT introduce a second month-from-iso path. If you need to
 // bucket by month somewhere new, call monthKeyOf.
 
-function monthKeyOf(iso) {
+export function monthKeyOf(iso) {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
@@ -119,7 +119,7 @@ function monthKeyOf(iso) {
 
 // Month key for (now - monthsAgo). Uses Date.UTC so the calendar
 // math matches monthKeyOf — both UTC, no local-time drift.
-function monthKeyFor(now, monthsAgo) {
+export function monthKeyFor(now, monthsAgo) {
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth() - monthsAgo;
   return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
