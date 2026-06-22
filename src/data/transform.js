@@ -215,6 +215,13 @@ export const toApp = {
     brand: r.brand || "",
     section: r.section || "",
     listName: r.list_name || "Grocery",
+    // 2026-06-22 Brick B — store tag + buy-often flag. defaultStore
+    // is the normalized key of the family's chosen home store for
+    // the item (matches family_settings.shoppingLists registry keys);
+    // null = untagged. buyOften is an explicit star, distinct from
+    // the derived "frequently added" favorites in ShoppingList.
+    defaultStore: r.default_store || null,
+    buyOften: !!r.buy_often,
     // 2026-06-17 soft-delete + undo. Null = visible. Set = soft-removed;
     // ShoppingList filters these out of the rendered list and a load-
     // time purge hard-deletes expired ones.
@@ -568,6 +575,13 @@ export const toDb = {
     brand: o.brand || null,
     section: o.section || null,
     list_name: o.listName || null,
+    // Brick B columns — always emit, never conditional. PostgREST
+    // batch upserts NULL-pad omitted columns; a sometimes-present
+    // column would silently wipe a store tag on an unrelated save
+    // (e.g. checking off another item triggers a batch sync). Same
+    // column-normalization rule that protects deleted_at/_by below.
+    default_store: o.defaultStore || null,
+    buy_often: !!o.buyOften,
     // Always emit deleted_at/deleted_by in toDb (per the PostgREST
     // batch column normalization rule — never conditionally omit a
     // column, else the whole-array upsert NULL-pads pre-existing
