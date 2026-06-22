@@ -2,12 +2,13 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Star, Check, X, Clock, Camera, BookOpen, Drum, Trophy, Gift, Calendar as CalIcon,
   ClipboardList, Users, Home, Sparkles, Sun, GraduationCap, Plus, ChevronLeft, ChevronRight,
-  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map as MapIcon, Settings, TrendingUp, Download, Play, Receipt as ReceiptIcon
+  Image as ImageIcon, Phone, Heart, AlertCircle, RotateCcw, Music, Award, Target, Flag, Palette, Church, Flame, Archive, Pencil, MapPin, Medal, Lock, Share2, Search, LogOut, Map as MapIcon, Settings, TrendingUp, Download, Play, Receipt as ReceiptIcon, ShoppingCart
 } from "lucide-react";
 import KidGameHome from "./KidGameHome.jsx";
 import OnboardingWizard from "./OnboardingWizard.jsx";
 import SummerQuest from "./SummerQuest.jsx";
 import PhotoGallery from "./PhotoGallery.jsx";
+import FoodHubLanding from "./FoodHub.jsx";
 import Insights from "./Insights.jsx";
 import MusicLibrary from "./MusicLibrary.jsx";
 import DataExport from "./DataExport.jsx";
@@ -12941,9 +12942,10 @@ function MoreParent(props) {
   if (sub === "languages") return <BackWrap title={i18nTOf("more_languages", "Languages")} onBack={() => setSub("menu")}><LanguagesPage {...props} /></BackWrap>;
   if (sub === "siri") return <BackWrap title="Siri Shortcuts" onBack={() => setSub("menu")}><SiriShortcuts tasks={props.tasks} users={props.users} /></BackWrap>;
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
-  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("menu")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
-  if (sub === "receipts") return <BackWrap title="Receipts" onBack={() => setSub("menu")}><Receipts receipts={props.receipts} softDeleteReceipt={props.softDeleteReceipt} updateReceipt={props.updateReceipt} users={props.users} user={props.user} shoppingItems={props.shoppingItems} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
-  if (sub === "spending") return <BackWrap title="Spending" onBack={() => setSub("menu")}><Spending receipts={props.receipts} users={props.users} user={props.user} shoppingItems={props.shoppingItems} updateReceipt={props.updateReceipt} softDeleteReceipt={props.softDeleteReceipt} familyId={props.familyId} /></BackWrap>;
+  if (sub === "food_hub") return <BackWrap title="Food Hub" onBack={() => setSub("menu")}><FoodHubLanding setSub={setSub} shoppingItems={props.shoppingItems} receipts={props.receipts} familySettings={props.familySettings} /></BackWrap>;
+  if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("food_hub")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
+  if (sub === "receipts") return <BackWrap title="Receipts" onBack={() => setSub("food_hub")}><Receipts receipts={props.receipts} softDeleteReceipt={props.softDeleteReceipt} updateReceipt={props.updateReceipt} users={props.users} user={props.user} shoppingItems={props.shoppingItems} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
+  if (sub === "spending") return <BackWrap title="Spending" onBack={() => setSub("food_hub")}><Spending receipts={props.receipts} users={props.users} user={props.user} shoppingItems={props.shoppingItems} updateReceipt={props.updateReceipt} softDeleteReceipt={props.softDeleteReceipt} familyId={props.familyId} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
   if (sub === "weekly") return <BackWrap title={i18nTOf("more_weekly", "Weekly Summary")} onBack={() => setSub("menu")}><Weekly {...props} /></BackWrap>;
@@ -12977,9 +12979,7 @@ function MoreParent(props) {
     { k: "music_library",group: null,       icon: <Music size={18} />,          label: i18nTOf("more_music_library", "Music Library"),          sub: i18nTOf("more_music_library_sub", "Every song · sort · edit titles / artists / albums / covers") },
     { k: "gallery",      group: null,       icon: <Camera size={18} />,         label: i18nTOf("more_gallery", "Photo Gallery"),                sub: i18nTOf("more_gallery_sub", "Every photo · sort by date · filter by activity") },
     { k: "practice",     group: null,       icon: <Play size={18} />,           label: "Practice Timer",                                        sub: "Time a session · record a 30s clip · listen back later" },
-    { k: "shopping",     group: null,       icon: <ClipboardList size={18} />,  label: "Shopping List",                                         sub: "Shared family list · add at the store · check off at home" },
-    { k: "receipts",     group: null,       icon: <ReceiptIcon size={18} />,    label: "Receipts",                                              sub: "Every scanned receipt · tap to view items · delete" },
-    { k: "spending",     group: null,       icon: <TrendingUp size={18} />,     label: "Spending",                                              sub: "Where the money's going · price trends per item" },
+    { k: "food_hub",     group: null,       icon: <ShoppingCart size={18} />,   label: "Food Hub",                                              sub: "Shopping list · receipts · spending" },
     { k: "insights",     group: null,       icon: <TrendingUp size={18} />,     label: i18nTOf("more_insights", "Insights"),                    sub: i18nTOf("more_insights_sub", "Practice time · songs · books · counts") },
 
     // Memories & growth
