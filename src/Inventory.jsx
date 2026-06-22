@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { X, Package, Star, Plus, PackageCheck, PackageX } from "lucide-react";
+import React, { useMemo, useState, useEffect } from "react";
+import { X, Package, Star, Plus, PackageCheck, PackageX, Check } from "lucide-react";
 import {
   SECTION_ORDER as SHOPPING_SECTION_ORDER,
   SECTION_EMOJI as SHOPPING_SECTION_EMOJI,
@@ -70,6 +70,18 @@ export default function Inventory({
   const [filterMode, setFilterMode] = useState("all"); // all | inStock | outOfStock | buyOften | byStore | untagged
   const [byStoreKey, setByStoreKey] = useState(null);
 
+  // Lingering set — IDs the parent toggled this tab-session. While an
+  // item is lingering, the current filter shows it even when its
+  // updated state would normally hide it. Lets a parent see what they
+  // just did (struck-out + greyed in place) instead of items vanishing
+  // mid-sweep. Cleared when the filter tab changes OR the component
+  // unmounts (navigating away from Inventory). Same intent Mike
+  // described — "stays until we goto another page or tab."
+  const [lingeringIds, setLingeringIds] = useState(() => new Set());
+  useEffect(() => {
+    setLingeringIds(new Set());
+  }, [filterMode, byStoreKey]);
+
   const stores = useMemo(() => readListRegistry(familySettings), [familySettings]);
 
   // Stores that actually appear on items (so "By store" can default
@@ -83,15 +95,21 @@ export default function Inventory({
   }, [allItems]);
 
   const filtered = useMemo(() => {
-    if (filterMode === "inStock") return allItems.filter((it) => it.inStock !== false);
-    if (filterMode === "outOfStock") return allItems.filter((it) => it.inStock === false);
-    if (filterMode === "buyOften") return allItems.filter((it) => !!it.buyOften);
-    if (filterMode === "untagged") return allItems.filter((it) => !it.defaultStore);
+    // Lingering rule: items toggled this tab-session stay visible
+    // even when the filter would normally hide them. Symmetric — works
+    // for in-stock ⇄ out-of-stock and for buy-often / untagged toggles
+    // too. Filter changes (handled by the useEffect above) clear the
+    // set, at which point items snap to their honest filter position.
+    const lingers = (it) => lingeringIds.has(it.id);
+    if (filterMode === "inStock") return allItems.filter((it) => it.inStock !== false || lingers(it));
+    if (filterMode === "outOfStock") return allItems.filter((it) => it.inStock === false || lingers(it));
+    if (filterMode === "buyOften") return allItems.filter((it) => !!it.buyOften || lingers(it));
+    if (filterMode === "untagged") return allItems.filter((it) => !it.defaultStore || lingers(it));
     if (filterMode === "byStore" && byStoreKey) {
-      return allItems.filter((it) => it.defaultStore === byStoreKey);
+      return allItems.filter((it) => it.defaultStore === byStoreKey || lingers(it));
     }
     return allItems;
-  }, [allItems, filterMode, byStoreKey]);
+  }, [allItems, filterMode, byStoreKey, lingeringIds]);
 
   const grouped = useMemo(() => groupBySection(filtered), [filtered]);
 
@@ -206,23 +224,36 @@ export default function Inventory({
                     className={`w-full flex items-center gap-3 p-3 ${i > 0 ? "border-t border-slate-100" : ""} ${outOfStock ? "bg-slate-50" : ""}`}
                   >
                     {/* One-tap stock toggle — mirrors ShoppingList's
-                        check-circle pattern. Empty circle = in stock.
-                        Rose-filled with PackageX = out of stock /
-                        on the buy-list. Parent on the go can sweep
-                        through inventory tapping circles without ever
-                        opening a detail sheet. */}
+                        check-circle pattern but in reverse: the green
+                        check is the DEFAULT (item is on hand), and
+                        tapping it marks it out of stock. Color-coded
+                        for at-a-glance scan: green ✓ = on hand, rose
+                        ✕ = out / on the buy-list. After a tap the row
+                        also greys + strikes + sinks (driven by the
+                        sort) — and the lingering set keeps it visible
+                        in the current tab until filter / nav change,
+                        so the parent sees what they just did. */}
                     {canWrite ? (
                       <button
                         type="button"
-                        onClick={() => updateShoppingItem(it.id, { inStock: outOfStock })}
+                        onClick={() => {
+                          updateShoppingItem(it.id, { inStock: outOfStock });
+                          setLingeringIds((prev) => {
+                            const next = new Set(prev);
+                            next.add(it.id);
+                            return next;
+                          });
+                        }}
                         aria-label={outOfStock ? "Mark in stock" : "Mark out of stock"}
                         title={outOfStock ? "Mark in stock" : "Mark out of stock"}
-                        className={`w-7 h-7 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${outOfStock ? "bg-rose-500 text-white border border-rose-500" : "border-2 border-slate-200 bg-white"}`}
+                        className={`w-7 h-7 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${outOfStock ? "bg-rose-500 text-white border border-rose-500" : "bg-emerald-500 text-white border border-emerald-500"}`}
                       >
-                        {outOfStock && <PackageX size={14} />}
+                        {outOfStock ? <X size={14} strokeWidth={3} /> : <Check size={15} strokeWidth={3} />}
                       </button>
                     ) : (
-                      <div className="w-7 h-7 rounded-full border-2 border-slate-200 shrink-0" />
+                      <div className="w-7 h-7 rounded-full bg-emerald-500 grid place-items-center shrink-0 text-white">
+                        <Check size={15} strokeWidth={3} />
+                      </div>
                     )}
                     <button
                       type="button"
@@ -264,6 +295,17 @@ export default function Inventory({
           onPatch={(patch) => {
             if (!canWrite) return;
             updateShoppingItem(selected.id, patch);
+            // Mirror the row-circle behavior: flipping stock from the
+            // detail sheet also lingers the item in the current tab
+            // until filter / nav change. Consistency between the two
+            // paths matters — same toggle, same visual.
+            if (Object.prototype.hasOwnProperty.call(patch, "inStock")) {
+              setLingeringIds((prev) => {
+                const next = new Set(prev);
+                next.add(selected.id);
+                return next;
+              });
+            }
           }}
           onCreateStore={(displayName) => {
             if (!canEditRegistry) return { error: "no_setter" };
