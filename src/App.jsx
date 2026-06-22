@@ -21,6 +21,7 @@ import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx
 import { uploadFamilyPhoto, useSignedUrl, uploadFamilyAudio } from "./lib/storage.js";
 import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
+import { computeDrumSessionMinutes } from "./lib/drumMinutes.js";
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
 import ReceiptScanner from "./ReceiptScanner.jsx";
 import Receipts from "./Receipts.jsx";
@@ -5404,28 +5405,22 @@ function CompletionDetailSheet({
               }
 
               if (isDrumsRow) {
-                const drumeo = Number(x.drumeo) || 0;
-                const melodics = Number(x.melodics) || 0;
-                // Pull songs actually played that day from the canonical
-                // song_plays rows (not extra.songList — that's free
-                // text). Then enrich with covers via the album-dedup map.
-                const daysPlays = (songPlays || []).filter((p) => (p.playedOn || p.played_on) === compDate);
-                const byId = Object.fromEntries((songs || []).map((s) => [s.id, s]));
-                const playedSongs = daysPlays.map((p) => byId[p.songId || p.song_id]).filter(Boolean);
-                // Honest minutes: drumeo + melodics + sum(played-song
-                // durations). Songs without a backfilled duration
-                // contribute 0 rather than guessing, so an unenriched
-                // library can't inflate the number.
-                const songMs = playedSongs.reduce((acc, s) => acc + (Number(s?.durationMs) || 0), 0);
-                const songMin = Math.round(songMs / 60000);
-                const total = drumeo + melodics + songMin;
+                // Single-source totals via computeDrumSessionMinutes.
+                // Songs without a backfilled duration contribute 0
+                // rather than guessing, so an unenriched library can't
+                // inflate the number.
+                const session = computeDrumSessionMinutes(completion, songPlays, songs);
                 // Fallback to the typed songList if no canonical plays
                 // exist (legacy completions, draft sessions where the
                 // parent typed names but never picked from picker).
                 const typedList = (x.songList || "").trim();
                 const typedTitles = typedList ? typedList.split(/,\s*/).filter(Boolean) : [];
-                const hasAnything = total > 0 || playedSongs.length > 0 || typedTitles.length > 0;
+                const hasAnything = session.total > 0 || session.songCount > 0 || typedTitles.length > 0;
                 if (!hasAnything) return null;
+                const songsTileNum = session.songMin > 0 ? session.songMin : (session.songCount || typedTitles.length);
+                const songsTileLabel = session.songMin > 0
+                  ? `${session.songCount} ${session.songCount === 1 ? "song" : "songs"}`
+                  : "Songs";
                 return (
                   <div
                     className="rounded-3xl p-4 mb-2 text-white relative overflow-hidden border-2 border-white/15 shadow-xl"
@@ -5437,40 +5432,34 @@ function CompletionDetailSheet({
                       </div>
                       <div className="flex items-baseline gap-2 mb-3">
                         <span className="text-5xl font-extrabold tracking-tight leading-none" style={{ textShadow: "0 0 12px rgba(253,224,71,0.55)" }}>
-                          {total}
+                          {session.total}
                         </span>
                         <span className="text-sm font-bold text-white/70">min total</span>
                       </div>
                       <div className="grid grid-cols-3 gap-2 mb-3">
                         <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
-                          <div className="text-xl font-extrabold leading-none">{drumeo}</div>
+                          <div className="text-xl font-extrabold leading-none">{session.drumeo}</div>
                           <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Drumeo</div>
                         </div>
                         <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
-                          <div className="text-xl font-extrabold leading-none">{melodics}</div>
+                          <div className="text-xl font-extrabold leading-none">{session.melodics}</div>
                           <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Melodics</div>
                         </div>
                         <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
-                          <div className="text-xl font-extrabold leading-none">
-                            {songMin > 0 ? songMin : (playedSongs.length || typedTitles.length)}
-                          </div>
-                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">
-                            {songMin > 0
-                              ? `${playedSongs.length} ${playedSongs.length === 1 ? "song" : "songs"}`
-                              : "Songs"}
-                          </div>
+                          <div className="text-xl font-extrabold leading-none">{songsTileNum}</div>
+                          <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">{songsTileLabel}</div>
                         </div>
                       </div>
-                      {(playedSongs.length > 0 || typedTitles.length > 0) && (
+                      {(session.songCount > 0 || typedTitles.length > 0) && (
                         <>
                           <div className="text-[10px] uppercase tracking-wider font-bold text-white/70 mb-1.5">Songs</div>
                           <div className="flex flex-wrap gap-1.5">
-                            {playedSongs.map((s, i) => (
-                              <span key={s.id + "-" + i} className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/15 backdrop-blur text-white border border-white/20">
-                                🎸 {s.canonicalTitle || s.title}
+                            {session.songTitles.map((t, i) => (
+                              <span key={"played-" + i} className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/15 backdrop-blur text-white border border-white/20">
+                                🎸 {t}
                               </span>
                             ))}
-                            {playedSongs.length === 0 && typedTitles.map((t, i) => (
+                            {session.songCount === 0 && typedTitles.map((t, i) => (
                               <span key={"typed-" + i} className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/15 backdrop-blur text-white border border-white/20">
                                 🎸 {t}
                               </span>
@@ -6260,6 +6249,19 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
   // row (we don't want to overwrite an approved completion with a
   // draft) and when onSaveDraft isn't provided (helper / kid paths).
   const isApprovedEdit = existing?.status === "approved";
+
+  // Drums extra factory — persisted totalMin includes song minutes from
+  // song_plays on this session's date, so the value the DB stores
+  // matches the headline shown on every display surface. Recomputed on
+  // every write (draft, submit, quick-save) so a draft saved earlier
+  // today picks up the songs Reznor logged in the meantime.
+  const drumsSessionDate = existing?.completionDate || TODAY_ISO;
+  const drumsExtra = () => {
+    const synth = { completionDate: drumsSessionDate, extra: { drumeo, melodics } };
+    const { total } = computeDrumSessionMinutes(synth, songPlays, songs);
+    return { drumeo, melodics, songList, totalMin: total };
+  };
+
   const persistDraft = (nextPhotos) => {
     if (isApprovedEdit) return;
     if (!onSaveDraft) return;
@@ -6267,7 +6269,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     const extra = {};
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
-    if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    if (isDrums) Object.assign(extra, drumsExtra());
     if (useSchemaFields) Object.assign(extra, schemaExtra());
     onSaveDraft(task.id, { notes, proof, extra });
   };
@@ -6324,7 +6326,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     const extra = {};
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
-    if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    if (isDrums) Object.assign(extra, drumsExtra());
     if (useSchemaFields) Object.assign(extra, schemaExtra());
 
     // Reading-side writes — keep the catalog in sync with what just got
@@ -6420,7 +6422,7 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     const extra = {};
     if (isReading) Object.assign(extra, { bookTitle, lang, minutes, bookIds: [...bookIds], bookId: bookIds[0] || null, markFinished });
     if (isPhoto) Object.assign(extra, { title });
-    if (isDrums) Object.assign(extra, { drumeo, melodics, songList, totalMin: (Number(drumeo) || 0) + (Number(melodics) || 0) });
+    if (isDrums) Object.assign(extra, drumsExtra());
     if (useSchemaFields) Object.assign(extra, schemaExtra());
     onSaveDraft?.(task.id, { notes, proof, extra });
   };
@@ -6829,17 +6831,19 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                     songList automatically (see onSongLogged below) so
                     going forward the field stays in sync. */}
                 {(() => {
-                  const todaysPlays = (songPlays || [])
-                    .filter((p) => (p.playedOn || p.played_on) === TODAY_ISO);
-                  if (todaysPlays.length === 0) return null;
-                  const byId = Object.fromEntries((songs || []).map((s) => [s.id, s]));
-                  const titles = todaysPlays.map((p) => {
-                    const s = byId[p.songId || p.song_id];
-                    return s ? (s.canonicalTitle || s.title || "(unknown)") : "(unknown)";
-                  });
-                  // Total session minutes derived from current input
-                  // state so the card always matches what's typed.
-                  const totalMin = (Number(drumeo) || 0) + (Number(melodics) || 0);
+                  // Single-source totals via computeDrumSessionMinutes
+                  // so the headline always agrees with Drumeo + Melodics
+                  // + Songs tiles and with the eventual finished
+                  // CompletionDetailSheet. Pulls song plays for this
+                  // session's date — handles re-opening a prior-date
+                  // draft as well as the typical today case.
+                  const session = computeDrumSessionMinutes(
+                    { completionDate: drumsSessionDate, extra: { drumeo, melodics } },
+                    songPlays,
+                    songs,
+                  );
+                  if (session.songCount === 0) return null;
+                  const titles = session.songTitles;
                   const missing = titles.filter((t) => !songList.toLowerCase().includes(t.toLowerCase()));
                   return (
                     <div className="rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 p-3 shadow-sm">
@@ -6848,21 +6852,27 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
                           🥁 Today's session
                         </div>
                         <div className="text-[11px] font-extrabold text-amber-700 tabular-nums">
-                          {totalMin} min · {todaysPlays.length} {todaysPlays.length === 1 ? "play" : "plays"}
+                          {session.total} min · {session.songCount} {session.songCount === 1 ? "play" : "plays"}
                         </div>
                       </div>
                       <div className="grid grid-cols-3 gap-2 mb-2">
                         <div className="rounded-xl bg-white/60 backdrop-blur p-2 text-center">
-                          <div className="text-lg font-extrabold text-amber-700 leading-none">{Number(drumeo) || 0}</div>
+                          <div className="text-lg font-extrabold text-amber-700 leading-none">{session.drumeo}</div>
                           <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">Drumeo</div>
                         </div>
                         <div className="rounded-xl bg-white/60 backdrop-blur p-2 text-center">
-                          <div className="text-lg font-extrabold text-amber-700 leading-none">{Number(melodics) || 0}</div>
+                          <div className="text-lg font-extrabold text-amber-700 leading-none">{session.melodics}</div>
                           <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">Melodics</div>
                         </div>
                         <div className="rounded-xl bg-white/60 backdrop-blur p-2 text-center">
-                          <div className="text-lg font-extrabold text-amber-700 leading-none">{todaysPlays.length}</div>
-                          <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">Songs</div>
+                          <div className="text-lg font-extrabold text-amber-700 leading-none">
+                            {session.songMin > 0 ? session.songMin : session.songCount}
+                          </div>
+                          <div className="text-[9px] uppercase tracking-wider text-amber-600 font-bold mt-0.5">
+                            {session.songMin > 0
+                              ? `${session.songCount} ${session.songCount === 1 ? "song" : "songs"}`
+                              : "Songs"}
+                          </div>
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-1 mb-2">
@@ -7171,22 +7181,12 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
     const todaysComp = completions
       .filter((c) => c.taskId === task.id && c.completionDate === TODAY_ISO)
       .sort((a, b) => (b.id || "").localeCompare(a.id || ""))[0];
-    const drumeo = Number(todaysComp?.extra?.drumeo) || 0;
-    const melodics = Number(todaysComp?.extra?.melodics) || 0;
-    const todaysPlays = (songPlays || []).filter((p) => (p.playedOn || p.played_on) === TODAY_ISO);
-    const byId = Object.fromEntries((songs || []).map((s) => [s.id, s]));
-    const songTitles = todaysPlays.map((p) => {
-      const s = byId[p.songId || p.song_id];
-      return s ? (s.canonicalTitle || s.title || "(unknown)") : "(unknown)";
-    });
-    return {
-      drumeo,
-      melodics,
-      totalMin: drumeo + melodics,
-      songCount: todaysPlays.length,
-      songTitles,
-      status: todaysComp?.status || null,
-    };
+    // Synthesize a comp shape for the helper so the no-completion-yet
+    // case (kid logged plays via picker before any draft existed) still
+    // surfaces song minutes against today.
+    const effComp = todaysComp || { completionDate: TODAY_ISO, extra: {} };
+    const session = computeDrumSessionMinutes(effComp, songPlays, songs);
+    return { ...session, status: todaysComp?.status || null };
   })();
 
   return (
@@ -7226,7 +7226,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
                   drums anywhere immediately shows what's been played.
                   Only renders when there's actual session data so we
                   don't show a wall of zeros on a fresh day. */}
-              {drumsSession && (drumsSession.totalMin > 0 || drumsSession.songCount > 0) && (
+              {drumsSession && (drumsSession.total > 0 || drumsSession.songCount > 0) && (
                 <div
                   className="rounded-3xl p-4 mb-3 text-white relative overflow-hidden border-2 border-white/15 shadow-xl"
                   style={{
@@ -7249,7 +7249,7 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
                     </div>
                     <div className="flex items-baseline gap-2 mb-3">
                       <span className="text-5xl font-extrabold tracking-tight leading-none" style={{ textShadow: "0 0 12px rgba(253,224,71,0.55)" }}>
-                        {drumsSession.totalMin}
+                        {drumsSession.total}
                       </span>
                       <span className="text-sm font-bold text-white/70">min total</span>
                     </div>
@@ -7263,8 +7263,14 @@ function DetailSheet({ task, onClose, activities, streaks, completions, prioriti
                         <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Melodics</div>
                       </div>
                       <div className="rounded-2xl bg-white/15 backdrop-blur p-2.5 text-center border border-white/10">
-                        <div className="text-xl font-extrabold leading-none">{drumsSession.songCount}</div>
-                        <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">Songs</div>
+                        <div className="text-xl font-extrabold leading-none">
+                          {drumsSession.songMin > 0 ? drumsSession.songMin : drumsSession.songCount}
+                        </div>
+                        <div className="text-[9px] uppercase tracking-widest text-white/70 font-bold mt-1">
+                          {drumsSession.songMin > 0
+                            ? `${drumsSession.songCount} ${drumsSession.songCount === 1 ? "song" : "songs"}`
+                            : "Songs"}
+                        </div>
                       </div>
                     </div>
                     {drumsSession.songTitles.length > 0 && (

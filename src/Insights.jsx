@@ -4,6 +4,7 @@ import { searchOpenLibrary, pickFirstMatch as pickBookMatch } from "./lib/enrich
 import { uploadFamilyPhoto, useSignedUrl } from "./lib/storage.js";
 import { toast } from "./lib/toast.js";
 import { buildAlbumCoverMap, resolveSongCover } from "./lib/albumCover.js";
+import { computeDrumSessionMinutes } from "./lib/drumMinutes.js";
 import { EnrichedSongRow, SongMatchPicker } from "./SongRow.jsx";
 import { tOf } from "./lib/i18n.js";
 const t = (k, fb) => tOf(k, fb);
@@ -497,48 +498,42 @@ export default function Insights({
   familyId,
 }) {
   /* ----- PRACTICE TIME ---------------------------------------------- */
+  // Single source of truth — computeDrumSessionMinutes per (date, comp)
+  // pair. Drums completions and orphan song-play days both contribute,
+  // so a kid who logged plays without a drums completion still shows
+  // up in the totals. Plays without a backfilled duration contribute 0
+  // rather than guessing an average; the iTunes backfill in App.jsx
+  // fills them on session start.
   const practiceStats = useMemo(() => {
+    const drumCompsByDate = new Map();
+    for (const c of completions || []) {
+      const d = c?.completionDate || c?.completion_date;
+      if (!d) continue;
+      const hasDrumExtras = Number(c?.extra?.drumeo) > 0 || Number(c?.extra?.melodics) > 0;
+      if (hasDrumExtras) drumCompsByDate.set(d, c);
+    }
+    const playDates = new Set();
+    for (const sp of songPlays || []) {
+      const d = sp.playedOn || sp.played_on;
+      if (d) playDates.add(d);
+    }
+    const allDates = new Set([...drumCompsByDate.keys(), ...playDates]);
     let drumeoMin = 0;
     let melodicsMin = 0;
     let songMin = 0;
     let earliest = null;
-    const byDate = new Map(); // YYYY-MM-DD → minutes
-    for (const c of completions || []) {
-      const drumeo = Number(c?.extra?.drumeo || 0);
-      const mel = Number(c?.extra?.melodics || 0);
-      const sum = drumeo + mel;
-      if (sum > 0) {
-        drumeoMin += drumeo;
-        melodicsMin += mel;
-        const d = c.completionDate || c.completion_date;
-        if (d) {
-          byDate.set(d, (byDate.get(d) || 0) + sum);
-          if (!earliest || d < earliest) earliest = d;
-        }
-      }
+    const byDate = new Map();
+    for (const date of allDates) {
+      const effComp = drumCompsByDate.get(date) || { completionDate: date, extra: {} };
+      const { drumeo, melodics, songMin: sm, total } = computeDrumSessionMinutes(effComp, songPlays, songs);
+      drumeoMin += drumeo;
+      melodicsMin += melodics;
+      songMin += sm;
+      byDate.set(date, total);
+      if (!earliest || date < earliest) earliest = date;
     }
-    // Song-play minutes — sum each play's canonical iTunes duration.
-    // Plays without a backfilled duration count as 0 rather than
-    // guessing an average; the backfill effect in App.jsx fills them
-    // on session start. By-date map merges so the 14-day chart
-    // reflects total time, not just practice-app time.
-    const byId = Object.fromEntries((songs || []).map((s) => [s.id, s]));
-    for (const sp of songPlays || []) {
-      const sid = sp.songId || sp.song_id;
-      const song = byId[sid];
-      const ms = Number(song?.durationMs) || 0;
-      if (ms <= 0) continue;
-      const min = ms / 60000;
-      songMin += min;
-      const d = sp.playedOn || sp.played_on;
-      if (d) {
-        byDate.set(d, (byDate.get(d) || 0) + min);
-        if (!earliest || d < earliest) earliest = d;
-      }
-    }
-    songMin = Math.round(songMin);
     const totalMin = drumeoMin + melodicsMin + songMin;
-    const last14 = daysBack(14).map((d) => ({ date: d, value: Math.round(byDate.get(d) || 0) }));
+    const last14 = daysBack(14).map((d) => ({ date: d, value: byDate.get(d) || 0 }));
     const last14Sum = last14.reduce((s, r) => s + r.value, 0);
     return { totalMin, drumeoMin, melodicsMin, songMin, earliest, last14, last14Sum };
   }, [completions, songs, songPlays]);
