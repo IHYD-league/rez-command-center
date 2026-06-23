@@ -3644,10 +3644,22 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
     );
   }
   if (!song && isDrums && completion?.completionDate && Array.isArray(songPlays)) {
-    const todayPlays = songPlays
-      .filter((p) => p.playedOn === completion.completionDate)
+    // Same-date AND same-player. The same-date filter alone hijacked
+    // the thumbnail in the wild: Mike caught a drums draft with a
+    // proof photo and no logged songs surfacing Master of Puppets art
+    // because some unrelated same-date song play (probably his own,
+    // logged for another context) was the first match. Tighter rule:
+    // the play must have been logged by the same person whose drums
+    // session this is (completion.completedBy). For drums via
+    // saveDraft, completedBy is always the kid; for plays logged via
+    // addSongPlay, playedBy is the acting-as profile at log time.
+    // So kid-logged plays auto-attach; misc parent/helper plays don't.
+    // Explicit picks (meta.songId / meta.songTitle, above) still win
+    // — this only narrows the broad date-fallback.
+    const sessionPlays = songPlays
+      .filter((p) => p.playedOn === completion.completionDate && p.playedBy === completion.completedBy)
       .sort((a, b) => (a.id || "").localeCompare(b.id || ""));
-    const firstPlay = todayPlays[0];
+    const firstPlay = sessionPlays[0];
     if (firstPlay) song = songs.find((s) => s.id === firstPlay.songId);
   }
   // Promote label-matched song to the resolved song when nothing else
@@ -3670,8 +3682,16 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
   //                  bonus must not surface Metallica album art just
   //                  because the label happened to contain a common
   //                  short English word.
-  //   Drums task   → song cover preferred. Same cross-domain rule —
-  //                  never falls back to a book cover.
+  //   Drums task   → proof photo wins. If a parent uploaded a picture
+  //                  of the kid playing, that IS the most meaningful
+  //                  visual — surface it. Falls back to the session's
+  //                  song cover (now narrowed to same-player above),
+  //                  then gift photo. Earlier the order was the
+  //                  opposite (song cover first) which let a stale
+  //                  same-date play hijack the thumbnail over the
+  //                  explicit photo. Per Mike 2026-06-22.
+  //                  Still never falls back to a book cover —
+  //                  cross-domain rule preserved.
   //   Otherwise    → proof photo, then gift photo, then book cover,
   //                  then song cover, then null.
   // Mike's rule: a real cover or photo means "done"; the activity icon
@@ -3680,7 +3700,7 @@ function ProofThumb({ completion, gift, activity, task, books = [], songs = [], 
   if (isReading) {
     src = bookCoverSrc || proofSrc || giftSigned;
   } else if (isDrums) {
-    src = songCoverSrc || proofSrc || giftSigned;
+    src = proofSrc || songCoverSrc || giftSigned;
   } else {
     src = proofSrc || giftSigned || bookCoverSrc || songCoverSrc;
   }
@@ -8604,10 +8624,13 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
     );
   }
   if (!song && isDrumsRow && comp?.completionDate && Array.isArray(songPlays)) {
-    const todayPlays = songPlays
-      .filter((p) => p.playedOn === comp.completionDate)
+    // Same date-fallback narrowing as ProofThumb (see comment there) —
+    // play must be by the same person whose drums session this is so
+    // a stale unrelated play doesn't hijack the hero-row thumbnail.
+    const sessionPlays = songPlays
+      .filter((p) => p.playedOn === comp.completionDate && p.playedBy === comp.completedBy)
       .sort((a, b) => (a.id || "").localeCompare(b.id || ""));
-    const firstPlay = todayPlays[0];
+    const firstPlay = sessionPlays[0];
     if (firstPlay) song = songs.find((s) => s.id === firstPlay.songId);
   }
   // Hooks must run unconditionally + in stable order. One useSignedUrl
@@ -8620,7 +8643,9 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
   const songCoverResolved = songCustomSigned || song?.coverUrl || null;
   let photoSrc = null;
   if (isReadingRow) photoSrc = bookCoverResolved || proofResolved;
-  else if (isDrumsRow) photoSrc = songCoverResolved || proofResolved;
+  // Drums priority flipped to match ProofThumb — explicit proof photo
+  // wins over auto-resolved song cover. Per Mike 2026-06-22.
+  else if (isDrumsRow) photoSrc = proofResolved || songCoverResolved;
   else photoSrc = proofResolved || bookCoverResolved || songCoverResolved;
   return (
     <div className="rounded-2xl overflow-hidden border border-slate-100 mb-2" style={{ background: lvl === "normal" ? d.color + "12" : P.wash }}>
