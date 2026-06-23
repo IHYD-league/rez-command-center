@@ -673,16 +673,43 @@ function RequestsView({ items, users, canDecide, effectiveStatus, onDecide }) {
           <div className="rounded-2xl bg-white border border-amber-200 overflow-hidden">
             {byGroup.pending.map((it, i) => {
               const requester = findName(it.addedBy || it.decidedBy);
+              // Once decided, the row is frozen in this group until
+              // tab change (Mike's "don't yank it on tap" rule). The
+              // body transforms in place to show the new status so
+              // there IS clear visual feedback — otherwise an Approve
+              // tap looks like nothing happened.
+              const currentStatus = it.requestStatus;
+              const decidedHere = currentStatus !== "pending";
+              const decidedName = findName(it.decidedBy);
               return (
-                <div key={it.id} className={`p-3 ${i > 0 ? "border-t border-slate-100" : ""}`}>
+                <div
+                  key={it.id}
+                  className={`p-3 ${i > 0 ? "border-t border-slate-100" : ""} ${
+                    decidedHere && currentStatus === "approved" ? "bg-emerald-50"
+                      : decidedHere && currentStatus === "declined" ? "bg-slate-50"
+                      : ""
+                  }`}
+                >
                   <div className="flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm text-slate-800 truncate">{it.title || "(no title)"}</div>
+                      <div className={`font-semibold text-sm truncate ${decidedHere && currentStatus === "declined" ? "text-slate-500 line-through" : "text-slate-800"}`}>
+                        {it.title || "(no title)"}
+                      </div>
                       {it.brand && <div className="text-[11px] text-amber-700 font-bold truncate mt-0.5">{it.brand}</div>}
                       <div className="text-[11px] text-slate-500 mt-0.5">Requested by {requester}</div>
                     </div>
                   </div>
-                  {canDecide && decliningId === it.id ? (
+                  {decidedHere ? (
+                    <div className={`mt-2 rounded-lg px-2.5 py-1.5 text-[11px] font-bold flex items-center gap-1.5 ${
+                      currentStatus === "approved" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
+                    }`}>
+                      {currentStatus === "approved" ? <Check size={13} strokeWidth={3} /> : <X size={13} strokeWidth={3} />}
+                      <span>
+                        {currentStatus === "approved" ? `Approved by ${decidedName}` : `Declined by ${decidedName}`}
+                        {currentStatus === "declined" && it.declineReason ? ` · "${it.declineReason}"` : ""}
+                      </span>
+                    </div>
+                  ) : canDecide && decliningId === it.id ? (
                     <div className="mt-2 flex gap-1.5">
                       <input
                         value={reasonDraft}
