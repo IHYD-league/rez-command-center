@@ -1009,21 +1009,54 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   const toggleShoppingItem = (id) => setShoppingItems((prev) => prev.map((it) => {
     if (it.id !== id) return it;
     const nowChecked = !it.checked;
+    const actor = currentUserId || currentProfileId || null;
+    const nowIso = new Date().toISOString();
     return {
       ...it,
       checked: nowChecked,
-      checkedAt: nowChecked ? new Date().toISOString() : null,
+      checkedAt: nowChecked ? nowIso : null,
       // Acting-as profile wins over the auth-mapped profile so the
       // attribution reflects WHO is using the app right now, not whose
       // session token is underneath. Matches addShoppingItem at line 955
       // (addedBy uses the same currentUserId || currentProfileId order).
-      // Without this, Mike acting as Reznor would stamp Mike on the check
-      // even though the kid is the one tapping — Mike caught it at preview.
-      checkedBy: nowChecked ? (currentUserId || currentProfileId || null) : null,
+      checkedBy: nowChecked ? actor : null,
+      // D1 — Shopping List check-off IS the "bought" signal. Buying
+      // flips the item back in stock and stamps the buy-history pair
+      // (last_bought / last_bought_by). Un-check (while the row's
+      // still lingering in the view) reverses everything atomically:
+      // back to out-of-stock, history cleared. Once the row leaves
+      // the list on tab change, un-check isn't reachable anyway.
+      inStock: nowChecked ? true : false,
+      lastBought: nowChecked ? nowIso : null,
+      lastBoughtBy: nowChecked ? actor : null,
     };
   }));
-  const removeShoppingItem = (id) => setShoppingItems((prev) => prev.filter((it) => it.id !== id));
-  const clearCheckedShoppingItems = () => setShoppingItems((prev) => prev.filter((it) => !it.checked));
+  // D1 — recall-safety: never hard-delete a shopping_items row from
+  // the everyday loop. "Remove from list" is a list-membership
+  // change, not a destruction. The row survives in inventory (no
+  // listName, back in stock) with all its history. Soft-delete via
+  // deletedAt remains the explicit "purge this typo" path elsewhere.
+  const removeShoppingItem = (id) => setShoppingItems((prev) => prev.map((it) => {
+    if (it.id !== id) return it;
+    return { ...it, listName: null, inStock: true };
+  }));
+  // D1 — Clear Bought is now a list-sweep, not a purge. Each checked
+  // row gets a defensive last_bought stamp (idempotent if check-off
+  // already stamped) and is reset for the next trip. No row leaves
+  // the table.
+  const clearCheckedShoppingItems = () => setShoppingItems((prev) => prev.map((it) => {
+    if (!it.checked) return it;
+    const actor = currentUserId || currentProfileId || null;
+    return {
+      ...it,
+      checked: false,
+      checkedAt: null,
+      checkedBy: null,
+      inStock: true,
+      lastBought: it.lastBought || new Date().toISOString(),
+      lastBoughtBy: it.lastBoughtBy || actor,
+    };
+  }));
   const renameShoppingItem = (id, title) => setShoppingItems((prev) => prev.map((it) => it.id === id ? { ...it, title } : it));
   const updateShoppingItem = (id, patch) => setShoppingItems((prev) => prev.map((it) => it.id === id ? { ...it, ...patch } : it));
   // 1d — bulk relabel for rename / merge / delete. Match items by
@@ -14364,6 +14397,32 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
   const [commitListCollision, setCommitListCollision] = useState(null);
   const activeListKey = shoppingNormalizeListKey(activeList) || SHOPPING_DEFAULT_LIST_KEY;
 
+  // D1 — per-tab lingering set. Items the user just checked off keep
+  // showing on the list until the parent switches tabs (same intent
+  // C1's Inventory lingering uses). Without this, an item flipping
+  // to inStock=true on check-off vanishes immediately — too jarring
+  // mid-trip. Cleared whenever the active list changes.
+  const [listLingeringIds, setListLingeringIds] = useState(() => new Set());
+  useEffect(() => {
+    setListLingeringIds(new Set());
+  }, [activeListKey]);
+  const lingerListItem = (id) => {
+    setListLingeringIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
+  // Wraps the parent's toggleShoppingItem so the row stays visible
+  // long enough for the user to see what they just did. D1 makes
+  // check-off = bought + in stock; without this linger the row
+  // disappears the instant you tap.
+  const toggleShoppingItemLingered = (id) => {
+    lingerListItem(id);
+    toggleShoppingItem(id);
+  };
+
   // Tab-switch handler — updates local state AND persists the new key
   // to family_settings.lastActiveListKey so a hard refresh / app
   // reopen lands on the same tab. Safe-no-op if setFamilySettings
@@ -14606,16 +14665,28 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
     for (const it of picked) addShoppingItem(it.title, "", { brand: it.brand || "", listName: activeListKey });
     setScanResults(null);
   };
-  // Partition the ACTIVE-LIST items into pending / on-the-list /
-  // declined. "On the list" includes parent-added items and approved
-  // kid requests. Pending / declined ARE list-scoped because the kid
-  // requested an item with a specific list_name when they added it.
+  // D1 — Shopping List is now a DERIVED VIEW over the canonical
+  // household item record. An item is "on the list" when it needs
+  // to be bought, i.e.:
+  //   (in_stock = false AND list_name = activeListKey)
+  //   OR (requestStatus = 'approved' AND not yet bought)
+  // Approved requests show until checked off. Checking off flips
+  // inStock=true (= bought) which removes the row from the filter —
+  // the lingeringIds set keeps it visible for "see what you just did"
+  // feedback, then it leaves on tab change. Items the user removes
+  // from the list have listName=null (recall-safety preserves the
+  // inventory row); they fall out of this view but stay in inventory.
   const all = listItems.slice();
   const pendingRequests = all
     .filter((it) => it.requestStatus === "pending")
     .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
   const onList = all
     .filter((it) => it.requestStatus !== "pending" && it.requestStatus !== "declined")
+    .filter((it) =>
+      it.inStock === false
+      || (it.requestStatus === "approved" && !it.checked)
+      || listLingeringIds.has(it.id)
+    )
     .sort((a, b) => {
       if (a.checked !== b.checked) return a.checked ? 1 : -1;
       return (a.createdAt || "").localeCompare(b.createdAt || "");
@@ -15403,7 +15474,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
                 className={`flex items-center gap-2 p-3 mb-1.5 rounded-xl border ${it.checked ? "bg-slate-50 border-slate-100" : "bg-white border-slate-100"}`}
               >
                 <button
-                  onClick={() => toggleShoppingItem(it.id)}
+                  onClick={() => toggleShoppingItemLingered(it.id)}
                   aria-label={it.checked ? "Uncheck" : "Check"}
                   className={`w-7 h-7 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${it.checked ? "bg-emerald-500 text-white" : "border-2 border-slate-200"}`}
                 >
