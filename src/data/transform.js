@@ -228,6 +228,13 @@ export const toApp = {
     // creation default-fill, so a missing key from the server still
     // reads as in-stock (defensive `!== false`).
     inStock: r.in_stock !== false,
+    // 2026-06-23 D1 (The Loop) — buy history. lastBought is stamped
+    // when the Shopping List check-off fires (= "bought"). lastBoughtBy
+    // is the actor parallel to checkedBy. Both NULL on every row
+    // until the first check-off happens; later bricks (D4 receipts)
+    // also write these from the receipt-match path.
+    lastBought: r.last_bought || null,
+    lastBoughtBy: r.last_bought_by || null,
     // 2026-06-17 soft-delete + undo. Null = visible. Set = soft-removed;
     // ShoppingList filters these out of the rendered list and a load-
     // time purge hard-deletes expired ones.
@@ -594,6 +601,12 @@ export const toDb = {
     // is missing or undefined so checking an item off can't
     // accidentally flip it to out-of-stock.
     in_stock: o.inStock !== false,
+    // D1 — buy-history pair. Always emit (column-normalization rule)
+    // so a batch sync from any code path can't silently wipe an
+    // item's last_bought stamp. NULL when the item has never been
+    // checked off / received via a receipt match.
+    last_bought: o.lastBought || null,
+    last_bought_by: o.lastBoughtBy || null,
     // Always emit deleted_at/deleted_by in toDb (per the PostgREST
     // batch column normalization rule — never conditionally omit a
     // column, else the whole-array upsert NULL-pads pre-existing

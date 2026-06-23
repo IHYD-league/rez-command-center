@@ -159,6 +159,38 @@ export default function Inventory({
   const canWrite = typeof updateShoppingItem === "function";
   const canEditRegistry = typeof setFamilySettings === "function";
 
+  // D1 — store prompt for items without a home store. Fires when the
+  // user marks an item Out and we don't know which store to route it
+  // to. On pick, we write defaultStore + listName + inStock=false in
+  // one patch so the loop completes without a second tap.
+  const [promptingItem, setPromptingItem] = useState(null);
+
+  // The unified mark-Out / mark-In handler. Replaces direct
+  // updateShoppingItem calls from both row-circle and detail-sheet
+  // toggles. Implements the loop:
+  //   • In → Out, has defaultStore → route to that store's list.
+  //   • In → Out, no defaultStore → open the StorePromptSheet.
+  //   • Out → In → simple flip (no list_name churn; if it goes Out
+  //     again later, the next mark-Out will re-route).
+  const handleStockToggle = (item) => {
+    if (!canWrite) return;
+    const goingOut = item.inStock !== false;
+    if (!goingOut) {
+      updateShoppingItem(item.id, { inStock: true });
+      markLingering(item.id);
+      return;
+    }
+    if (item.defaultStore) {
+      updateShoppingItem(item.id, {
+        inStock: false,
+        listName: item.defaultStore,
+      });
+      markLingering(item.id);
+      return;
+    }
+    setPromptingItem(item);
+  };
+
   // Switching INTO "By store" mode: default to the first store that
   // actually has items tagged; if none, the first registry entry.
   const onSelectByStore = () => {
@@ -287,14 +319,7 @@ export default function Inventory({
                     {canWrite ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          updateShoppingItem(it.id, { inStock: outOfStock });
-                          setLingeringIds((prev) => {
-                            const next = new Set(prev);
-                            next.add(it.id);
-                            return next;
-                          });
-                        }}
+                        onClick={() => handleStockToggle(it)}
                         aria-label={outOfStock ? "Mark in stock" : "Mark out of stock"}
                         title={outOfStock ? "Mark in stock" : "Mark out of stock"}
                         className={`w-7 h-7 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${outOfStock ? "bg-rose-500 text-white border border-rose-500" : "bg-emerald-500 text-white border border-emerald-500"}`}
@@ -348,14 +373,15 @@ export default function Inventory({
           onClose={() => setSelectedId(null)}
           onPatch={(patch) => {
             if (!canWrite) return;
-            updateShoppingItem(selected.id, patch);
-            // Mirror the row-circle behavior: flipping stock from the
-            // detail sheet also lingers the item in the current tab
-            // until filter / nav change. Consistency between the two
-            // paths matters — same toggle, same visual.
+            // Stock flips route through handleStockToggle so the
+            // detail-sheet path inherits the same auto-route + prompt
+            // as the row-circle. Other patches (default_store,
+            // buy_often, etc.) pass straight through.
             if (Object.prototype.hasOwnProperty.call(patch, "inStock")) {
-              markLingering(selected.id);
+              handleStockToggle(selected);
+              return;
             }
+            updateShoppingItem(selected.id, patch);
           }}
           onRequest={(decision) => {
             if (typeof decideShoppingRequest !== "function") return;
@@ -368,6 +394,41 @@ export default function Inventory({
             freezeStatusIfNeeded(selected.id, selected.requestStatus);
             markLingering(selected.id);
             decideShoppingRequest(selected.id, decision);
+          }}
+          onCreateStore={(displayName) => {
+            if (!canEditRegistry) return { error: "no_setter" };
+            const result = settingsAfterCreateList(familySettings, displayName);
+            if (result.error) return result;
+            setFamilySettings(() => result.settings);
+            return { key: result.key };
+          }}
+        />
+      )}
+
+      {promptingItem && (
+        <StorePromptSheet
+          item={promptingItem}
+          stores={stores}
+          canEditRegistry={canEditRegistry}
+          onCancel={() => setPromptingItem(null)}
+          onPick={(storeKey) => {
+            updateShoppingItem(promptingItem.id, {
+              inStock: false,
+              defaultStore: storeKey,
+              listName: storeKey,
+            });
+            markLingering(promptingItem.id);
+            setPromptingItem(null);
+          }}
+          onNotSure={() => {
+            // No store tagged — mark Out anyway. Item won't appear on
+            // any Shopping List view yet; the Food Hub "Needs
+            // attention" surface (D6) will catch it later. For now
+            // it's visible in Inventory's Out of stock + Untagged
+            // tabs so the parent can revisit.
+            updateShoppingItem(promptingItem.id, { inStock: false });
+            markLingering(promptingItem.id);
+            setPromptingItem(null);
           }}
           onCreateStore={(displayName) => {
             if (!canEditRegistry) return { error: "no_setter" };
@@ -823,6 +884,119 @@ function DetailRow({ label, value }) {
     <div className="flex items-baseline gap-2 py-2 border-b border-slate-100 last:border-0">
       <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 w-20 shrink-0">{label}</div>
       <div className="flex-1 text-slate-800 font-semibold">{value}</div>
+    </div>
+  );
+}
+
+// StorePromptSheet — D1 of The Loop. Fires when a user marks an item
+// Out and we don't know its home store. The pick writes default_store
+// + list_name + in_stock=false in one patch, completing the loop in
+// a single tap. "Not sure" still marks it Out without a store; that
+// item lands on the (future D6) Food Hub "Needs attention" surface
+// so the parent can come back to it.
+function StorePromptSheet({ item, stores, canEditRegistry, onCancel, onPick, onNotSure, onCreateStore }) {
+  const [adding, setAdding] = useState(false);
+  const [newStoreName, setNewStoreName] = useState("");
+  const [createError, setCreateError] = useState(null);
+
+  const handleCreate = () => {
+    const result = onCreateStore(newStoreName);
+    if (result.error === "empty") { setCreateError("Enter a name first."); return; }
+    if (result.error === "collision") {
+      // Existing store with the same normalized key — adopt it.
+      onPick(result.existing.key);
+      return;
+    }
+    if (result.error === "no_setter") { setCreateError("Can't save right now."); return; }
+    onPick(result.key);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center" role="dialog" aria-modal="true">
+      <div onClick={onCancel} className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" />
+      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto shadow-2xl">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="w-12 h-12 rounded-2xl grid place-items-center text-2xl shrink-0 bg-rose-50 text-rose-600">
+            {SHOPPING_SECTION_EMOJI[item.section] || "🛒"}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-rose-600">Marking out</div>
+            <div className="font-extrabold text-slate-900 leading-tight">{item.title || "(no title)"}</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">Where do you usually buy it?</div>
+          </div>
+          <button onClick={onCancel} className="text-slate-400 p-1 shrink-0" aria-label="Cancel">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {stores.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => onPick(s.key)}
+              className="whitespace-nowrap px-3 py-2 rounded-full text-sm font-bold border bg-white text-slate-700 border-slate-200 active:scale-95"
+            >
+              {s.name}
+            </button>
+          ))}
+          {canEditRegistry && !adding && (
+            <button
+              type="button"
+              onClick={() => { setAdding(true); setCreateError(null); }}
+              className="whitespace-nowrap px-3 py-2 rounded-full text-sm font-bold border bg-white text-cyan-700 border-cyan-200 active:scale-95"
+            >
+              <Plus size={14} className="inline -mt-0.5 mr-0.5" />Add store
+            </button>
+          )}
+        </div>
+
+        {adding && (
+          <div className="mb-3 flex flex-col gap-1.5">
+            <div className="flex gap-1.5">
+              <input
+                value={newStoreName}
+                onChange={(e) => { setNewStoreName(e.target.value); setCreateError(null); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreate();
+                  if (e.key === "Escape") { setAdding(false); setNewStoreName(""); setCreateError(null); }
+                }}
+                placeholder="Costco / Trader Joe's / …"
+                autoFocus
+                maxLength={24}
+                className="flex-1 border border-cyan-300 rounded-lg px-2 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={handleCreate}
+                className="px-3 py-2 rounded-lg bg-cyan-600 text-white text-sm font-bold active:scale-95"
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAdding(false); setNewStoreName(""); setCreateError(null); }}
+                className="px-2 py-2 text-xs font-bold text-slate-400"
+              >
+                Cancel
+              </button>
+            </div>
+            {createError && <div className="text-[11px] font-semibold text-rose-600">{createError}</div>}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={onNotSure}
+          className="w-full mt-2 rounded-xl py-2.5 text-sm font-bold text-slate-500 border border-slate-200 active:scale-[0.99]"
+        >
+          Not sure — just mark out
+        </button>
+
+        <div className="mt-3 rounded-xl bg-slate-50 border border-slate-100 p-3 text-[11px] text-slate-500 leading-snug">
+          Picking a store remembers it forever. Next time you mark this item out, it'll route there automatically.
+        </div>
+      </div>
     </div>
   );
 }
