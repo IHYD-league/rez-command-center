@@ -64,6 +64,10 @@ export default function Inventory({
   setFamilySettings = null,
   user = null,
   users = [],
+  // D4 — receipts pass through so the item detail sheet can show
+  // which store stamped last_bought (find the receipt whose
+  // items_reviewed confirmed this item closest to last_bought).
+  receipts = [],
 }) {
   const isKid = user?.role === "kid";
   const allItems = useMemo(() => inventoryItems(shoppingItems), [shoppingItems]);
@@ -366,6 +370,7 @@ export default function Inventory({
           item={selected}
           stores={stores}
           users={users}
+          receipts={receipts}
           canWrite={canWrite}
           canEditRegistry={canEditRegistry}
           canRequest={typeof decideShoppingRequest === "function"}
@@ -464,7 +469,7 @@ function FilterPill({ active, onClick, children, tone = "cyan" }) {
   );
 }
 
-function ItemDetailSheet({ item, stores, users = [], canWrite, canEditRegistry, canRequest, isKid, onClose, onPatch, onRequest, onCreateStore }) {
+function ItemDetailSheet({ item, stores, users = [], receipts = [], canWrite, canEditRegistry, canRequest, isKid, onClose, onPatch, onRequest, onCreateStore }) {
   const [adding, setAdding] = useState(false);
   const [newStoreName, setNewStoreName] = useState("");
   const [createError, setCreateError] = useState(null);
@@ -521,6 +526,8 @@ function ItemDetailSheet({ item, stores, users = [], canWrite, canEditRegistry, 
         <div className="space-y-2 text-sm mb-4">
           <DetailRow label="Brand" value={item.brand || "—"} />
           <DetailRow label="Section" value={item.section || "Other"} />
+          <LastBoughtRow item={item} receipts={receipts} />
+          <LastPriceRow item={item} />
         </div>
 
         <div className="rounded-2xl border border-slate-200 p-3 mb-3">
@@ -886,6 +893,57 @@ function DetailRow({ label, value }) {
       <div className="flex-1 text-slate-800 font-semibold">{value}</div>
     </div>
   );
+}
+
+// D4 — find the receipt whose items_reviewed contains a confirmed
+// match for this item AND whose purchasedAt matches the item's
+// lastBought. That's the receipt that stamped the buy. NULL when
+// no receipt match exists (e.g. last_bought came from a manual
+// check-off in Shopping List, not a receipt scan).
+function findStampingReceipt(item, receipts) {
+  if (!item?.lastBought || !Array.isArray(receipts)) return null;
+  const targetIso = String(item.lastBought);
+  for (const r of receipts) {
+    if (!r || r.deletedAt) continue;
+    const purchased = r.purchasedAt || r.purchased_at;
+    if (!purchased || String(purchased) !== targetIso) continue;
+    const lines = r.ocrRaw?.items_reviewed || r.ocr_raw?.items_reviewed || [];
+    if (lines.some((it) => it && it.confirmed_shopping_item_id === item.id)) {
+      return r;
+    }
+  }
+  return null;
+}
+
+function fmtBoughtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function fmtMoney(n) {
+  if (n == null || !Number.isFinite(Number(n))) return "—";
+  const v = Number(n);
+  return v < 100
+    ? `$${v.toFixed(2)}`
+    : `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function LastBoughtRow({ item, receipts }) {
+  if (!item?.lastBought) return null;
+  const stamping = findStampingReceipt(item, receipts);
+  const dateStr = fmtBoughtDate(item.lastBought);
+  const storeStr = stamping
+    ? (stamping.storeLabel || stamping.storeName || stamping.storeChain || stamping.store_name || stamping.store_chain || "")
+    : "";
+  const display = storeStr ? `${dateStr} · ${storeStr}` : dateStr;
+  return <DetailRow label="Last bought" value={display} />;
+}
+
+function LastPriceRow({ item }) {
+  if (item?.lastPrice == null) return null;
+  return <DetailRow label="Last price" value={fmtMoney(item.lastPrice)} />;
 }
 
 // StorePromptSheet — D1 of The Loop. Fires when a user marks an item
