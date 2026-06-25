@@ -7966,6 +7966,14 @@ function StillTodoOnboarding({ tasks = [], activities = [], dailyRequiredCount, 
 }
 
 // ===================== PARENT: TODAY =====================
+// Statuses that keep a task in the "Still to do" list AND should
+// expose its inline ✓ / ✗ action buttons in MiniRow. Single source of
+// truth — the list-membership filter at the top of ParentToday and
+// the two action gates in MiniRow ALL read this set, so the gate-vs-
+// filter mismatch that stranded needs_fix rows (no ✓ to re-log, no ✗
+// to N/A) can't recur if a fourth todo-eligible status is added later.
+const TODO_STATUSES = new Set(["not_started", "needs_fix", "draft"]);
+
 function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub, dailyCheckins = [], dailyRequiredCount = 8, setDailyRequiredCount, familySettings }) {
   const [showAddPicker, setShowAddPicker] = useState(false);
   // Reorder mode is per-section so flipping it on for Bonus
@@ -8009,7 +8017,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
   };
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
-  const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix", "draft"].includes(compByTask[t.id]?.status));
+  const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || TODO_STATUSES.has(compByTask[t.id]?.status));
   const todo = sortByLevel(todoRaw, mode, priorities);
   // QuickStart guide for brand-new families. Shows until the parent
   // has logged their first completion. Each row deep-links to the
@@ -8683,7 +8691,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
               <Pencil size={10} /> Draft
             </span>
           )}
-          {onMarkDone && (!comp || comp.status === "draft") && (
+          {onMarkDone && (!comp || TODO_STATUSES.has(comp.status)) && (
             <button
               onClick={(e) => { e.stopPropagation(); onMarkDone(task); }}
               title={comp?.status === "draft" ? "Open the saved draft" : `Mark done${users ? ` for ${kidName(users)}` : ""} (with photo proof if needed)`}
@@ -8692,7 +8700,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
               <Check size={16} />
             </button>
           )}
-          {markTaskNA && !comp && (
+          {markTaskNA && (!comp || TODO_STATUSES.has(comp.status)) && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
