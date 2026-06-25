@@ -223,6 +223,14 @@ export default async (req) => {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 4096,
+        // temperature: 0 — deterministic mode. The Anthropic Messages
+        // API defaults to 1.0 when omitted; that high randomness made
+        // identical receipt images produce materially different
+        // transcribed text run-to-run (Mike caught it 2026-06-25:
+        // same receipt, 27 items vs 25, different titles + prices).
+        // No `seed` param — Messages API doesn't support one; an
+        // unknown field would 400 the call.
+        temperature: 0,
         messages: [{
           role: "user",
           content: [
