@@ -1562,18 +1562,32 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // log pieces as Reznor finishes them and submit once it's all
   // there. Status: 'draft'. Replaces today's prior draft for the
   // same task, but never clobbers an already-submitted row.
-  const saveDraft = (taskId, payload) => {
+  // saveDraft has TWO callers with different close intent. The explicit
+  // "Save Draft" button (TaskSheet.doSaveDraft) wants the sheet to
+  // close — that's the user's deliberate dismiss. The auto-save on
+  // photo capture (TaskSheet.persistDraft, fires inside handleFile)
+  // must NOT close — a parent mid-flow typing minutes + taking a
+  // proof photo would otherwise lose the sheet before Submit. Pass
+  // { silent: true } from the silent path; default keeps the explicit
+  // button's existing close behavior.
+  //
+  // Status allow-list now reuses TODO_STATUSES (the same set
+  // ParentToday + MiniRow gate against), so a needs_fix or
+  // not_started row can absorb a draft write instead of returning
+  // prev unchanged — fixes the prod path where photo-required
+  // needs_fix tasks (Drums, Reading, Writing, Art, Field Trip)
+  // were stranded: typed fields dropped, photo orphaned in storage.
+  // Existing id-preservation (todays?.id || ...) keeps the row in
+  // place — no duplicate completion, no destruction. submitTask
+  // still replaces it with the final pending/approved row.
+  const saveDraft = (taskId, payload, opts = {}) => {
     const t = tasks.find((x) => x.id === taskId);
     if (!t) return;
     const kid = users.find((u) => u.role === "kid");
     const kidId = kid?.id || currentUserId;
     setCompletions((prev) => {
-      // If today's row for this task isn't draft and isn't not-started
-      // (e.g., already pending / approved / needs_fix), don't overwrite
-      // it — a draft save shouldn't undo a submission. The existing
-      // edit-in-place flow handles that case instead.
       const todays = prev.find((c) => c.taskId === taskId && (c.completionDate || null) === TODAY_ISO);
-      if (todays && todays.status !== "draft") return prev;
+      if (todays && !TODO_STATUSES.has(todays.status)) return prev;
       const others = prev.filter((c) => !(c.taskId === taskId && (c.completionDate || null) === TODAY_ISO));
       return [...others, {
         id: todays?.id || ("cmp_" + Date.now()),
@@ -1590,7 +1604,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
         completionDate: TODAY_ISO,
       }];
     });
-    setOpenTask(null);
+    if (!opts.silent) setOpenTask(null);
   };
   // Patch any field on an existing completion — used by the Completion
   // Detail sheet to retroactively add photos, edit notes, etc.
@@ -6325,7 +6339,11 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, drumsExtra());
     if (useSchemaFields) Object.assign(extra, schemaExtra());
-    onSaveDraft(task.id, { notes, proof, extra });
+    // { silent: true } — auto-save on photo capture must NOT close the
+    // sheet (parent is still typing minutes / about to tap Submit).
+    // The explicit "Save Draft" button (doSaveDraft) does NOT pass
+    // this flag, so its existing close-on-save behavior is preserved.
+    onSaveDraft(task.id, { notes, proof, extra }, { silent: true });
   };
   const handleFile = async (e) => {
     const f = e.target.files?.[0];
