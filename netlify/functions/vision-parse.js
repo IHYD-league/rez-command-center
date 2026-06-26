@@ -136,21 +136,12 @@ If the image isn't a schedule, return { "events": [] } and nothing else.`,
 
 Plus an items array. For each PURCHASED PRODUCT line:
 - title: generic product name a parent would write on a list ("Whipped Dressing", "Goldfish XL"), NOT the receipt's terse code ("GV WHP DRSG", "GLD FISH XL"). Translate abbreviations.
-- brand: SIGNAL-DRIVEN from THIS line's printed text only. NEVER defaulted from store_chain.
-
-  (a) STORE-BRAND MARKER printed on the line → the corresponding store brand:
-      • costco lines starting with or containing "KS", "KIRKLAND", or "KIRKLAND SIG" → "Kirkland"
-      • walmart lines starting with or containing "GV" → "Great Value"
-      • target lines marked "UP&UP" → "Up & Up"; "G&G" or "GOOD&GATHER" → "Good & Gather"
-      • whole_foods lines marked "365" or "365WFM" → "365 by Whole Foods Market"
-
-  (b) RECOGNIZABLE NAME-BRAND printed in the line text → use that brand verbatim, cleaned to proper case. Brand recognition is OPEN-ENDED — use any real consumer brand you recognize in the printed line, not just a closed list. Illustrative (NOT exhaustive): Chomps, Coca-Cola, Goldfish, Pepperidge Farm, Rao's, Annie's, Kind. If you recognize another real brand in the text, use it.
-
-  (c) NEITHER a marker nor a recognizable name-brand → brand: null. Do NOT infer a brand from store_chain. A Costco line WITHOUT a "KS" prefix is NOT automatically Kirkland; a Walmart line WITHOUT a "GV" prefix is NOT automatically Great Value. A Trader Joe's line WITHOUT a name-brand string is NOT automatically "Trader Joe's" — leave brand: null. An unmarked line returning null is the honest answer.
-
-  CRV / deposit / non-product lines (e.g. "California Redemption Value", "Redemp VR", "Bottle Deposit") are not products and have no brand → brand: null.
-
-  Preserve the printed prefix in vision_title EXACTLY as printed (e.g. vision_title: "KS COLD BREW"); the cleaned `title` should strip the marker prefix (title: "Cold Brew", brand: "Kirkland"). The marker stays in vision_title so downstream code can verify the signal.
+- brand: from this line's printed text only. Do not default from store_chain.
+  (a) Store-brand marker on the line → that store brand: costco "KS"/"KIRKLAND"/"KIRKLAND SIG" → "Kirkland"; walmart "GV" → "Great Value"; target "UP&UP" → "Up & Up", "G&G"/"GOOD&GATHER" → "Good & Gather"; whole_foods "365"/"365WFM" → "365 by Whole Foods Market".
+  (b) A recognizable consumer brand printed in the line text (e.g. Chomps, Coca-Cola, Goldfish, Pepperidge Farm, Rao's, Annie's, Kind — any real brand you recognize, not only these) → that brand, cleaned to proper case.
+  (c) No marker and no recognizable brand → null. A Costco line without "KS" is not Kirkland; a Walmart line without "GV" is not Great Value; a Trader Joe's line without a brand string is not "Trader Joe's".
+  CRV / deposit / non-product lines (e.g. "California Redemption Value", "Bottle Deposit") → null.
+  In title, strip any store-brand prefix (printed "KS COLD BREW" → title "Cold Brew", brand "Kirkland").
 - qty: quantity if visible; default 1.
 - unit: "lb" / "oz" / "ea" if shown; null otherwise.
 - unit_price: price per unit if printed.
@@ -268,10 +259,22 @@ export default async (req) => {
     const text = (payload.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
     // Strip code fences if the model wrapped its response.
     const cleaned = text.replace(/^```(?:json)?/, "").replace(/```$/, "").trim();
+    // Hardened parse: try the cleaned text first; if that fails because
+    // the model added prose preamble/suffix (which the fence regex
+    // doesn't catch), retry on the substring from first "{" to last "}".
+    // Genuinely-unparseable output still falls through to parse_failed
+    // exactly as before — no behavior change on the happy path.
     let data;
     try {
       data = JSON.parse(cleaned);
     } catch {
+      const open = cleaned.indexOf("{");
+      const close = cleaned.lastIndexOf("}");
+      if (open !== -1 && close > open) {
+        try { data = JSON.parse(cleaned.slice(open, close + 1)); } catch { /* fall through */ }
+      }
+    }
+    if (data === undefined) {
       return new Response(
         JSON.stringify({ status: "parse_failed", reason: "model returned non-JSON", raw: text.slice(0, 500) }),
         { status: 200, headers: { "content-type": "application/json" } }
