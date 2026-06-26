@@ -18,6 +18,21 @@ function shareTokenFromPath() {
 
 const shareToken = shareTokenFromPath();
 
+// Service worker registration. Lives at the entry boot (NOT inside
+// the React tree, NOT in App.jsx) so it runs as a one-time side-effect
+// regardless of which screen the app renders first. The SW itself
+// (public/sw.js) is hand-rolled with explicit cache rules — see the
+// invariants at the top of that file. Failures here are non-fatal:
+// the app must work without an SW (every non-installed browser tab
+// experiences exactly this code path with the registration silently
+// skipped or failed). Registered on the `load` event so we don't
+// compete with the first paint for network / CPU.
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => { /* non-fatal */ });
+  });
+}
+
 createRoot(document.getElementById("root")).render(
   <ErrorBoundary>
     {shareToken ? (
