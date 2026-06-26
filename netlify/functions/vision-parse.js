@@ -136,7 +136,15 @@ If the image isn't a schedule, return { "events": [] } and nothing else.`,
 
 Plus an items array. For each PURCHASED PRODUCT line:
 - title: generic product name a parent would write on a list ("Whipped Dressing", "Goldfish XL"), NOT the receipt's terse code ("GV WHP DRSG", "GLD FISH XL"). Translate abbreviations.
-- brand: brand or store-brand label printed or abbreviated. Store-brand examples: Costco "KS" or "KIRKLAND" → "Kirkland"; Trader Joe's items → "Trader Joe's"; Great Value items → "Great Value". null if unclear.
+- brand: brand or store-brand label printed or abbreviated. Store-brand examples: Costco "KS" or "KIRKLAND" → "Kirkland"; Trader Joe's items → "Trader Joe's"; Great Value items → "Great Value".
+  STORE-BRAND DEFAULT — when store_chain is identified and a line has no printed brand prefix, treat it as the store's own brand by default rather than returning null:
+    • costco → "Kirkland"
+    • trader_joes → "Trader Joe's"
+    • walmart → "Great Value"
+    • target → "Up & Up" for household/personal-care lines, "Good & Gather" for grocery/food lines
+    • whole_foods → "365 by Whole Foods Market"
+    • aldi (various store brands) → leave as printed; fall back to "Aldi" only if clearly unbranded
+  Return brand: null ONLY when the line is explicitly a name-brand item from a different manufacturer (e.g. a Pepperidge Farm box at Costco — keep "Pepperidge Farm", not "Kirkland").
 - qty: quantity if visible; default 1.
 - unit: "lb" / "oz" / "ea" if shown; null otherwise.
 - unit_price: price per unit if printed.
@@ -144,6 +152,8 @@ Plus an items array. For each PURCHASED PRODUCT line:
 - upc: the 12-13 digit barcode for the product, if printed in or next to the line (typical format on receipts: a numeric code printed under the item description, e.g. 681147071140). Numeric string of 8-14 digits. null if no barcode is printed for this line.
 
 Skip non-product lines: subtotals, tax rows, "savings", coupons, discounts, "TOTAL" row, store address, cashier ID, payment lines, signatures, footers, "thank you" copy.
+
+CONSISTENCY — when the same receipt is scanned again, return the same titles, brands, qty, and counts in the same order. Do not paraphrase or reorder. Treat each printed line deterministically: identical input glyphs always produce identical title and brand strings.
 
 Return ONLY a JSON object in this exact shape, nothing else:
 {
@@ -155,6 +165,7 @@ Return ONLY a JSON object in this exact shape, nothing else:
   "total": 149.57,
   "items": [
     { "title": "Whipped Dressing", "brand": "Great Value", "qty": 1, "unit": "ea", "unit_price": 4.99, "line_total": 4.99, "upc": "078742052830" },
+    { "title": "Cold Brew", "brand": "Kirkland", "qty": 1, "unit": "ea", "unit_price": 11.99, "line_total": 11.99, "upc": null },
     { "title": "Goldfish XL", "brand": "Pepperidge Farm", "qty": 2, "unit": "ea", "unit_price": 7.49, "line_total": 14.98, "upc": null }
   ]
 }
