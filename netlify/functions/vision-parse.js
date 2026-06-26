@@ -136,15 +136,21 @@ If the image isn't a schedule, return { "events": [] } and nothing else.`,
 
 Plus an items array. For each PURCHASED PRODUCT line:
 - title: generic product name a parent would write on a list ("Whipped Dressing", "Goldfish XL"), NOT the receipt's terse code ("GV WHP DRSG", "GLD FISH XL"). Translate abbreviations.
-- brand: brand or store-brand label printed or abbreviated. Store-brand examples: Costco "KS" or "KIRKLAND" → "Kirkland"; Trader Joe's items → "Trader Joe's"; Great Value items → "Great Value".
-  STORE-BRAND DEFAULT — when store_chain is identified and a line has no printed brand prefix, treat it as the store's own brand by default rather than returning null:
-    • costco → "Kirkland"
-    • trader_joes → "Trader Joe's"
-    • walmart → "Great Value"
-    • target → "Up & Up" for household/personal-care lines, "Good & Gather" for grocery/food lines
-    • whole_foods → "365 by Whole Foods Market"
-    • aldi (various store brands) → leave as printed; fall back to "Aldi" only if clearly unbranded
-  Return brand: null ONLY when the line is explicitly a name-brand item from a different manufacturer (e.g. a Pepperidge Farm box at Costco — keep "Pepperidge Farm", not "Kirkland").
+- brand: SIGNAL-DRIVEN from THIS line's printed text only. NEVER defaulted from store_chain.
+
+  (a) STORE-BRAND MARKER printed on the line → the corresponding store brand:
+      • costco lines starting with or containing "KS", "KIRKLAND", or "KIRKLAND SIG" → "Kirkland"
+      • walmart lines starting with or containing "GV" → "Great Value"
+      • target lines marked "UP&UP" → "Up & Up"; "G&G" or "GOOD&GATHER" → "Good & Gather"
+      • whole_foods lines marked "365" or "365WFM" → "365 by Whole Foods Market"
+
+  (b) RECOGNIZABLE NAME-BRAND printed in the line text → use that brand verbatim, cleaned to proper case. Brand recognition is OPEN-ENDED — use any real consumer brand you recognize in the printed line, not just a closed list. Illustrative (NOT exhaustive): Chomps, Coca-Cola, Goldfish, Pepperidge Farm, Rao's, Annie's, Kind. If you recognize another real brand in the text, use it.
+
+  (c) NEITHER a marker nor a recognizable name-brand → brand: null. Do NOT infer a brand from store_chain. A Costco line WITHOUT a "KS" prefix is NOT automatically Kirkland; a Walmart line WITHOUT a "GV" prefix is NOT automatically Great Value. A Trader Joe's line WITHOUT a name-brand string is NOT automatically "Trader Joe's" — leave brand: null. An unmarked line returning null is the honest answer.
+
+  CRV / deposit / non-product lines (e.g. "California Redemption Value", "Redemp VR", "Bottle Deposit") are not products and have no brand → brand: null.
+
+  Preserve the printed prefix in vision_title EXACTLY as printed (e.g. vision_title: "KS COLD BREW"); the cleaned `title` should strip the marker prefix (title: "Cold Brew", brand: "Kirkland"). The marker stays in vision_title so downstream code can verify the signal.
 - qty: quantity if visible; default 1.
 - unit: "lb" / "oz" / "ea" if shown; null otherwise.
 - unit_price: price per unit if printed.
