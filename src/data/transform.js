@@ -235,6 +235,10 @@ export const toApp = {
     // also write these from the receipt-match path.
     lastBought: r.last_bought || null,
     lastBoughtBy: r.last_bought_by || null,
+    // 2026-06-23 D4 — last per-unit price from a confirmed receipt-
+    // line match. numeric(10,2) in Postgres; coerce to Number on the
+    // client so display + math don't fight string-vs-number.
+    lastPrice: r.last_price != null ? Number(r.last_price) : null,
     // 2026-06-17 soft-delete + undo. Null = visible. Set = soft-removed;
     // ShoppingList filters these out of the rendered list and a load-
     // time purge hard-deletes expired ones.
@@ -607,6 +611,11 @@ export const toDb = {
     // checked off / received via a receipt match.
     last_bought: o.lastBought || null,
     last_bought_by: o.lastBoughtBy || null,
+    // D4 — last per-unit price from receipt-match write-back. Always
+    // emit (column-normalization rule); if not set the column carries
+    // NULL. Number 0 is legal — pass it through, only null/undefined
+    // collapse to null.
+    last_price: o.lastPrice != null ? Number(o.lastPrice) : null,
     // Always emit deleted_at/deleted_by in toDb (per the PostgREST
     // batch column normalization rule — never conditionally omit a
     // column, else the whole-array upsert NULL-pads pre-existing

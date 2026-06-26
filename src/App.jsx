@@ -982,15 +982,69 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // uploaded_by + createdAt and route through the sync layer. The
   // current acted-as profile is the uploader.
   const addReceipt = (r) => {
-    setReceipts((prev) => [
-      {
-        id: r.id || ("rcp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8)),
-        uploadedBy: r.uploadedBy || currentUserId || currentProfileId || null,
-        createdAt: r.createdAt || new Date().toISOString(),
-        ...r,
-      },
-      ...prev,
-    ]);
+    const receipt = {
+      id: r.id || ("rcp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8)),
+      uploadedBy: r.uploadedBy || currentUserId || currentProfileId || null,
+      createdAt: r.createdAt || new Date().toISOString(),
+      ...r,
+    };
+    setReceipts((prev) => [receipt, ...prev]);
+    // D4 closure — for every line the user explicitly confirmed
+    // during scan-review, stamp the matched inventory item with
+    // last_bought + last_bought_by + last_price + flip in_stock=true.
+    // STRICT v1: only confirmed_shopping_item_id triggers a write;
+    // auto_matched suggestions never silently stamp. The patch routes
+    // through the existing synced setter, preserving D1's recall-
+    // safety rule (no hard-delete, no row destruction).
+    const lines = (receipt?.ocrRaw?.items_reviewed || []).filter(
+      (it) => it && it.confirmed_shopping_item_id,
+    );
+    commitReceiptMatchesToInventory(lines, receipt);
+  };
+
+  // Write-back helper — patches matched inventory items with the
+  // closure data from a receipt. Exposed to Receipts.jsx so edit-mode
+  // "Commit matches" can call with only NEWLY confirmed lines (diff
+  // against the original receipt state), so existing confirms don't
+  // re-stamp on every save. Idempotent: re-stamping the same value is
+  // a no-op for last_bought / last_price; only the inStock flip is
+  // sticky after one call.
+  const commitReceiptMatchesToInventory = (lines, receipt) => {
+    const purchasedAt = receipt?.purchasedAt || receipt?.purchased_at || null;
+    const uploadedBy = receipt?.uploadedBy || receipt?.uploaded_by || null;
+    if (!purchasedAt) return;
+    for (const line of lines || []) {
+      const id = line?.confirmed_shopping_item_id;
+      if (!id) continue;
+      // Price capture — D4 hotfix for the $0.00 corruption Mike caught
+      // 2026-06-25. Original `Number(line.unit_price)` coerced null to
+      // 0, then isFinite(0)===true wrote lastPrice: 0 — corrupting
+      // recall-safe history (and clobbering prior good prices).
+      //
+      // New shape:
+      //   • unit_price is the source of truth WHEN it's a finite > 0
+      //   • when unit_price is null/missing, derive from
+      //     line_total ÷ qty IF qty is finite > 0 AND result is
+      //     finite > 0 (handles vision returning line_total only)
+      //   • everything else (null, 0, negative, NaN, qty 0/null,
+      //     undefined) → null. Never write 0.
+      const up = line.unit_price == null ? NaN : Number(line.unit_price);
+      let price = Number.isFinite(up) && up > 0 ? up : null;
+      if (price == null) {
+        const lt = Number(line.line_total);
+        const q = Number(line.qty);
+        if (Number.isFinite(lt) && Number.isFinite(q) && q > 0) {
+          const derived = lt / q;
+          if (Number.isFinite(derived) && derived > 0) price = derived;
+        }
+      }
+      updateShoppingItem(id, {
+        inStock: true,
+        lastBought: purchasedAt,
+        lastBoughtBy: uploadedBy,
+        lastPrice: price,
+      });
+    }
   };
   // RS-1 soft-delete — flip deleted_at on a receipt row. Spending
   // math (next brick) MUST filter on deletedAt to keep totals honest.
@@ -1562,18 +1616,32 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // log pieces as Reznor finishes them and submit once it's all
   // there. Status: 'draft'. Replaces today's prior draft for the
   // same task, but never clobbers an already-submitted row.
-  const saveDraft = (taskId, payload) => {
+  // saveDraft has TWO callers with different close intent. The explicit
+  // "Save Draft" button (TaskSheet.doSaveDraft) wants the sheet to
+  // close — that's the user's deliberate dismiss. The auto-save on
+  // photo capture (TaskSheet.persistDraft, fires inside handleFile)
+  // must NOT close — a parent mid-flow typing minutes + taking a
+  // proof photo would otherwise lose the sheet before Submit. Pass
+  // { silent: true } from the silent path; default keeps the explicit
+  // button's existing close behavior.
+  //
+  // Status allow-list now reuses TODO_STATUSES (the same set
+  // ParentToday + MiniRow gate against), so a needs_fix or
+  // not_started row can absorb a draft write instead of returning
+  // prev unchanged — fixes the prod path where photo-required
+  // needs_fix tasks (Drums, Reading, Writing, Art, Field Trip)
+  // were stranded: typed fields dropped, photo orphaned in storage.
+  // Existing id-preservation (todays?.id || ...) keeps the row in
+  // place — no duplicate completion, no destruction. submitTask
+  // still replaces it with the final pending/approved row.
+  const saveDraft = (taskId, payload, opts = {}) => {
     const t = tasks.find((x) => x.id === taskId);
     if (!t) return;
     const kid = users.find((u) => u.role === "kid");
     const kidId = kid?.id || currentUserId;
     setCompletions((prev) => {
-      // If today's row for this task isn't draft and isn't not-started
-      // (e.g., already pending / approved / needs_fix), don't overwrite
-      // it — a draft save shouldn't undo a submission. The existing
-      // edit-in-place flow handles that case instead.
       const todays = prev.find((c) => c.taskId === taskId && (c.completionDate || null) === TODAY_ISO);
-      if (todays && todays.status !== "draft") return prev;
+      if (todays && !TODO_STATUSES.has(todays.status)) return prev;
       const others = prev.filter((c) => !(c.taskId === taskId && (c.completionDate || null) === TODAY_ISO));
       return [...others, {
         id: todays?.id || ("cmp_" + Date.now()),
@@ -1590,7 +1658,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
         completionDate: TODAY_ISO,
       }];
     });
-    setOpenTask(null);
+    if (!opts.silent) setOpenTask(null);
   };
   // Patch any field on an existing completion — used by the Completion
   // Detail sheet to retroactively add photos, edit notes, etc.
@@ -2571,7 +2639,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     practiceSessions, addPracticeSession, removePracticeSession,
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
     relabelShoppingItemsByListKey,
-    receipts, addReceipt, softDeleteReceipt, updateReceipt,
+    receipts, addReceipt, softDeleteReceipt, updateReceipt, commitReceiptMatchesToInventory,
     familySettings, setFamilySettings, headlinerActivityByKid, setHeadlinerForKid,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
@@ -6325,7 +6393,11 @@ function TaskSheet({ task, existing, role, onClose, onSubmit, onSaveDraft, famil
     if (isPhoto) Object.assign(extra, { title });
     if (isDrums) Object.assign(extra, drumsExtra());
     if (useSchemaFields) Object.assign(extra, schemaExtra());
-    onSaveDraft(task.id, { notes, proof, extra });
+    // { silent: true } — auto-save on photo capture must NOT close the
+    // sheet (parent is still typing minutes / about to tap Submit).
+    // The explicit "Save Draft" button (doSaveDraft) does NOT pass
+    // this flag, so its existing close-on-save behavior is preserved.
+    onSaveDraft(task.id, { notes, proof, extra }, { silent: true });
   };
   const handleFile = async (e) => {
     const f = e.target.files?.[0];
@@ -7966,6 +8038,14 @@ function StillTodoOnboarding({ tasks = [], activities = [], dailyRequiredCount, 
 }
 
 // ===================== PARENT: TODAY =====================
+// Statuses that keep a task in the "Still to do" list AND should
+// expose its inline ✓ / ✗ action buttons in MiniRow. Single source of
+// truth — the list-membership filter at the top of ParentToday and
+// the two action gates in MiniRow ALL read this set, so the gate-vs-
+// filter mismatch that stranded needs_fix rows (no ✓ to re-log, no ✗
+// to N/A) can't recur if a fourth todo-eligible status is added later.
+const TODO_STATUSES = new Set(["not_started", "needs_fix", "draft"]);
+
 function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pendingStars, starBank, handoff, users, mode, setMode, priorities, setPriority, clearPriority, giftStars, gifted = [], user, activities, streaks, setDetailId, setOpenCompletionId, onEasy, undoTask, setOpenTask, setStatDetailId, decide, todaysNATasks = [], markTaskNA, restoreTaskFromNA, pinnedBonus = {}, pinTaskToToday, unpinTaskFromToday, todayOrder = { mustDo: [], bonus: [] }, setTodayOrder, tasks = [], books = [], songs = [], songPlays = [], familyId, addBook, addSong, updateBook, todaysTopEight = [], langs = ["en"], nextRewardTitle = "", nextRewardCost = 0, bigRewardTitle = "", bigRewardCost = 0, rewards = [], events = [], completions = [], setTab, setPendingMoreSub, dailyCheckins = [], dailyRequiredCount = 8, setDailyRequiredCount, familySettings }) {
   const [showAddPicker, setShowAddPicker] = useState(false);
   // Reorder mode is per-section so flipping it on for Bonus
@@ -8009,7 +8089,7 @@ function ParentToday({ todaysTasks, compByTask, availableToday, earnedToday, pen
   };
   const done = todaysTasks.filter((t) => compByTask[t.id]?.status === "approved");
   const pending = todaysTasks.filter((t) => compByTask[t.id]?.status === "pending");
-  const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || ["not_started", "needs_fix", "draft"].includes(compByTask[t.id]?.status));
+  const todoRaw = todaysTasks.filter((t) => !compByTask[t.id] || TODO_STATUSES.has(compByTask[t.id]?.status));
   const todo = sortByLevel(todoRaw, mode, priorities);
   // QuickStart guide for brand-new families. Shows until the parent
   // has logged their first completion. Each row deep-links to the
@@ -8683,7 +8763,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
               <Pencil size={10} /> Draft
             </span>
           )}
-          {onMarkDone && (!comp || comp.status === "draft") && (
+          {onMarkDone && (!comp || TODO_STATUSES.has(comp.status)) && (
             <button
               onClick={(e) => { e.stopPropagation(); onMarkDone(task); }}
               title={comp?.status === "draft" ? "Open the saved draft" : `Mark done${users ? ` for ${kidName(users)}` : ""} (with photo proof if needed)`}
@@ -8692,7 +8772,7 @@ function MiniRow({ task, comp, tone, users, mode, priorities, setPriority, clear
               <Check size={16} />
             </button>
           )}
-          {markTaskNA && !comp && (
+          {markTaskNA && (!comp || TODO_STATUSES.has(comp.status)) && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -13326,8 +13406,8 @@ function MoreParent(props) {
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
   if (sub === "food_hub") return <BackWrap title="Food Hub" onBack={() => setSub("menu")}><FoodHubLanding setSub={setSub} shoppingItems={props.shoppingItems} receipts={props.receipts} familySettings={props.familySettings} /></BackWrap>;
   if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("food_hub")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
-  if (sub === "inventory") return <BackWrap title="Inventory" onBack={() => setSub("food_hub")}><Inventory shoppingItems={props.shoppingItems} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} user={props.user} users={props.users} /></BackWrap>;
-  if (sub === "receipts") return <BackWrap title="Receipts" onBack={() => setSub("food_hub")}><Receipts receipts={props.receipts} softDeleteReceipt={props.softDeleteReceipt} updateReceipt={props.updateReceipt} users={props.users} user={props.user} shoppingItems={props.shoppingItems} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
+  if (sub === "inventory") return <BackWrap title="Inventory" onBack={() => setSub("food_hub")}><Inventory shoppingItems={props.shoppingItems} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} user={props.user} users={props.users} receipts={props.receipts} /></BackWrap>;
+  if (sub === "receipts") return <BackWrap title="Receipts" onBack={() => setSub("food_hub")}><Receipts receipts={props.receipts} softDeleteReceipt={props.softDeleteReceipt} updateReceipt={props.updateReceipt} commitReceiptMatchesToInventory={props.commitReceiptMatchesToInventory} users={props.users} user={props.user} shoppingItems={props.shoppingItems} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
   if (sub === "spending") return <BackWrap title="Spending" onBack={() => setSub("food_hub")}><Spending receipts={props.receipts} users={props.users} user={props.user} shoppingItems={props.shoppingItems} updateReceipt={props.updateReceipt} softDeleteReceipt={props.softDeleteReceipt} familyId={props.familyId} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
