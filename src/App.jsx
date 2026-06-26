@@ -9212,7 +9212,15 @@ function GiftStarsCard({ giftStars, gifted = [], users = [], tasks = [], activit
 }
 
 // ===================== PARENT: APPROVALS =====================
-function Approvals({ completions, tasks, users, decide, songs = [], songPlays = [], songPlayRequests = [], decideSongPlayRequest }) {
+// E1a (2026-06-24) — UNIFIED INBOX EXTENSION.
+// Additive only: appends shopping / reward-redemption / reward-request
+// sections AFTER the existing task + song-play sections. The existing
+// render paths and decision flows are NOT touched (line ranges 9136-
+// 9313 below are byte-identical to pre-E1a). New props default safely
+// so the existing call signatures keep working. Role gate on rewards
+// is defense-in-depth: both the button render AND the decide handler
+// short-circuit when user.role !== 'parent'.
+function Approvals({ completions, tasks, users, decide, songs = [], songPlays = [], songPlayRequests = [], decideSongPlayRequest, shoppingItems = [], decideShoppingRequest, redemptions = [], decideReward, rewardRequests = [], decideRewardRequest, user = null }) {
   const pending = completions.filter((c) => c.status === "pending");
   const songReqs = songPlayRequests || [];
   // Today's approved-stars tally — derived from canonical completions.
@@ -9391,11 +9399,290 @@ function Approvals({ completions, tasks, users, decide, songs = [], songPlays = 
           })}
         </>
       )}
+
+      {/* E1a — UNIFIED INBOX additions. The three sections below pull
+          their data from already-family-scoped local state arrays
+          passed via props; no new queries, no new subscriptions, no
+          new write paths. Each reuses the existing decision fn
+          verbatim. Role gate on rewards: defense at handler + UI. */}
+      <ShoppingApprovalSection
+        shoppingItems={shoppingItems}
+        users={users}
+        decideShoppingRequest={decideShoppingRequest}
+      />
+      <RedemptionApprovalSection
+        redemptions={redemptions}
+        users={users}
+        decideReward={decideReward}
+        canDecide={user?.role === "parent"}
+      />
+      <RewardRequestApprovalSection
+        rewardRequests={rewardRequests}
+        users={users}
+        decideRewardRequest={decideRewardRequest}
+        canDecide={user?.role === "parent"}
+      />
     </div>
   );
 }
 function Detail({ label, children }) {
   return <div className="mt-2 text-sm"><span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{label}: </span><span className="text-slate-600">{children}</span></div>;
+}
+
+// =====================================================================
+// E1a — Unified Approval Inbox sections (additive)
+//
+// Three sections appended to the existing Approvals component, each
+// reusing its native decision function verbatim. No new write paths,
+// no new queries, no new subscriptions. Reads from already-family-
+// scoped local state arrays passed via props.
+//
+// Recall-safety: every decision fn used here patches via map() (never
+// filter()) — verified during E1 recon. The visible UI cannot delete
+// or duplicate any row.
+// =====================================================================
+
+// Shopping list pending requests — kid asked, parent decides. Mirrors
+// the existing ShoppingList inline UI (Approve / inline Decline with
+// optional reason). Reuses decideShoppingRequest verbatim. Helper +
+// parent can both decide here — matches ShoppingList's current
+// behavior (no role gate today on shopping).
+function ShoppingApprovalSection({ shoppingItems = [], users = [], decideShoppingRequest }) {
+  const pending = (shoppingItems || [])
+    .filter((it) => it && !it.deletedAt && it.requestStatus === "pending")
+    .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const [decliningId, setDecliningId] = useState(null);
+  const [reasonDraft, setReasonDraft] = useState("");
+  if (pending.length === 0 || typeof decideShoppingRequest !== "function") return null;
+  const findName = (id) => users.find((u) => u.id === id)?.name || "Someone";
+  const submit = (id) => {
+    decideShoppingRequest(id, "declined", reasonDraft);
+    setDecliningId(null);
+    setReasonDraft("");
+  };
+  return (
+    <>
+      <SectionTitle icon={<ShoppingCart size={16} className="text-amber-500" />}>
+        {i18nTOf("app_shopping_section", "Shopping requests")} <span className="text-[11px] font-normal text-slate-400">· {pending.length}</span>
+      </SectionTitle>
+      {pending.map((it) => (
+        <Card key={it.id} className="p-3 mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 grid place-items-center shrink-0">
+              <ShoppingCart size={15} className="text-amber-700" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold text-slate-800 truncate">{it.title || "(no title)"}</div>
+              <div className="text-[11px] text-slate-400 truncate">
+                {it.brand ? `${it.brand} · ` : ""}
+                {i18nTOf("app_shop_asked_by", "asked by {name}").replaceAll("{name}", findName(it.addedBy))}
+                {it.listName ? ` · ${it.listName}` : ""}
+              </div>
+            </div>
+          </div>
+          {decliningId === it.id ? (
+            <div className="mt-2 flex gap-1.5">
+              <input
+                value={reasonDraft}
+                onChange={(e) => setReasonDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submit(it.id);
+                  if (e.key === "Escape") { setDecliningId(null); setReasonDraft(""); }
+                }}
+                placeholder={i18nTOf("app_decline_reason_ph", "Reason (optional — defaults to 'Not this week')")}
+                autoFocus
+                maxLength={80}
+                className="flex-1 border border-rose-300 rounded-lg px-2 py-1.5 text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => submit(it.id)}
+                className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-bold active:scale-95"
+              >
+                {i18nTOf("act_decline", "Decline")}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setDecliningId(null); setReasonDraft(""); }}
+                className="px-2 py-1.5 text-xs font-bold text-slate-400"
+              >
+                {i18nTOf("act_cancel", "Cancel")}
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => decideShoppingRequest(it.id, "approved")}
+                className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"
+              >
+                <Check size={15} /> {i18nTOf("act_approve", "Approve")}
+              </button>
+              <button
+                onClick={() => { setDecliningId(it.id); setReasonDraft(""); }}
+                className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95"
+              >
+                {i18nTOf("act_decline", "Decline")}
+              </button>
+            </div>
+          )}
+        </Card>
+      ))}
+    </>
+  );
+}
+
+// Reward redemption requests — kid taps Redeem, parent approves the
+// star DEBIT. PARENT-ONLY. Defense in depth: canDecide gates the
+// button render, and the local safeDecideReward wrapper short-circuits
+// if a helper somehow triggers it. Star cost rendered prominently in
+// the row body BEFORE the Approve control per dispatch §5.
+function RedemptionApprovalSection({ redemptions = [], users = [], decideReward, canDecide }) {
+  // id-prefix timestamp sort: rd_<Date.now()>_… → desc
+  const pending = (redemptions || [])
+    .filter((r) => r && r.status === "requested")
+    .sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+  if (pending.length === 0 || typeof decideReward !== "function") return null;
+  const findName = (id) => users.find((u) => u.id === id)?.name || "Someone";
+  const safeDecideReward = (rdId, status) => {
+    if (!canDecide) return;            // handler-level role gate
+    decideReward(rdId, status);
+  };
+  return (
+    <>
+      <SectionTitle icon={<Gift size={16} className="text-rose-500" />}>
+        {i18nTOf("app_redemption_section", "Reward redemptions")} <span className="text-[11px] font-normal text-slate-400">· {pending.length}</span>
+      </SectionTitle>
+      {pending.map((r) => (
+        <Card key={r.id} className="p-3 mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-xl bg-rose-100 grid place-items-center shrink-0">
+              <Gift size={15} className="text-rose-700" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold text-slate-800 truncate">{r.title || "(reward)"}</div>
+              <div className="text-[11px] text-slate-400 truncate">
+                {i18nTOf("app_redeem_by", "redeemed by {name}").replaceAll("{name}", findName(r.requestedBy))}
+              </div>
+            </div>
+            {/* Star debit pill — consequence visible BEFORE the
+                Approve button per the dispatch hard constraint. */}
+            <div className="shrink-0 rounded-full bg-amber-100 text-amber-800 px-2.5 py-1 text-xs font-extrabold">
+              ⭐ −{Number(r.cost) || 0}
+            </div>
+          </div>
+          {canDecide ? (
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => safeDecideReward(r.id, "approved")}
+                className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"
+              >
+                <Check size={15} /> {i18nTOf("act_approve_with_cost", "Approve · ⭐ −{n}").replaceAll("{n}", Number(r.cost) || 0)}
+              </button>
+              <button
+                onClick={() => safeDecideReward(r.id, "declined")}
+                className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95"
+              >
+                {i18nTOf("act_decline", "Decline")}
+              </button>
+            </div>
+          ) : (
+            <div className="mt-2 text-[11px] text-slate-400 italic">
+              {i18nTOf("app_parent_will_decide", "A parent will decide this.")}
+            </div>
+          )}
+        </Card>
+      ))}
+    </>
+  );
+}
+
+// Reward requests (Dream Plan wishes) — kid asked for a NEW reward
+// type, parent decides cost + approves. PARENT-ONLY. Defense in
+// depth identical to RedemptionApprovalSection. Cost edits in-place
+// via local state per row; approval routes the chosen cost into
+// decideRewardRequest, which both stamps the wish AND creates the
+// reward via addReward (existing flow — verified during recon).
+function RewardRequestApprovalSection({ rewardRequests = [], users = [], decideRewardRequest, canDecide }) {
+  const pending = (rewardRequests || [])
+    .filter((w) => w && w.status === "requested")
+    .sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+  if (pending.length === 0 || typeof decideRewardRequest !== "function") return null;
+  const findName = (id) => users.find((u) => u.id === id)?.name || "Someone";
+  return (
+    <>
+      <SectionTitle icon={<Trophy size={16} className="text-violet-500" />}>
+        {i18nTOf("app_wish_section", "New reward requests")} <span className="text-[11px] font-normal text-slate-400">· {pending.length}</span>
+      </SectionTitle>
+      {pending.map((w) => (
+        <UnifiedWishRow
+          key={w.id}
+          wish={w}
+          requesterName={findName(w.by)}
+          decideRewardRequest={decideRewardRequest}
+          canDecide={canDecide}
+        />
+      ))}
+    </>
+  );
+}
+
+// Per-row cost editor for the wish section. Local state per row =
+// each open wish remembers its own draft cost. Defense-in-depth gate:
+// the safeDecide wrapper short-circuits if a helper somehow hits it.
+function UnifiedWishRow({ wish, requesterName, decideRewardRequest, canDecide }) {
+  const [cost, setCost] = useState(Number(wish.starCost) || 100);
+  const safeDecide = (decision, value) => {
+    if (!canDecide) return;            // handler-level role gate
+    decideRewardRequest(wish.id, decision, value);
+  };
+  return (
+    <Card className="p-3 mb-2">
+      <div className="flex items-center gap-2">
+        <div className="w-9 h-9 rounded-xl bg-violet-100 grid place-items-center shrink-0">
+          <Trophy size={15} className="text-violet-700" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-slate-800 truncate">⭐ {wish.title || "(wish)"}</div>
+          <div className="text-[11px] text-slate-400 truncate">
+            {i18nTOf("app_wish_asked_by", "asked by {name}").replaceAll("{name}", requesterName)}
+          </div>
+          {wish.note && <div className="text-[11px] text-slate-500 italic mt-0.5">"{wish.note}"</div>}
+        </div>
+      </div>
+      {canDecide ? (
+        <>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-[11px] text-slate-500">{i18nTOf("rew_costs_label", "Costs")}</span>
+            <input
+              type="number"
+              value={cost}
+              onChange={(e) => setCost(Number(e.target.value))}
+              className="w-20 border border-slate-200 rounded-xl px-2 py-1 text-sm"
+            />
+            <span className="text-[11px] text-slate-500">⭐</span>
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={() => safeDecide("approved", cost)}
+              className="flex-1 py-2 rounded-2xl bg-emerald-500 text-white font-bold text-sm active:scale-95 flex items-center justify-center gap-1"
+            >
+              <Check size={15} /> {i18nTOf("act_approve_with_cost", "Approve · ⭐ −{n}").replaceAll("{n}", Number(cost) || 0)}
+            </button>
+            <button
+              onClick={() => safeDecide("declined")}
+              className="px-3 py-2 rounded-2xl bg-rose-100 text-rose-600 font-bold text-sm active:scale-95"
+            >
+              {i18nTOf("act_decline", "Decline")}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="mt-2 text-[11px] text-slate-400 italic">
+          {i18nTOf("app_parent_will_decide", "A parent will decide this.")}
+        </div>
+      )}
+    </Card>
+  );
 }
 
 // ===================== PARENT: REWARDS =====================
