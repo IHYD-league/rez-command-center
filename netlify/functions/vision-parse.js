@@ -136,7 +136,12 @@ If the image isn't a schedule, return { "events": [] } and nothing else.`,
 
 Plus an items array. For each PURCHASED PRODUCT line:
 - title: generic product name a parent would write on a list ("Whipped Dressing", "Goldfish XL"), NOT the receipt's terse code ("GV WHP DRSG", "GLD FISH XL"). Translate abbreviations.
-- brand: brand or store-brand label printed or abbreviated. Store-brand examples: Costco "KS" or "KIRKLAND" → "Kirkland"; Trader Joe's items → "Trader Joe's"; Great Value items → "Great Value". null if unclear.
+- brand: from this line's printed text only. Do not default from store_chain.
+  (a) Store-brand marker on the line → that store brand: costco "KS"/"KIRKLAND"/"KIRKLAND SIG" → "Kirkland"; walmart "GV" → "Great Value"; target "UP&UP" → "Up & Up", "G&G"/"GOOD&GATHER" → "Good & Gather"; whole_foods "365"/"365WFM" → "365 by Whole Foods Market".
+  (b) A recognizable consumer brand printed in the line text (e.g. Chomps, Coca-Cola, Goldfish, Pepperidge Farm, Rao's, Annie's, Kind — any real brand you recognize, not only these) → that brand, cleaned to proper case.
+  (c) No marker and no recognizable brand → null. A Costco line without "KS" is not Kirkland; a Walmart line without "GV" is not Great Value; a Trader Joe's line without a brand string is not "Trader Joe's".
+  CRV / deposit / non-product lines (e.g. "California Redemption Value", "Bottle Deposit") → null.
+  In title, strip any store-brand prefix (printed "KS COLD BREW" → title "Cold Brew", brand "Kirkland").
 - qty: quantity if visible; default 1.
 - unit: "lb" / "oz" / "ea" if shown; null otherwise.
 - unit_price: price per unit if printed.
@@ -144,6 +149,8 @@ Plus an items array. For each PURCHASED PRODUCT line:
 - upc: the 12-13 digit barcode for the product, if printed in or next to the line (typical format on receipts: a numeric code printed under the item description, e.g. 681147071140). Numeric string of 8-14 digits. null if no barcode is printed for this line.
 
 Skip non-product lines: subtotals, tax rows, "savings", coupons, discounts, "TOTAL" row, store address, cashier ID, payment lines, signatures, footers, "thank you" copy.
+
+CONSISTENCY — when the same receipt is scanned again, return the same titles, brands, qty, and counts in the same order. Do not paraphrase or reorder. Treat each printed line deterministically: identical input glyphs always produce identical title and brand strings.
 
 Return ONLY a JSON object in this exact shape, nothing else:
 {
@@ -155,6 +162,7 @@ Return ONLY a JSON object in this exact shape, nothing else:
   "total": 149.57,
   "items": [
     { "title": "Whipped Dressing", "brand": "Great Value", "qty": 1, "unit": "ea", "unit_price": 4.99, "line_total": 4.99, "upc": "078742052830" },
+    { "title": "Cold Brew", "brand": "Kirkland", "qty": 1, "unit": "ea", "unit_price": 11.99, "line_total": 11.99, "upc": null },
     { "title": "Goldfish XL", "brand": "Pepperidge Farm", "qty": 2, "unit": "ea", "unit_price": 7.49, "line_total": 14.98, "upc": null }
   ]
 }
@@ -223,6 +231,14 @@ export default async (req) => {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 4096,
+        // temperature: 0 — deterministic mode. The Anthropic Messages
+        // API defaults to 1.0 when omitted; that high randomness made
+        // identical receipt images produce materially different
+        // transcribed text run-to-run (Mike caught it 2026-06-25:
+        // same receipt, 27 items vs 25, different titles + prices).
+        // No `seed` param — Messages API doesn't support one; an
+        // unknown field would 400 the call.
+        temperature: 0,
         messages: [{
           role: "user",
           content: [
@@ -243,10 +259,22 @@ export default async (req) => {
     const text = (payload.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
     // Strip code fences if the model wrapped its response.
     const cleaned = text.replace(/^```(?:json)?/, "").replace(/```$/, "").trim();
+    // Hardened parse: try the cleaned text first; if that fails because
+    // the model added prose preamble/suffix (which the fence regex
+    // doesn't catch), retry on the substring from first "{" to last "}".
+    // Genuinely-unparseable output still falls through to parse_failed
+    // exactly as before — no behavior change on the happy path.
     let data;
     try {
       data = JSON.parse(cleaned);
     } catch {
+      const open = cleaned.indexOf("{");
+      const close = cleaned.lastIndexOf("}");
+      if (open !== -1 && close > open) {
+        try { data = JSON.parse(cleaned.slice(open, close + 1)); } catch { /* fall through */ }
+      }
+    }
+    if (data === undefined) {
       return new Response(
         JSON.stringify({ status: "parse_failed", reason: "model returned non-JSON", raw: text.slice(0, 500) }),
         { status: 200, headers: { "content-type": "application/json" } }

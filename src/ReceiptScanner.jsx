@@ -44,9 +44,9 @@
 // does NOT auto-check items off the shopping list when a receipt
 // arrives. Saving the receipt is the whole win.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { uploadFamilyPhoto } from "./lib/storage.js";
-import { scanImage } from "./lib/visionScan.js";
+import { scanImage, fileToCompressedJpegBase64 } from "./lib/visionScan.js";
 import ReceiptItemRow from "./ReceiptItemRow.jsx";
 
 // Auto-match threshold — green chip ≥ 0.8 (high confidence,
@@ -167,6 +167,18 @@ function shouldApplyOff(parserTitle, offTitle) {
 }
 
 // Compute the auto-match candidate for a parsed line.
+// Hex SHA-256 of a string. Browser-native crypto.subtle.digest, no
+// library. Used for the in-session image-hash cache: hashing the
+// compressed base64 → stable key for "this exact image was already
+// parsed in this session."
+async function sha256Hex(input) {
+  const bytes = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 // Filters to active shopping_items only (deleted_at IS NULL — Black's
 // soft-delete contract). Returns { itemId, score } or null.
 function bestMatch({ title, brand }, candidates, fuzzy) {
@@ -212,7 +224,85 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
   // Save state — guard against double-tap.
   const [saving, setSaving] = useState(false);
 
-  // Capture handler — file picker → compress → upload → parse.
+  // D4-acc Part A — in-session image-hash cache. Map<sha256(compressed
+  // base64) → { data, imagePath, at }>. Re-uploading the same file
+  // bypasses the model call entirely → guaranteed identical parse
+  // result, instantly. useRef so the cache survives re-renders but
+  // dies on unmount (no persistence, no schema, no localStorage).
+  //
+  // SCOPE NOTE: this guarantees determinism ONLY for the identical
+  // image file within a session. A re-photographed receipt produces
+  // different bytes → different hash → cache miss → fresh parse. The
+  // cross-photo "remembers the brand at this store" guarantee is the
+  // learned-brand layer (Part B), not in this dispatch.
+  const parseCache = useRef(new Map());
+
+  // Pure UI-side hydration from a parsed-data shape. Shared between
+  // the cache-miss path (fresh parse just returned) and the cache-hit
+  // path (data restored from the in-session cache). Identical output
+  // by construction → cache-hit and cache-miss render the same review
+  // screen given the same data.
+  const applyParsed = (data) => {
+    const parsedItems = Array.isArray(data?.items) ? data.items : [];
+    setVisionRaw(data);
+    setStoreName(String(data?.store_name || ""));
+    setStoreChain(normalizeChain(data?.store_chain));
+    setStoreLabel("");
+    const pAt = data?.purchased_at || new Date().toISOString();
+    setPurchasedAt(pAt);
+    setSubtotal(data?.subtotal != null ? String(data.subtotal) : "");
+    setTax(data?.tax != null ? String(data.tax) : "");
+    setTotal(data?.total != null ? String(data.total) : "");
+    setSource(defaultSource(pAt));
+    // Auto-match each parsed line against active shopping_items
+    // for the PICKER suggestion only. confirmed_shopping_item_id
+    // ALWAYS defaults null — the user opts in to link by tapping
+    // "🔗 Tag to list item." Receipts don't push themselves onto
+    // the shopping list.
+    const matched = parsedItems.map((it, idx) => {
+      const best = bestMatch({ title: it.title, brand: it.brand }, shoppingItems, fuzzyMatch);
+      const confidence = best ? Math.min(1, best.score / 200) : null;
+      const autoId = best && best.score >= SUGGEST_FLOOR ? best.itemId : null;
+      // UPC must be 8-14 digits to be lookup-eligible; anything else
+      // (letters, short codes, prices the model misclassified) is
+      // dropped to null so /api/lookup-upc never sees garbage input.
+      const rawUpc = it.upc != null ? String(it.upc).trim() : "";
+      const upc = /^\d{8,14}$/.test(rawUpc) ? rawUpc : null;
+      const visionTitle = String(it.title || "");
+      return {
+        // local UI key — not persisted
+        _key: `rl_${idx}_${Math.random().toString(36).slice(2, 7)}`,
+        title: visionTitle,
+        brand: it.brand || "",
+        qty: it.qty != null ? Number(it.qty) || 1 : 1,
+        unit: it.unit || "",
+        unit_price: it.unit_price != null ? Number(it.unit_price) : null,
+        line_total: it.line_total != null ? Number(it.line_total) : null,
+        auto_matched_shopping_item_id: autoId,    // kept in ocr_raw for future analysis
+        match_confidence: confidence,             // kept in ocr_raw for future analysis
+        confirmed_shopping_item_id: null,         // user-opt-in only
+        // UPC-lookup brick (RS-1.5): preserve the parser's original
+        // title forever as vision_title; off_title holds the OFF
+        // resolution (even when not applied to title); title_source
+        // tracks who set the effective title for the no-clobber rule.
+        upc,
+        vision_title: visionTitle,
+        off_title: null,
+        title_source: "vision",
+      };
+    });
+    setItems(matched);
+    setStage("review");
+    // Kick off UPC-lookups in parallel — non-blocking. The review
+    // screen renders with parser titles first; OFF results stream
+    // in over the next ~1s and update title in place when the
+    // terse-heuristic + no-clobber checks pass.
+    runUpcLookups(matched);
+  };
+
+  // Capture handler — file picker → compress → cache check → (hit)
+  // hydrate from cache + skip parsing UI / (miss) upload + parse +
+  // cache the result for next time in this session.
   const onPickFile = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -223,13 +313,29 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
       return;
     }
     setErrorMsg("");
-    setStage("parsing");
     try {
+      // Compress + hash BEFORE setStage("parsing") so a cache hit
+      // never flashes the parsing animation — the deliberate "we
+      // remembered this receipt" feel.
+      const precomputed = await fileToCompressedJpegBase64(file);
+      const hash = await sha256Hex(precomputed.base64);
+      const cached = parseCache.current.get(hash);
+      if (cached) {
+        // CACHE HIT — same image bytes as a prior scan this session.
+        // Reuse the stored imagePath (the file already uploaded then)
+        // and skip both upload + model call. Determinism by
+        // construction: identical data, no fresh model invocation.
+        setImagePath(cached.imagePath);
+        applyParsed(cached.data);
+        return;
+      }
+      // CACHE MISS — original flow.
+      setStage("parsing");
       // Upload first so the image_path exists even if parsing later
       // fails; lets the user retry parse without re-uploading.
       const { path } = await uploadFamilyPhoto({ file, familyId, kind: "receipt" });
       setImagePath(path);
-      const j = await scanImage({ file, kind: "receipt" });
+      const j = await scanImage({ file, kind: "receipt", precomputed });
       if (j.status === "vision_not_configured") {
         setErrorMsg("Receipt scanner isn't set up — try again later.");
         setStage("error");
@@ -247,62 +353,9 @@ export default function ReceiptScanner({ onClose, activeListKey, addReceipt, fam
         setStage("error");
         return;
       }
-      // Land vision-raw verbatim for ocr_raw.vision.
-      setVisionRaw(data);
-      // Pre-fill the editable form.
-      setStoreName(String(data.store_name || ""));
-      setStoreChain(normalizeChain(data.store_chain));
-      setStoreLabel("");
-      const pAt = data.purchased_at || new Date().toISOString();
-      setPurchasedAt(pAt);
-      setSubtotal(data.subtotal != null ? String(data.subtotal) : "");
-      setTax(data.tax != null ? String(data.tax) : "");
-      setTotal(data.total != null ? String(data.total) : "");
-      setSource(defaultSource(pAt));
-      // Auto-match each parsed line against active shopping_items
-      // for the PICKER suggestion only. confirmed_shopping_item_id
-      // ALWAYS defaults null — the user opts in to link by tapping
-      // "🔗 Tag to list item." Receipts don't push themselves onto
-      // the shopping list.
-      const matched = parsedItems.map((it, idx) => {
-        const best = bestMatch({ title: it.title, brand: it.brand }, shoppingItems, fuzzyMatch);
-        const confidence = best ? Math.min(1, best.score / 200) : null;
-        const autoId = best && best.score >= SUGGEST_FLOOR ? best.itemId : null;
-        // UPC must be 8-14 digits to be lookup-eligible; anything else
-        // (letters, short codes, prices the model misclassified) is
-        // dropped to null so /api/lookup-upc never sees garbage input.
-        const rawUpc = it.upc != null ? String(it.upc).trim() : "";
-        const upc = /^\d{8,14}$/.test(rawUpc) ? rawUpc : null;
-        const visionTitle = String(it.title || "");
-        return {
-          // local UI key — not persisted
-          _key: `rl_${idx}_${Math.random().toString(36).slice(2, 7)}`,
-          title: visionTitle,
-          brand: it.brand || "",
-          qty: it.qty != null ? Number(it.qty) || 1 : 1,
-          unit: it.unit || "",
-          unit_price: it.unit_price != null ? Number(it.unit_price) : null,
-          line_total: it.line_total != null ? Number(it.line_total) : null,
-          auto_matched_shopping_item_id: autoId,    // kept in ocr_raw for future analysis
-          match_confidence: confidence,             // kept in ocr_raw for future analysis
-          confirmed_shopping_item_id: null,         // user-opt-in only
-          // UPC-lookup brick (RS-1.5): preserve the parser's original
-          // title forever as vision_title; off_title holds the OFF
-          // resolution (even when not applied to title); title_source
-          // tracks who set the effective title for the no-clobber rule.
-          upc,
-          vision_title: visionTitle,
-          off_title: null,
-          title_source: "vision",
-        };
-      });
-      setItems(matched);
-      setStage("review");
-      // Kick off UPC-lookups in parallel — non-blocking. The review
-      // screen renders with parser titles first; OFF results stream
-      // in over the next ~1s and update title in place when the
-      // terse-heuristic + no-clobber checks pass.
-      runUpcLookups(matched);
+      // Stash for any re-scan of the same file this session.
+      parseCache.current.set(hash, { data, imagePath: path, at: Date.now() });
+      applyParsed(data);
     } catch (err) {
       // Catch covers: upload failure, network drop, or client-side
       // image-decode failure (e.g. desktop Chrome can't decode HEIC;

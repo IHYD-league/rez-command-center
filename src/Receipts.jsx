@@ -43,6 +43,11 @@ export default function Receipts({
   receipts = [],
   softDeleteReceipt = null,
   updateReceipt = null,
+  // D4 closure helper from App.jsx — patches the matched inventory
+  // items with last_bought + last_bought_by + last_price + in_stock.
+  // Called by ReceiptDetail.saveEdit with only the NEWLY confirmed
+  // lines so existing confirms don't re-stamp on every save.
+  commitReceiptMatchesToInventory = null,
   users = [],
   user = null,
   shoppingItems = [],
@@ -87,6 +92,7 @@ export default function Receipts({
         canDelete={!isKid && !!softDeleteReceipt}
         onBack={() => setOpenId(null)}
         onSave={(patch) => updateReceipt && updateReceipt(openReceipt.id, patch)}
+        commitReceiptMatchesToInventory={commitReceiptMatchesToInventory}
         onDelete={softDeleteReceipt ? () => {
           softDeleteReceipt(openReceipt.id);
           setOpenId(null);
@@ -174,6 +180,7 @@ export function ReceiptDetail({
   onBack,
   onSave,
   onDelete,
+  commitReceiptMatchesToInventory = null,
 }) {
   const imgUrl = useSignedUrl(receipt.imagePath);
   const uploader = users.find((u) => u.id === receipt.uploadedBy);
@@ -182,20 +189,31 @@ export function ReceiptDetail({
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // D4 — snapshot the confirmed_shopping_item_id set at edit-start.
+  // saveEdit diffs against this to find NEWLY confirmed lines, so
+  // existing confirms never re-stamp inventory and the user has
+  // explicit "Commit matches" control without surprise side-effects.
+  const [originalConfirmedIds, setOriginalConfirmedIds] = useState(() => new Set());
 
   const enterEdit = () => {
+    const items = Array.isArray(receipt.ocrRaw?.items_reviewed)
+      ? receipt.ocrRaw.items_reviewed
+      : [];
+    setOriginalConfirmedIds(new Set(
+      items
+        .map((it) => it && it.confirmed_shopping_item_id)
+        .filter(Boolean),
+    ));
     setDraft({
       storeName: receipt.storeName || "",
       purchasedAt: receipt.purchasedAt || receipt.createdAt || "",
       subtotal: receipt.subtotal != null ? String(receipt.subtotal) : "",
       tax: receipt.tax != null ? String(receipt.tax) : "",
       total: receipt.total != null ? String(receipt.total) : "",
-      items: Array.isArray(receipt.ocrRaw?.items_reviewed)
-        ? receipt.ocrRaw.items_reviewed.map((it, idx) => ({
-            ...it,
-            _key: it._key || `e_${idx}_${Math.random().toString(36).slice(2, 7)}`,
-          }))
-        : [],
+      items: items.map((it, idx) => ({
+        ...it,
+        _key: it._key || `e_${idx}_${Math.random().toString(36).slice(2, 7)}`,
+      })),
     });
     setIsEditing(true);
   };
@@ -233,9 +251,39 @@ export function ReceiptDetail({
         items_reviewed: cleanItems,
       },
     });
+    // D4 closure — write newly-confirmed matches back to inventory.
+    // Diff against the originalConfirmedIds snapshot from edit-start
+    // so existing confirms don't re-stamp on every save. Strict v1:
+    // only confirmed_shopping_item_id triggers a write; auto-match
+    // candidates never silently land.
+    if (typeof commitReceiptMatchesToInventory === "function") {
+      const newly = cleanItems.filter(
+        (it) =>
+          it && it.confirmed_shopping_item_id
+          && !originalConfirmedIds.has(it.confirmed_shopping_item_id),
+      );
+      if (newly.length > 0) {
+        commitReceiptMatchesToInventory(newly, {
+          purchasedAt: purchasedIso,
+          uploadedBy: receipt.uploadedBy || null,
+        });
+      }
+    }
     setDraft(null);
     setIsEditing(false);
   };
+
+  // D4 display hint — counts how many committed-match writes will
+  // run on save (used to label the save button + the confidence
+  // banner). Recomputes on every keystroke but the math is O(items).
+  const newlyConfirmedCount = useMemo(() => {
+    if (!draft) return 0;
+    return draft.items.filter(
+      (it) =>
+        it && it.confirmed_shopping_item_id
+        && !originalConfirmedIds.has(it.confirmed_shopping_item_id),
+    ).length;
+  }, [draft, originalConfirmedIds]);
 
   const candidates = useMemo(() => {
     return (shoppingItems || [])
@@ -410,9 +458,17 @@ export function ReceiptDetail({
           onClick={saveEdit}
           className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-xs active:bg-emerald-700"
         >
-          Save changes
+          {newlyConfirmedCount > 0
+            ? `Save & commit ${newlyConfirmedCount} match${newlyConfirmedCount === 1 ? "" : "es"}`
+            : "Save changes"}
         </button>
       </div>
+
+      {newlyConfirmedCount > 0 && (
+        <div className="rounded-xl bg-indigo-50 border border-indigo-200 p-2.5 text-[11px] text-indigo-800 leading-snug">
+          <span className="font-bold">{newlyConfirmedCount}</span> newly-matched item{newlyConfirmedCount === 1 ? "" : "s"} will stamp last price + last bought + back in stock on save.
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl p-3 shadow-sm space-y-2">
         <div>

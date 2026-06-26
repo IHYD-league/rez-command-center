@@ -13,7 +13,11 @@ import { supabase } from "./supabase.js";
 
 const MAX_DIM = 1024;
 
-async function fileToCompressedJpegBase64(file) {
+// Exported so callers (ReceiptScanner) can compress ONCE, hash the
+// resulting base64 for an in-session image-hash cache, then pass the
+// already-compressed payload back to scanImage via the `precomputed`
+// option — avoiding double compression on every scan.
+export async function fileToCompressedJpegBase64(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -39,15 +43,17 @@ async function fileToCompressedJpegBase64(file) {
   });
 }
 
-export async function scanImage({ file, kind }) {
-  if (!file) throw new Error("No image selected.");
+export async function scanImage({ file, kind, precomputed }) {
   if (!kind) throw new Error("scanImage: missing kind.");
+  if (!precomputed && !file) throw new Error("No image selected.");
   if (!supabase) throw new Error("Sign-in isn't configured. Please sign in and try again.");
   const { data: sessionData } = await supabase.auth.getSession();
   const accessToken = sessionData?.session?.access_token || null;
   if (!accessToken) throw new Error("Please sign in again before scanning.");
 
-  const { base64, mediaType } = await fileToCompressedJpegBase64(file);
+  // Use the already-compressed payload when the caller pre-computed it
+  // (cache-key path); otherwise compress here as before.
+  const { base64, mediaType } = precomputed || await fileToCompressedJpegBase64(file);
   const r = await fetch("/api/vision-parse", {
     method: "POST",
     headers: {

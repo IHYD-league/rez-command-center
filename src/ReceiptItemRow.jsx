@@ -110,6 +110,13 @@ export default function ReceiptItemRow({ item, candidates, onUpdate, onDrop, onL
         </div>
       )}
 
+      {/* D4 — match confidence label. DISPLAY HINT ONLY. Even at
+          "Matched" nothing auto-confirms; the user must explicitly
+          tap "Tag to list item" to set confirmed_shopping_item_id.
+          Strict v1 — no silent stamps. */}
+      <ConfidenceBadge item={item} matchedCandidate={matchedCandidate} autoCandidate={autoCandidate} />
+
+
       {/* Quiet opt-in linking — gray text-link, no color emphasis.
           Linked state shows the item + "change" affordance. Unlinked
           state shows the prompt. Neither pushes; both pull. */}
@@ -151,6 +158,41 @@ export default function ReceiptItemRow({ item, candidates, onUpdate, onDrop, onL
           onUnlink={() => { onLink(null); setPickerOpen(false); setPickerQuery(""); }}
           onClose={() => { setPickerOpen(false); setPickerQuery(""); }}
         />
+      )}
+    </div>
+  );
+}
+
+// ConfidenceBadge — display-only hint. Confirmed lines show emerald
+// "✓ Confirmed match" (the user already accepted). Unconfirmed lines
+// show a tier based on match_confidence: Matched (≥0.85, emerald),
+// Probably (≥0.5, amber), Needs review (<0.5 or null, slate). The
+// label never auto-confirms — STRICT v1 per Mike's D4 brief: nothing
+// writes back to inventory without explicit "Tag to list item".
+function ConfidenceBadge({ item, matchedCandidate, autoCandidate }) {
+  if (matchedCandidate) {
+    return (
+      <div className="mt-2 text-[10px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
+        <span>✓</span>
+        <span>Confirmed · stamps on save</span>
+      </div>
+    );
+  }
+  const c = Number(item.match_confidence);
+  let label = "Needs review";
+  let tone = "text-slate-500";
+  if (Number.isFinite(c)) {
+    if (c >= 0.85) { label = "Matched"; tone = "text-emerald-700"; }
+    else if (c >= 0.5) { label = "Probably"; tone = "text-amber-700"; }
+  }
+  return (
+    <div className={`mt-2 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${tone}`}>
+      <span>•</span>
+      <span>{label}</span>
+      {autoCandidate && (
+        <span className="ml-1 normal-case font-semibold text-slate-400 truncate">
+          suggestion: {autoCandidate.title}
+        </span>
       )}
     </div>
   );

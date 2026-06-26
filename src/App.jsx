@@ -982,15 +982,69 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
   // uploaded_by + createdAt and route through the sync layer. The
   // current acted-as profile is the uploader.
   const addReceipt = (r) => {
-    setReceipts((prev) => [
-      {
-        id: r.id || ("rcp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8)),
-        uploadedBy: r.uploadedBy || currentUserId || currentProfileId || null,
-        createdAt: r.createdAt || new Date().toISOString(),
-        ...r,
-      },
-      ...prev,
-    ]);
+    const receipt = {
+      id: r.id || ("rcp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8)),
+      uploadedBy: r.uploadedBy || currentUserId || currentProfileId || null,
+      createdAt: r.createdAt || new Date().toISOString(),
+      ...r,
+    };
+    setReceipts((prev) => [receipt, ...prev]);
+    // D4 closure — for every line the user explicitly confirmed
+    // during scan-review, stamp the matched inventory item with
+    // last_bought + last_bought_by + last_price + flip in_stock=true.
+    // STRICT v1: only confirmed_shopping_item_id triggers a write;
+    // auto_matched suggestions never silently stamp. The patch routes
+    // through the existing synced setter, preserving D1's recall-
+    // safety rule (no hard-delete, no row destruction).
+    const lines = (receipt?.ocrRaw?.items_reviewed || []).filter(
+      (it) => it && it.confirmed_shopping_item_id,
+    );
+    commitReceiptMatchesToInventory(lines, receipt);
+  };
+
+  // Write-back helper — patches matched inventory items with the
+  // closure data from a receipt. Exposed to Receipts.jsx so edit-mode
+  // "Commit matches" can call with only NEWLY confirmed lines (diff
+  // against the original receipt state), so existing confirms don't
+  // re-stamp on every save. Idempotent: re-stamping the same value is
+  // a no-op for last_bought / last_price; only the inStock flip is
+  // sticky after one call.
+  const commitReceiptMatchesToInventory = (lines, receipt) => {
+    const purchasedAt = receipt?.purchasedAt || receipt?.purchased_at || null;
+    const uploadedBy = receipt?.uploadedBy || receipt?.uploaded_by || null;
+    if (!purchasedAt) return;
+    for (const line of lines || []) {
+      const id = line?.confirmed_shopping_item_id;
+      if (!id) continue;
+      // Price capture — D4 hotfix for the $0.00 corruption Mike caught
+      // 2026-06-25. Original `Number(line.unit_price)` coerced null to
+      // 0, then isFinite(0)===true wrote lastPrice: 0 — corrupting
+      // recall-safe history (and clobbering prior good prices).
+      //
+      // New shape:
+      //   • unit_price is the source of truth WHEN it's a finite > 0
+      //   • when unit_price is null/missing, derive from
+      //     line_total ÷ qty IF qty is finite > 0 AND result is
+      //     finite > 0 (handles vision returning line_total only)
+      //   • everything else (null, 0, negative, NaN, qty 0/null,
+      //     undefined) → null. Never write 0.
+      const up = line.unit_price == null ? NaN : Number(line.unit_price);
+      let price = Number.isFinite(up) && up > 0 ? up : null;
+      if (price == null) {
+        const lt = Number(line.line_total);
+        const q = Number(line.qty);
+        if (Number.isFinite(lt) && Number.isFinite(q) && q > 0) {
+          const derived = lt / q;
+          if (Number.isFinite(derived) && derived > 0) price = derived;
+        }
+      }
+      updateShoppingItem(id, {
+        inStock: true,
+        lastBought: purchasedAt,
+        lastBoughtBy: uploadedBy,
+        lastPrice: price,
+      });
+    }
   };
   // RS-1 soft-delete — flip deleted_at on a receipt row. Spending
   // math (next brick) MUST filter on deletedAt to keep totals honest.
@@ -2585,7 +2639,7 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     practiceSessions, addPracticeSession, removePracticeSession,
     shoppingItems, addShoppingItem, toggleShoppingItem, removeShoppingItem, clearCheckedShoppingItems, renameShoppingItem, updateShoppingItem, decideShoppingRequest,
     relabelShoppingItemsByListKey,
-    receipts, addReceipt, softDeleteReceipt, updateReceipt,
+    receipts, addReceipt, softDeleteReceipt, updateReceipt, commitReceiptMatchesToInventory,
     familySettings, setFamilySettings, headlinerActivityByKid, setHeadlinerForKid,
     dailyCheckins, setMoodCheckin,
     familySetting, // for EmailSetup's digestRecipients toggle (and anything else later)
@@ -13065,8 +13119,8 @@ function MoreParent(props) {
   if (sub === "practice") return <BackWrap title="Practice Timer" onBack={() => setSub("menu")}><PracticeTimer activities={props.activities} practiceSessions={props.practiceSessions} addPracticeSession={props.addPracticeSession} removePracticeSession={props.removePracticeSession} familyId={props.familyId} currentProfileId={props.currentProfileId} users={props.users} /></BackWrap>;
   if (sub === "food_hub") return <BackWrap title="Food Hub" onBack={() => setSub("menu")}><FoodHubLanding setSub={setSub} shoppingItems={props.shoppingItems} receipts={props.receipts} familySettings={props.familySettings} /></BackWrap>;
   if (sub === "shopping") return <BackWrap title="Shopping List" onBack={() => setSub("food_hub")}><ShoppingList shoppingItems={props.shoppingItems} addShoppingItem={props.addShoppingItem} toggleShoppingItem={props.toggleShoppingItem} removeShoppingItem={props.removeShoppingItem} clearCheckedShoppingItems={props.clearCheckedShoppingItems} renameShoppingItem={props.renameShoppingItem} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} users={props.users} user={props.user} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} relabelShoppingItemsByListKey={props.relabelShoppingItemsByListKey} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
-  if (sub === "inventory") return <BackWrap title="Inventory" onBack={() => setSub("food_hub")}><Inventory shoppingItems={props.shoppingItems} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} user={props.user} users={props.users} /></BackWrap>;
-  if (sub === "receipts") return <BackWrap title="Receipts" onBack={() => setSub("food_hub")}><Receipts receipts={props.receipts} softDeleteReceipt={props.softDeleteReceipt} updateReceipt={props.updateReceipt} users={props.users} user={props.user} shoppingItems={props.shoppingItems} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
+  if (sub === "inventory") return <BackWrap title="Inventory" onBack={() => setSub("food_hub")}><Inventory shoppingItems={props.shoppingItems} updateShoppingItem={props.updateShoppingItem} decideShoppingRequest={props.decideShoppingRequest} familySettings={props.familySettings} setFamilySettings={props.setFamilySettings} user={props.user} users={props.users} receipts={props.receipts} /></BackWrap>;
+  if (sub === "receipts") return <BackWrap title="Receipts" onBack={() => setSub("food_hub")}><Receipts receipts={props.receipts} softDeleteReceipt={props.softDeleteReceipt} updateReceipt={props.updateReceipt} commitReceiptMatchesToInventory={props.commitReceiptMatchesToInventory} users={props.users} user={props.user} shoppingItems={props.shoppingItems} addReceipt={props.addReceipt} familyId={props.familyId} fuzzyMatch={fuzzyMatch} /></BackWrap>;
   if (sub === "spending") return <BackWrap title="Spending" onBack={() => setSub("food_hub")}><Spending receipts={props.receipts} users={props.users} user={props.user} shoppingItems={props.shoppingItems} updateReceipt={props.updateReceipt} softDeleteReceipt={props.softDeleteReceipt} familyId={props.familyId} /></BackWrap>;
   if (sub === "email") return <BackWrap title="Email Setup" onBack={() => setSub("menu")}><EmailSetup {...props} /></BackWrap>;
   if (sub === "portfolio") return <BackWrap title={i18nTOf("more_portfolio", "Progress Portfolio")} onBack={() => setSub("menu")}><Portfolio {...props} /></BackWrap>;
