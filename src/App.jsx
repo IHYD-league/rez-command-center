@@ -14561,8 +14561,8 @@ function DayHistoryBrowser({
       )}
 
       {confirmTask && (
-        <div className="fixed inset-0 z-[60] bg-black/40 flex items-end sm:items-center justify-center p-3">
-          <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-4">
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-3">
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-4 max-h-[85vh] overflow-y-auto">
             <div className="text-base font-extrabold text-slate-800 mb-2">
               Log "{confirmTask.title}" for {picked}?
             </div>
@@ -15515,7 +15515,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
           inline rename, delete (hidden when only one list remains). */}
       {manageOpen ? (
         <div
-          className="fixed inset-0 z-[60] bg-black/40 flex items-end sm:items-center justify-center p-3"
+          className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-3"
           onClick={(e) => { if (e.target === e.currentTarget) closeManage(); }}
         >
           <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-4 max-h-[80vh] overflow-y-auto">
@@ -15741,12 +15741,12 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
 
       {chooserOpen && (
         <div
-          className="fixed inset-0 z-[60] flex items-end"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-3"
           onClick={() => setChooserOpen(false)}
         >
           <div className="absolute inset-0 bg-black/30" />
           <div
-            className="relative w-full bg-white rounded-t-2xl p-4 shadow-2xl"
+            className="relative w-full max-w-sm bg-white rounded-2xl p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-center font-bold text-sm mb-3 text-slate-700">Scan to add</div>
