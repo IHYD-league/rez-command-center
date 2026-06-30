@@ -240,6 +240,44 @@ const fmtBilingualDay = (iso) => {
 };
 const fmtDateObj = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
+// Shift a YYYY-MM-DD string by n days. Noon-anchored so DST never
+// nudges the date across a midnight boundary.
+const addDaysIso = (iso, n) => isoLocal(addDays(new Date(iso + "T12:00"), n));
+// Return the later of two ISO date strings (null-safe).
+const maxIso = (a, b) => (!a ? b : !b ? a : (a >= b ? a : b));
+// Pure streak-length recompute — THE heal primitive. Walks consecutive
+// calendar days backward from the most recent "done" day, counting a
+// day when it's in `doneDates` OR it predates the first logged day (the
+// trusted pre-app era, anchored by `since`). The first real gap inside
+// the logged window stops the walk. Returns the run length.
+//
+// `since` anchors how far back the trusted pre-logging era reaches —
+// for a seeded streak (Reznor's drums started Aug 2025, app logging
+// only since June 2026) this bridges the months the app never tracked.
+// Pure + module-level so the doctrine test can exercise it directly.
+function computeStreakRun({ doneDates, since, todayIso }) {
+  const done = doneDates instanceof Set ? doneDates : new Set(doneDates || []);
+  if (done.size === 0) return 0;
+  const sorted = [...done].sort();
+  const earliestLogged = sorted[0];
+  let head = sorted[sorted.length - 1];
+  if (todayIso && head > todayIso) head = todayIso;
+  let count = 0;
+  let day = head;
+  // Ceiling guards against an infinite loop (~10 years of days).
+  for (let i = 0; i < 3700; i++) {
+    if (since && day < since) break;                 // anchor floor
+    const isDone = done.has(day);
+    const preLoggingTrusted = since && day < earliestLogged && day >= since;
+    if (isDone || preLoggingTrusted) {
+      count++;
+      day = addDaysIso(day, -1);
+    } else {
+      break;                                          // real gap in logged window
+    }
+  }
+  return count;
+}
 
 // Capture device location for helper photo check-ins (parent protection).
 // Falls back to an approximate location if the browser blocks geolocation (e.g. sandboxed preview).
@@ -1587,19 +1625,33 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
       changes: [{ field: "completionDate", before: null, after: dateIso }],
     };
     setCompletions((prev) => {
+      // NON-DESTRUCTIVE backfill (Mike, 2026-06-29, never-lose-data).
+      // A day in day-by-day history may ALREADY hold a draft/needs_fix
+      // row with a proof photo + typed minutes + songList that a parent
+      // captured earlier (e.g. Krissie's 6/28 drum photo + song list).
+      // The old strip-and-replace blew that away. Instead: if a row
+      // exists for this slot, PRESERVE its id, proof, extra, and notes,
+      // union any new proof, and only upgrade status/stars. A brand-new
+      // slot still gets a fresh row.
+      const existing = prev.find((c) => c.taskId === taskId && (c.completionDate || null) === dateIso);
       const others = prev.filter((c) => !(c.taskId === taskId && (c.completionDate || null) === dateIso));
+      const mergedProof = [
+        ...(Array.isArray(existing?.proof) ? existing.proof : []),
+        ...(Array.isArray(payload.proof) ? payload.proof : []),
+      ];
+      const prevHistory = Array.isArray(existing?.extra?.history) ? existing.extra.history : [];
       return [...others, {
-        id: "cmp_" + Date.now(),
+        id: existing?.id || ("cmp_" + Date.now()),
         taskId,
         status: needsApproval ? "pending" : "approved",
         awardedStars: needsApproval ? 0 : t.starValue,
         pendingStars: needsApproval ? t.starValue : 0,
-        completedBy: kidId,
+        completedBy: existing?.completedBy || kidId,
         submittedBy,
         approvedBy: needsApproval ? null : submittedBy,
-        notes: payload.notes || "",
-        proof: payload.proof || [],
-        extra: { ...(payload.extra || {}), backfill: { targetDate: dateIso }, history: [auditEntry] },
+        notes: payload.notes || existing?.notes || "",
+        proof: mergedProof,
+        extra: { ...(existing?.extra || {}), ...(payload.extra || {}), backfill: { targetDate: dateIso }, history: [auditEntry, ...prevHistory] },
         completionDate: dateIso,
       }];
     });
@@ -2092,45 +2144,64 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     return { ...prev, [id]: merged };
   });
   const stopStreak = (id) => setStreaks((prev) => { const n = { ...prev }; delete n[id]; return n; });
-  // Backfill-aware streak extender. Used by addCompletionForDate (the
+  // Set of approved completion dates feeding a given activity. The
+  // streak counts a day as "done" when the kid actually did it —
+  // approved completions only, matching the rest of the app (pending =
+  // awaiting a parent's nod, draft = unsubmitted). Drum's task chain
+  // resolves through activityId / TYPE_TO_ACT just like everywhere else.
+  const approvedDatesForActivity = (aid) => {
+    const taskIds = new Set(
+      tasks.filter((t) => (t.activityId || TYPE_TO_ACT[t.activityType]) === aid).map((t) => t.id)
+    );
+    return new Set(
+      completions
+        .filter((c) => taskIds.has(c.taskId) && c.status === "approved" && c.completionDate)
+        .map((c) => c.completionDate)
+    );
+  };
+
+  // Backfill-aware streak HEALER. Used by addCompletionForDate (the
   // Day-by-Day browser's "Log it now") AND by decide() when a parent
   // approves a row whose completionDate is a past day.
   //
-  // CONSERVATIVE BY DESIGN. The cardinal rule for this brick: a past-
-  // dated completion must NEVER silently extend / inflate / break a
-  // per-activity streak. Rules in order:
-  //   - No prior streak row → no-op. We don't auto-create a streak from
-  //     a backfill (we don't know what earlier days looked like; the
-  //     parent can use the existing "Start tracking" affordance
-  //     separately if they want a streak from scratch).
-  //   - dateIso === lastDate → no-op (already counted that day).
-  //   - dateIso < lastDate → no-op (the chain is already past it; this
-  //     is an older row, not a forward extension).
-  //   - dateIso === lastDate + 1 day → extend (current += 1, advance
-  //     lastDate). The one honest forward step.
-  //   - dateIso > lastDate + 1 (gap forward) → no-op. The
-  //     DayHistoryBrowser confirm sheet tells the user this won't
-  //     extend the streak, so non-extension is explicit, not silent.
+  // DOCTRINE (Mike, 2026-06-29): the day-by-day history is the human-
+  // error correction tool. Forgetting to LOG a day the kid actually did
+  // is NOT the kid breaking the streak. Backfilling that day must HEAL
+  // the chain back to its true length — never "already past that day,"
+  // never a permanent collapse. So instead of the old "extend by exactly
+  // one consecutive step" rule (which could only ever add 1 and silently
+  // no-op'd a mid-chain gap-fill), we RECOMPUTE the run length from the
+  // approved-completion history + the streak's `since` anchor.
+  //
+  // HEAL-UP ONLY: current = max(existing, recomputed run). We never
+  // LOWER an existing streak here, so a streak whose `since` anchor is
+  // missing/stale on some other family can't be clobbered downward by a
+  // backfill — the worst case is "no change," never data loss.
+  //
+  // Stale-closure note: callers fire setCompletions(...) immediately
+  // before this on the same tick, so the `completions` array in scope
+  // does NOT yet contain the just-backfilled row. We union `dateIso`
+  // (which we know just became done) into the done-set explicitly.
   const extendStreakForBackfilledDate = (activityId, dateIso) => setStreaks((prev) => {
     if (!activityId || !dateIso) return prev;
     const s = prev[activityId];
-    if (!s) return prev;
-    const lastDate = s.lastDate || "";
-    if (dateIso === lastDate) return prev;
-    if (lastDate && dateIso < lastDate) return prev;
-    if (lastDate) {
-      const a = new Date(dateIso);
-      const b = new Date(lastDate);
-      const diffDays = Math.round((a - b) / 86400000);
-      if (diffDays === 1) {
-        const current = (s.current || 0) + 1;
-        return {
-          ...prev,
-          [activityId]: { ...s, current, longest: Math.max(s.longest || 0, current), lastDate: dateIso },
-        };
-      }
-    }
-    return prev;
+    if (!s) return prev; // don't auto-create a streak from a backfill
+    const doneDates = approvedDatesForActivity(activityId);
+    doneDates.add(dateIso); // the row being backfilled/approved, not yet in closure
+    const run = computeStreakRun({ doneDates, since: s.since, todayIso: TODAY_ISO });
+    const current = Math.max(s.current || 0, run);
+    if (current === (s.current || 0) && dateIso <= (s.lastDate || "")) return prev;
+    // lastDate tracks the most recent done day actually in the chain.
+    const head = [...doneDates].sort().filter((d) => d <= TODAY_ISO).pop() || s.lastDate;
+    return {
+      ...prev,
+      [activityId]: {
+        ...s,
+        current,
+        longest: Math.max(s.longest || 0, current),
+        lastDate: maxIso(s.lastDate, head),
+      },
+    };
   });
 
   // Streak rules: increment by 1 ONLY if lastDate was yesterday (consecutive).
@@ -14309,6 +14380,9 @@ function DayHistoryBrowser({
   // Honest streak-impact prediction. Mirrors the helper's rules so
   // the confirm sheet copy is never out of sync with what actually
   // happens at submit time.
+  // Predict what logging `picked` will do to the streak — now that the
+  // day-by-day history HEALS streaks (Mike, 2026-06-29), this previews
+  // the recomputed run length rather than the old "won't count" copy.
   const predictStreakLine = (task) => {
     if (!task) return null;
     const aid = task.activityId || TYPE_TO_ACT[task.activityType];
@@ -14317,19 +14391,25 @@ function DayHistoryBrowser({
     const actName = act?.short || act?.name || task.title;
     const s = streaks?.[aid];
     if (!s) return `${actName} isn't tracked as a streak yet — won't change anything.`;
-    const lastDate = s.lastDate || "";
-    if (picked === lastDate) return `${actName} streak: already counted that day.`;
-    if (lastDate && picked < lastDate) return `${actName} streak: already past that day — won't change.`;
-    if (lastDate) {
-      const a = new Date(picked);
-      const b = new Date(lastDate);
-      const diffDays = Math.round((a - b) / 86400000);
-      if (diffDays === 1) {
-        const next = (s.current || 0) + 1;
-        return `${actName} streak will extend to ${next} day${next === 1 ? "" : "s"}.`;
-      }
-    }
-    return `That day isn't connected to the current streak — won't change it.`;
+    // Build the approved-completion done-set for this activity and add
+    // the picked day, then recompute — mirrors extendStreakForBackfilledDate.
+    const taskIds = new Set(
+      tasks.filter((t) => (t.activityId || TYPE_TO_ACT[t.activityType]) === aid).map((t) => t.id)
+    );
+    const doneDates = new Set(
+      completions
+        .filter((c) => taskIds.has(c.taskId) && c.status === "approved" && c.completionDate)
+        .map((c) => c.completionDate)
+    );
+    if (doneDates.has(picked)) return `${actName} streak: already counted that day.`;
+    doneDates.add(picked);
+    const run = computeStreakRun({ doneDates, since: s.since, todayIso: todayISO });
+    const healed = Math.max(s.current || 0, run);
+    const delta = healed - (s.current || 0);
+    if (delta <= 0) return `${actName} streak: this day isn't adjacent to the chain — won't change it.`;
+    if (delta === 1) return `${actName} streak will extend to ${healed} days.`;
+    // delta > 1 → this fills a gap and re-links a longer run: the heal.
+    return `${actName} streak will heal back to ${healed} days (re-links ${delta} days).`;
   };
 
   const confirmTask = confirmTaskId ? tasks.find((t) => t.id === confirmTaskId) : null;
@@ -14481,7 +14561,7 @@ function DayHistoryBrowser({
       )}
 
       {confirmTask && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-3">
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-end sm:items-center justify-center p-3">
           <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-4">
             <div className="text-base font-extrabold text-slate-800 mb-2">
               Log "{confirmTask.title}" for {picked}?
@@ -15435,7 +15515,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
           inline rename, delete (hidden when only one list remains). */}
       {manageOpen ? (
         <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-3"
+          className="fixed inset-0 z-[60] bg-black/40 flex items-end sm:items-center justify-center p-3"
           onClick={(e) => { if (e.target === e.currentTarget) closeManage(); }}
         >
           <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-4 max-h-[80vh] overflow-y-auto">
@@ -15661,7 +15741,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
 
       {chooserOpen && (
         <div
-          className="fixed inset-0 z-40 flex items-end"
+          className="fixed inset-0 z-[60] flex items-end"
           onClick={() => setChooserOpen(false)}
         >
           <div className="absolute inset-0 bg-black/30" />
@@ -16085,7 +16165,7 @@ function ShoppingList({ shoppingItems = [], addShoppingItem, toggleShoppingItem,
           undone." */}
       {removeAllConfirmOpen ? (
         <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3"
+          className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-3"
           onClick={(e) => { if (e.target === e.currentTarget) setRemoveAllConfirmOpen(false); }}
         >
           <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-4">
