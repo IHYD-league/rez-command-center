@@ -20,7 +20,7 @@ import SongLogger from "./SongLogger.jsx";
 import BoardGame, { BOARD_THEMES, DEFAULT_BOARD_THEME } from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl, uploadFamilyAudio } from "./lib/storage.js";
-import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
+import { maybeDeleteUnusedPaths } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { computeDrumSessionMinutes } from "./lib/drumMinutes.js";
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
@@ -1774,24 +1774,31 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     });
   };
   const undoTask = (taskId) => {
-    // "Unmark today" — only touch today's completion. Yesterday's row stays
-    // in the array so history isn't destroyed.
+    // "Unmark today" — reverse the STARS/approval for today's row, but
+    // PRESERVE everything the family captured (Mike 2026-07-01, never-
+    // lose-data). The old version hard-REMOVED the whole completion row
+    // AND fired maybeDeleteUnusedPaths to delete the proof photo from
+    // storage — one tap silently dropped the logged minutes/notes and
+    // orphaned (or permanently deleted) the photo. Confirmed live by the
+    // 6/30 Drums photo detaching.
+    //
+    // New behavior: downgrade the row to a DRAFT. Stars zeroed, status
+    // back to draft, approval cleared — so it no longer counts and the
+    // streak reversal below still fires — but proof (photo), extra
+    // (minutes/songs), notes, and the row id are all KEPT and the row is
+    // re-submittable. The photo is NEVER deleted here; clearing a photo
+    // is a deliberate, separate action (removeCompletionPhoto) with its
+    // own confirmation + ref-counted GC.
     const c = completions.find((x) => x.taskId === taskId && (x.completionDate || null) === TODAY_ISO);
-    setCompletions((prev) => {
-      const next = prev.filter((x) => !(x.taskId === taskId && (x.completionDate || null) === TODAY_ISO));
-      // Cascade-delete proof photos that nobody else uses. Ref-count
-      // against the post-update completions array so the removed
-      // row's own paths don't self-reference.
-      const proofPaths = pathsFromProof(c?.proof);
-      if (proofPaths.length > 0) {
-        maybeDeleteUnusedPaths(proofPaths, {
-          completions: next, books, songs, gifted: giftedRaw, albumPhotos, users, awards,
-        });
-      }
-      return next;
-    });
+    if (!c) return;
+    const actor = currentProfileId || currentUserId;
+    updateCompletion(
+      c.id,
+      { status: "draft", awardedStars: 0, pendingStars: 0, approvedBy: null },
+      { by: actor, summary: "Undo — stars/approval reversed; photo + minutes kept" }
+    );
     setSubProgress((prev) => { const n = { ...prev }; delete n[taskId]; return n; });
-    if (c && c.status === "approved") {
+    if (c.status === "approved") {
       const t = tasks.find((x) => x.id === taskId);
       const aid = t?.activityId || TYPE_TO_ACT[t?.activityType];
       if (aid) setStreaks((prev) => { const s = prev[aid]; if (s && s.lastDate === TODAY_ISO) return { ...prev, [aid]: { ...s, current: Math.max(0, s.current - 1), lastDate: YESTERDAY_ISO } }; return prev; });
