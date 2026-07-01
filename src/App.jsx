@@ -20,7 +20,7 @@ import SongLogger from "./SongLogger.jsx";
 import BoardGame, { BOARD_THEMES, DEFAULT_BOARD_THEME } from "./BoardGame.jsx";
 import CustomizationHub, { FONT_SCALE_PCT, THEMES } from "./CustomizationHub.jsx";
 import { uploadFamilyPhoto, useSignedUrl, uploadFamilyAudio } from "./lib/storage.js";
-import { maybeDeleteUnusedPaths, pathsFromProof } from "./lib/storageGc.js";
+import { maybeDeleteUnusedPaths } from "./lib/storageGc.js";
 import { STAT_TEMPLATE_LIST, schemaFromTemplate, templateLabel, hasStatSchema } from "./lib/statTemplates.js";
 import { computeDrumSessionMinutes } from "./lib/drumMinutes.js";
 import { classifyItem as classifyShoppingItem, SECTION_ORDER as SHOPPING_SECTION_ORDER, SECTION_EMOJI as SHOPPING_SECTION_EMOJI } from "./lib/shoppingSections.js";
@@ -1774,24 +1774,42 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     });
   };
   const undoTask = (taskId) => {
-    // "Unmark today" — only touch today's completion. Yesterday's row stays
-    // in the array so history isn't destroyed.
+    // Undo = pull the day BACK to awaiting-approval (Mike 2026-07-01),
+    // WITHOUT destroying anything captured.
+    //
+    // The OLD version hard-REMOVED the whole completion row AND fired
+    // maybeDeleteUnusedPaths to delete the proof photo from storage —
+    // one tap silently dropped the logged minutes/notes and orphaned
+    // (or permanently deleted) the photo (confirmed live by the 6/30
+    // Drums photo detaching).
+    //
+    // NEW behavior — undo removes the STARS + STREAK for the day (it no
+    // longer counts UNTIL it's approved again), but PRESERVES the photo,
+    // minutes/extra, notes, and the row id. The row goes back to
+    // "pending" so it reappears in Approvals (and can also be re-added
+    // via day-by-day history, or re-approved that same day). Re-approval
+    // runs the normal decide() path, which re-awards the stars, restores
+    // the streak (derived from approved days), and fires the usual
+    // celebration — so nothing has to be re-entered. Grace for parents
+    // who log or fix things on a later day.
+    //
+    // pendingStars is restored to whatever the row was worth so the
+    // approval queue re-awards the right amount. The photo is NEVER
+    // deleted here; clearing a photo stays a deliberate, separate action
+    // (removeCompletionPhoto) with its own confirmation + ref-counted GC.
     const c = completions.find((x) => x.taskId === taskId && (x.completionDate || null) === TODAY_ISO);
-    setCompletions((prev) => {
-      const next = prev.filter((x) => !(x.taskId === taskId && (x.completionDate || null) === TODAY_ISO));
-      // Cascade-delete proof photos that nobody else uses. Ref-count
-      // against the post-update completions array so the removed
-      // row's own paths don't self-reference.
-      const proofPaths = pathsFromProof(c?.proof);
-      if (proofPaths.length > 0) {
-        maybeDeleteUnusedPaths(proofPaths, {
-          completions: next, books, songs, gifted: giftedRaw, albumPhotos, users, awards,
-        });
-      }
-      return next;
-    });
-    setSubProgress((prev) => { const n = { ...prev }; delete n[taskId]; return n; });
-    if (c && c.status === "approved") {
+    if (!c) return;
+    const actor = currentProfileId || currentUserId;
+    const stars = Math.max(c.awardedStars || 0, c.pendingStars || 0);
+    updateCompletion(
+      c.id,
+      { status: "pending", awardedStars: 0, pendingStars: stars, approvedBy: null },
+      { by: actor, summary: "Undo — pulled back to awaiting approval; stars + streak off until re-approved, photo + minutes kept" }
+    );
+    // Streak reversal for today — the day stops counting until it's
+    // re-approved. Consistent with the derived streak: a non-approved
+    // day isn't counted, and re-approval bumps/heals it back.
+    if (c.status === "approved") {
       const t = tasks.find((x) => x.id === taskId);
       const aid = t?.activityId || TYPE_TO_ACT[t?.activityType];
       if (aid) setStreaks((prev) => { const s = prev[aid]; if (s && s.lastDate === TODAY_ISO) return { ...prev, [aid]: { ...s, current: Math.max(0, s.current - 1), lastDate: YESTERDAY_ISO } }; return prev; });
