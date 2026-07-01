@@ -1774,30 +1774,41 @@ export default function App({ initial, currentProfileId, sync, familyId, signOut
     });
   };
   const undoTask = (taskId) => {
-    // "Unmark today" — reverse the STARS/approval for today's row, but
-    // PRESERVE everything the family captured (Mike 2026-07-01, never-
-    // lose-data). The old version hard-REMOVED the whole completion row
-    // AND fired maybeDeleteUnusedPaths to delete the proof photo from
-    // storage — one tap silently dropped the logged minutes/notes and
-    // orphaned (or permanently deleted) the photo. Confirmed live by the
-    // 6/30 Drums photo detaching.
+    // Undo = pull the day BACK to awaiting-approval (Mike 2026-07-01),
+    // WITHOUT destroying anything captured.
     //
-    // New behavior: downgrade the row to a DRAFT. Stars zeroed, status
-    // back to draft, approval cleared — so it no longer counts and the
-    // streak reversal below still fires — but proof (photo), extra
-    // (minutes/songs), notes, and the row id are all KEPT and the row is
-    // re-submittable. The photo is NEVER deleted here; clearing a photo
-    // is a deliberate, separate action (removeCompletionPhoto) with its
-    // own confirmation + ref-counted GC.
+    // The OLD version hard-REMOVED the whole completion row AND fired
+    // maybeDeleteUnusedPaths to delete the proof photo from storage —
+    // one tap silently dropped the logged minutes/notes and orphaned
+    // (or permanently deleted) the photo (confirmed live by the 6/30
+    // Drums photo detaching).
+    //
+    // NEW behavior — undo removes the STARS + STREAK for the day (it no
+    // longer counts UNTIL it's approved again), but PRESERVES the photo,
+    // minutes/extra, notes, and the row id. The row goes back to
+    // "pending" so it reappears in Approvals (and can also be re-added
+    // via day-by-day history, or re-approved that same day). Re-approval
+    // runs the normal decide() path, which re-awards the stars, restores
+    // the streak (derived from approved days), and fires the usual
+    // celebration — so nothing has to be re-entered. Grace for parents
+    // who log or fix things on a later day.
+    //
+    // pendingStars is restored to whatever the row was worth so the
+    // approval queue re-awards the right amount. The photo is NEVER
+    // deleted here; clearing a photo stays a deliberate, separate action
+    // (removeCompletionPhoto) with its own confirmation + ref-counted GC.
     const c = completions.find((x) => x.taskId === taskId && (x.completionDate || null) === TODAY_ISO);
     if (!c) return;
     const actor = currentProfileId || currentUserId;
+    const stars = Math.max(c.awardedStars || 0, c.pendingStars || 0);
     updateCompletion(
       c.id,
-      { status: "draft", awardedStars: 0, pendingStars: 0, approvedBy: null },
-      { by: actor, summary: "Undo — stars/approval reversed; photo + minutes kept" }
+      { status: "pending", awardedStars: 0, pendingStars: stars, approvedBy: null },
+      { by: actor, summary: "Undo — pulled back to awaiting approval; stars + streak off until re-approved, photo + minutes kept" }
     );
-    setSubProgress((prev) => { const n = { ...prev }; delete n[taskId]; return n; });
+    // Streak reversal for today — the day stops counting until it's
+    // re-approved. Consistent with the derived streak: a non-approved
+    // day isn't counted, and re-approval bumps/heals it back.
     if (c.status === "approved") {
       const t = tasks.find((x) => x.id === taskId);
       const aid = t?.activityId || TYPE_TO_ACT[t?.activityType];
